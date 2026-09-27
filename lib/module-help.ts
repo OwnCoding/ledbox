@@ -131,6 +131,21 @@ export const MODULE_HELP: Record<string, AdminModuleHelp> = {
       { href: "/plantillas", label: "Mensajes de WhatsApp" },
     ],
   },
+  "/firmas": {
+    title: "Firmas",
+    summary: "El ciclo de la firma del cliente: enviadas, por vencer, firmadas y bloqueadas, en una sola lista.",
+    bullets: [
+      "Cada solicitud sale desde la ficha de un presupuesto («Firma del cliente») y acá se sigue su estado real: vista, pendiente, firmada y validada, rechazada, vencida o cancelada.",
+      "El destinatario se muestra enmascarado (a***@dominio) y el link con su código se copia o se abre desde la fila.",
+      "«Enviar por correo» reenvía el mismo link; si el proveedor falla, el aviso lo explica y el intento queda en la cronología.",
+      "Los recordatorios de vencimiento salen en la corrida diaria (3 días antes por defecto) y la cronología muestra cada evento con su hash encadenado.",
+    ],
+    links: [
+      { href: "/presupuestos", label: "Ficha del presupuesto" },
+      { href: "/estado/auditoria", label: "Auditoría del panel" },
+      { href: "/ajustes/correo", label: "Configuración de correo" },
+    ],
+  },
   "/facturacion": {
     title: "Facturación",
     summary: "El registro fiscal interno de la empresa activa, con numeración propia y libro de IVA.",

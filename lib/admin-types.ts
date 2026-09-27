@@ -1003,6 +1003,18 @@ export type AdminReminderRun = {
   /** Por qué no se envió nada: falta el proveedor o la empresa activa es la demo. */
   reason?: "missing_resend_api_key" | "demo_organization";
 };
+
+/** Resumen real de la corrida de recordatorios de firma (issue #81). */
+export type AdminSignatureReminderRun = {
+  dayKey: string;
+  /** Solicitudes activas dentro de la ventana de aviso. */
+  candidates: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  alreadySentToday: number;
+  reason?: "missing_resend_api_key" | "demo_organization";
+};
 // ── Reserva automática al aprobar (issue #18) ────────────────────────────────
 // Contrato real de `reserveBudgetInventory`: qué se reservó, qué quedó pendiente
 // y qué alternativas hay. La UI solo lo dibuja.
@@ -2327,6 +2339,8 @@ export type AdminSignatureRequestRow = {
   recipient: { name: string; email: string | null; phone: string | null };
   senderName: string;
   document: { kind: "attachment" | "budget"; name: string };
+  /** Presupuesto de origen (el listado global lo muestra siempre). */
+  budgetTitle: string;
   documentHash: string;
   signedDocumentHash: string | null;
   signatureIdentifier: string | null;
