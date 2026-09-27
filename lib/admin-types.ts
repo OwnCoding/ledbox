@@ -1808,6 +1808,8 @@ export const AUDIT_ENTITIES = [
   "MessageTemplate",
   // API key de servicio (issue #69): creación y revocación desde Seguridad.
   "ApiToken",
+  // Solicitud de firma del cliente (issue #79): alta, cancelación y eventos.
+  "SignatureRequest",
   // Alerta de operación del sistema (issue #43): respaldo vencido o fallido.
   "System",
   "PlanChangeRequest",

@@ -154,6 +154,9 @@ model Organization {
   budgetAttachments BudgetAttachment[]
   mailLogs          MailLog[]
   messageTemplates  MessageTemplate[]
+  signatureRequests SignatureRequest[]
+  signatureEvents   SignatureEvent[]
+  signatureEvidence SignatureEvidence[]
   suppliers         Supplier[]
   supplierJobs      SupplierJob[]
   inventoryItems    InventoryItem[]
@@ -758,6 +761,8 @@ model Budget {
   /// Pagos esperados del plan (issue #28): anticipo, cuotas y saldo.
   expectedPayments     ExpectedPayment[]
   invoices             Invoice[]
+  /// Solicitudes de firma del cliente (issue #79) sobre este presupuesto.
+  signatureRequests    SignatureRequest[]
 
   @@index([status, createdAt])
   @@index([organizationId, createdAt])
@@ -964,8 +969,209 @@ model BudgetAttachment {
   createdAt      DateTime     @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   budget         Budget       @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  /// Solicitudes de firma que usan este adjunto como documento (issue #79).
+  signatureRequests SignatureRequest[]
 
   @@index([organizationId, budgetId, createdAt])
+}
+
+// ── Portal de firma de clientes (issue #79) ─────────────────────────────────
+// Modelo del doc `docs/client-signature-portal.md`: solicitud, cadena de
+// auditoría append-only y evidencias. La Fase 1 firma local (dibujada o
+// tipográfica) con sello de tiempo propio; el proveedor externo de confianza
+// entra por `SignatureProvider` sin cambiar estos registros.
+
+/// Estados del portal de firma. Ciclo real de Fase 1:
+/// `SENT` (creada y link activo) → `VIEWED` (primera apertura) →
+/// `PENDING_SIGNATURE` (consentimiento aceptado) → `SIGNING` (firma en curso) →
+/// `SIGNED` (firma recibida) → `VALIDATED` (sello de tiempo aplicado).
+/// `REJECTED`, `EXPIRED` y `CANCELLED` bloquean la firma para siempre.
+/// `DRAFT` y `DELIVERED` existen en el contrato del documento pero la Fase 1 no
+/// los usa: la solicitud nace `SENT` y el proveedor de correo no confirma
+/// entrega. `SIGNED` no vuelve atrás y `VALIDATED` solo ocurre tras `SIGNED`.
+enum SignatureRequestStatus {
+  DRAFT
+  SENT
+  DELIVERED
+  VIEWED
+  PENDING_SIGNATURE
+  SIGNING
+  SIGNED
+  VALIDATED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+/// Método de firma habilitado por el emisor para la solicitud.
+enum SignatureMethod {
+  DRAWN
+  TYPED
+}
+
+/// Tipo de evento de la cadena de auditoría (append-only).
+/// `SMS_SENT` y `EVIDENCE_RECEIVED` son de fases posteriores (OTP SMS, foto);
+/// quedan en el contrato para no migrar el enum cuando se integren.
+enum SignatureEventType {
+  REQUEST_CREATED
+  DOCUMENT_UPDATED
+  EMAIL_SENT
+  EMAIL_FAILED
+  SMS_SENT
+  VIEWED
+  CONSENT_ACCEPTED
+  SIGNING_STARTED
+  SIGNATURE_RECEIVED
+  OTP_SENT
+  OTP_VALIDATED
+  OTP_FAILED
+  EVIDENCE_RECEIVED
+  TIMESTAMP_APPLIED
+  DOCUMENT_VALIDATED
+  AUDIT_GENERATED
+  COMPLETION_EMAIL_SENT
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+/// Quién produjo el evento: el sistema, el equipo (panel) o el cliente (portal).
+enum SignatureActorType {
+  SYSTEM
+  ADMIN
+  CLIENT
+}
+
+/// Tipo de evidencia del proceso de firma.
+enum SignatureEvidenceType {
+  SIGNATURE
+  OTP
+  PHOTO
+  TIMESTAMP
+  SEAL
+}
+
+/// Estado de una evidencia: pendiente, opcional (no configurada), completa o fallida.
+enum SignatureEvidenceStatus {
+  PENDING
+  OPTIONAL
+  COMPLETED
+  FAILED
+}
+
+/// Solicitud de firma de un documento de la empresa (issue #79). El documento
+/// es el presupuesto (`budgetId`) y/o su adjunto PDF existente (`attachmentId`);
+/// sin adjunto se firma la representación imprimible del presupuesto, cuya
+/// huella canónica queda en `documentHash`. El `publicCode` es la única
+/// credencial del link `/firma/[codigo]` (100 bits, legible para dictar).
+/// Los datos del destinatario y del emisor se guardan denormalizados; el portal
+/// los muestra enmascarados.
+model SignatureRequest {
+  id                     String                 @id
+  organizationId         String
+  budgetId               String
+  attachmentId           String?
+  publicCode             String                 @unique
+  title                  String
+  senderId               String?
+  senderName             String
+  senderEmail            String?
+  recipientName          String
+  recipientEmail         String?
+  recipientPhone         String?
+  status                 SignatureRequestStatus @default(SENT)
+  method                 SignatureMethod        @default(DRAWN)
+  /// OTP por correo habilitado por el emisor (Fase 2 del portal; el campo y la
+  /// interfaz existen desde Fase 1).
+  otpRequired            Boolean                @default(false)
+  otpCodeHash            String?
+  otpExpiresAt           DateTime?
+  otpAttempts            Int                    @default(0)
+  otpSentAt              DateTime?
+  otpVerifiedAt          DateTime?
+  expiresAt              DateTime
+  sentAt                 DateTime?
+  viewedAt               DateTime?
+  consentedAt            DateTime?
+  signedAt               DateTime?
+  validatedAt            DateTime?
+  completedAt            DateTime?
+  rejectedAt             DateTime?
+  rejectionReason        String?
+  cancelledAt            DateTime?
+  cancelledByName        String?
+  cancelReason           String?
+  /// Huella del documento antes de firmar (canónica o del adjunto).
+  documentHash           String
+  documentHashCapturedAt DateTime
+  /// Huella del documento con la firma incorporada; `null` hasta firmar.
+  signedDocumentHash     String?
+  signatureProvider      String                 @default("local")
+  signatureIdentifier    String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  organization           Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget                 Budget                 @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  attachment             BudgetAttachment?      @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  events                 SignatureEvent[]
+  evidence               SignatureEvidence[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([budgetId, createdAt])
+  @@index([expiresAt])
+}
+
+/// Evento de la cadena de auditoría de una solicitud de firma (issue #79).
+/// **Append-only**: la app solo inserta; nunca actualiza ni borra un evento.
+/// `eventHash` es SHA-256 del contenido canónico del evento encadenado con
+/// `previousEventHash` (el hash del evento anterior de la misma solicitud), así
+/// alterar un evento viejo invalida toda la cadena. IP y user-agent se guardan
+/// solo como hash con pepper (`AUTH_SECRET`); nunca en claro.
+model SignatureEvent {
+  id                String                  @id
+  organizationId    String
+  requestId         String
+  eventType         SignatureEventType
+  /// Estado de la solicitud al momento del evento (foto fiel del cambio).
+  status            SignatureRequestStatus?
+  occurredAt        DateTime                @default(now())
+  actorType         SignatureActorType      @default(SYSTEM)
+  actorId           String?
+  actorName         String?
+  ipHash            String?
+  userAgentHash     String?
+  metadataJson      Json?
+  previousEventHash String?
+  eventHash         String
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  request           SignatureRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, occurredAt])
+  @@index([organizationId, occurredAt])
+}
+
+/// Evidencia del proceso de firma (issue #79): la firma capturada (binario en la
+/// base, mismo patrón que los adjuntos), el sello de tiempo local, el OTP
+/// (Fase 2) y la foto (Fase 2). `storageKey` etiqueta el origen (`drawn`,
+/// `typed`, `local`) y `providerReference` el identificador del proveedor.
+model SignatureEvidence {
+  id                String                  @id
+  organizationId    String
+  requestId         String
+  type              SignatureEvidenceType
+  status            SignatureEvidenceStatus @default(PENDING)
+  storageKey        String?
+  mime              String?
+  size              Int?
+  data              Bytes?
+  capturedAt        DateTime?
+  providerReference String?
+  metadataJson      Json?
+  createdAt         DateTime                @default(now())
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  request           SignatureRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, type])
 }
 
 enum ExpectedPaymentConcept {
@@ -1512,6 +1718,8 @@ enum MailCategory {
   invitation
   /// Alerta de operación a OWNER/ADMIN (issue #43): respaldo vencido o fallido.
   alert
+  /// Solicitud de firma al cliente (issue #79): link, código y vencimiento.
+  signature
 }
 
 /**

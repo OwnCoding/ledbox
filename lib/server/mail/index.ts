@@ -28,3 +28,12 @@ export {
   type InvitationMailContent,
   type InvitationMailInput,
 } from "./invitation";
+export {
+  buildSignatureCompletedMail,
+  buildSignatureOtpMail,
+  buildSignatureRequestMail,
+  type SignatureCompletedMailInput,
+  type SignatureOtpMailInput,
+  type SignatureRequestMailContent,
+  type SignatureRequestMailInput,
+} from "./signature";
