@@ -170,3 +170,9 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - sección Firmas con listado, envío y cancelación
 - envío por correo y recordatorios de vencimiento
 
+## v2.1.48 — 2026-09-27
+
+- precisión del borde de papel en la firma del portal
+- fase 3 — portal del cliente y sitio público en las guías
+- piel fase 3 — C·Vitrina y C1·Aurora viva en portal del cliente y sitio público
+
