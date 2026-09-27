@@ -165,3 +165,8 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - enviar a firma desde la ficha del presupuesto
 - modelo, migración y núcleo del portal de firma
 
+## v2.1.47 — 2026-09-27
+
+- sección Firmas con listado, envío y cancelación
+- envío por correo y recordatorios de vencimiento
+
