@@ -34,7 +34,7 @@ Un agente por rol, cada uno en su workspace. Detalle operativo:
 
 ## Política automática de integración
 
-- **Umbral**: ≥ **15 commits** nuevos sin integrar (suma de
+- **Umbral**: ≥ **10 commits** nuevos sin integrar (suma de
   `git log --oneline <rama viva>..<rama>` de los slots) → dispara `hd`.
 - **Integrador libre**: sin merge en curso, sin cambios sin commitear y sin otro
   ciclo corriendo (lock en `~/.config/ledbox/auto-hd.lock`).
@@ -44,10 +44,14 @@ Un agente por rol, cada uno en su workspace. Detalle operativo:
   pilotos y experimentos —hoy `feat/piloto*`— que nunca se integran solos.
 - El dueño puede adelantarlo con `ht`/`hd` a mano; el automático se suma, no
   reemplaza.
-- El auto-HD corre en el checkout del implementador (`npm run watch-hd`, ya
-  activo). Además, el orquestador tiene `vigia.sh`: reparte una vez cada tarea
-  de `cola.tsv` al slot libre (`herdr agent prompt`) sin interrumpir slots
-  trabajando — **disponible, sin arrancar**.
+- El auto-HD corre en el checkout del implementador (`npm run watch-hd`, activo
+  en un pane de herdr con umbral 10). Además, el orquestador tiene:
+  - `vigia-al.sh`: **activo**, reparte `al` cada 30 min (log
+    `~/.herdr/worktrees/ledbox/orquestador/vigia-al.log`) para mantener
+    actualizado el estado de slots y pendientes.
+  - `vigia.sh`: reparte una vez cada tarea de `cola.tsv` al slot libre
+    (`herdr agent prompt`) sin interrumpir slots trabajando — **disponible, sin
+    arrancar**.
 
 ### Qué hace el ciclo, paso a paso
 
@@ -60,8 +64,12 @@ Un agente por rol, cada uno en su workspace. Detalle operativo:
 4. Con los merges sanos: commit de `docs/NOVEDADES.md` (bullets en lenguaje de
    producto generados de los commits), `push` a la rama viva y
    `npm run deploy:patch` (bump de parche + commit + push + deploy del Hub).
-5. **Smoke**: espera la versión nueva en `app.ledbox.online/login` (~9 min) y
+5. **Espejo de `main`**: `git push origin <rama viva>:main` (no fatal: si falla,
+   el ciclo sigue y lo deja anotado en el log).
+6. **Smoke**: espera la versión nueva en `app.ledbox.online/login` (~9 min) y
    comprueba las 5 superficies.
+7. **Humo E2E** (`npm run e2e`, informativo): flujos críticos contra producción;
+   si falla, queda registrado pero **no bloquea** el release.
 
 Log: `~/.config/ledbox/auto-hd.log`.
 
@@ -70,11 +78,17 @@ Log: `~/.config/ledbox/auto-hd.log`.
 ```bash
 # Vigilante en primer plano (o con nohup para dejarlo de fondo)
 npm run watch-hd
-nohup npm run watch-hd > /tmp/ledbox-auto-hd.out 2>&1 &
+nohup npm run watch-hd >> ~/.config/ledbox/auto-hd.log 2>&1 &
 
 # Alternativa por cron (cada 10 minutos, una pasada)
 */10 * * * * cd /Users/fredd/Documents/GitHub/ledbox && /usr/local/bin/npm run auto-hd >> /tmp/ledbox-auto-hd.cron.log 2>&1
 ```
+
+Hoy el vigilante corre en un **pane de herdr del workspace del implementador**
+(visible y persistente), con el umbral de 10 commits; todo queda en
+`~/.config/ledbox/auto-hd.log`. Mientras el vigilante esté activo, el checkout
+del implementador tiene que quedar **sin cambios sin commitear** cuando no se
+está trabajando (con el árbol sucio, `auto` no dispara y lo deja anotado).
 
 ## Reglas
 

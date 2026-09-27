@@ -342,6 +342,11 @@ function ht() {
     if (merged.length && !run("push", "git", ["push", "origin", LIVE_BRANCH])) return false;
     if (!run("release + deploy", "npm", ["run", "deploy:patch"], { quiet: true })) return false;
 
+    // Espejo de `main` (issue #82): la viva es la fuente y `main` la sigue.
+    // No fatal: si el push falla, se avisa y el ciclo continúa.
+    const mirror = gitOk("push", "origin", `${LIVE_BRANCH}:main`);
+    log(mirror.ok ? "main: espejo actualizado ✓" : `main: no pude actualizar el espejo (${(mirror.err || "error").split("\n")[0]}) — sigo`);
+
     // Smoke: versión desplegada y superficies.
     const version2 = JSON.parse(readFileSync("package.json", "utf8")).version;
     let versionOk = false;
@@ -355,6 +360,10 @@ function ht() {
     log(versionOk ? `smoke: v${version2} en producción ✓` : `smoke: no vi v${version2} en producción tras ~9 min`);
     const states = HOSTS.map((h) => `${curl(h) === "200" ? "✓" : "·"} ${h}`);
     log("smoke superficies:\n" + states.join("\n"));
+    // Humo E2E (issue #84): informativo, nunca bloquea el release.
+    const e2e = spawnSync("npm", ["run", "e2e", "--silent"], { encoding: "utf8", timeout: 300000 });
+    const e2eTail = (e2e.status === 0 ? "" : (e2e.stderr || e2e.stdout || "").split("\n").filter(Boolean).slice(-1)[0] || "sin salida");
+    log(e2e.status === 0 ? "e2e: flujos críticos en verde ✓" : `e2e: rojo (no bloquea el release) — ${e2eTail}`);
     saveState({ lastRun: new Date().toISOString(), lastOutcome: versionOk ? `released v${version2}` : "released-sin-smoke" });
     return versionOk;
   } finally {
