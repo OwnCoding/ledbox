@@ -148,7 +148,7 @@ export function SignatureCanvas({
       />
       <div className="portal-signature-canvas-foot">
         <span className="portal-help">{hasInk ? "Firma capturada." : "Dibujá tu firma dentro del recuadro."}</span>
-        <button type="button" className="portal-btn portal-btn--ghost portal-btn--sm" onClick={clear} disabled={disabled || !hasInk}>
+        <button type="button" className="portal-btn portal-btn--ghost" onClick={clear} disabled={disabled || !hasInk}>
           Limpiar
         </button>
       </div>

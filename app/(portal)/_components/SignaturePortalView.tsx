@@ -267,7 +267,7 @@ export function SignaturePortalView({ request }: { request: PortalSignatureReque
                   title={`Documento ${current.document.name}`}
                 />
                 <div className="portal-form-actions">
-                  <a className="portal-btn portal-btn--sm" href={current.urls.attachment} target="_blank" rel="noreferrer">
+                  <a className="portal-btn" href={current.urls.attachment} target="_blank" rel="noreferrer">
                     Abrir en una pestaña
                   </a>
                 </div>
@@ -467,7 +467,7 @@ export function SignaturePortalView({ request }: { request: PortalSignatureReque
               ))}
             </ul>
             <div className="portal-form-actions">
-              <a className="portal-btn portal-btn--ghost portal-btn--sm" href={current.urls.audit} target="_blank" rel="noreferrer">
+              <a className="portal-btn portal-btn--ghost" href={current.urls.audit} target="_blank" rel="noreferrer">
                 Ver la auditoría completa
               </a>
             </div>

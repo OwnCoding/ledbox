@@ -10,12 +10,12 @@ import { AdminIcon } from "@/components/admin/AdminIcons";
 export function PortalPrintBar({ backHref, label }: { backHref: string; label?: string }) {
   return (
     <div className="portal-print-bar portal-print-hide">
-      <a className="portal-btn portal-btn--ghost portal-btn--sm" href={backHref}>
+      <a className="portal-btn portal-btn--ghost" href={backHref}>
         <AdminIcon name="arrow-left" size={14} />
         Volver
       </a>
       <span className="portal-dialog-spacer" />
-      <button type="button" className="portal-btn portal-btn--primary portal-btn--sm" onClick={() => window.print()}>
+      <button type="button" className="portal-btn portal-btn--primary" onClick={() => window.print()}>
         <AdminIcon name="print" size={14} />
         {label ?? "Imprimir o guardar PDF"}
       </button>
