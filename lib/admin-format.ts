@@ -335,6 +335,7 @@ const MAIL_CATEGORY: Record<string, string> = {
   test: "Prueba",
   invitation: "Invitación",
   alert: "Alerta de sistema",
+  signature: "Firma del cliente",
 };
 const MAIL_STATUS: Record<string, string> = {
   sending: "Enviando",

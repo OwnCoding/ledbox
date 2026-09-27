@@ -462,6 +462,86 @@ async function budgetDrafts(budget: BudgetRow, audience: TimelineAudience): Prom
   const mails = await loadMailRows(budget.organizationId, budget.id, paymentIds, expectedIds);
   for (const mail of mails) drafts.push(mailDraft(mail, audience));
 
+  // Portal de firma (issue #79): la vida real de cada solicitud del presupuesto,
+  // con los mismos tipos de hito del panel (enviado → firmado → rechazado /
+  // cancelado / vencido). Nada se inventa: cada fecha sale del registro real.
+  const signatureRequests = await db.signatureRequest.findMany({
+    where: { organizationId: budget.organizationId, budgetId: budget.id },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      publicCode: true,
+      senderName: true,
+      cancelledByName: true,
+      signatureIdentifier: true,
+      createdAt: true,
+      signedAt: true,
+      rejectedAt: true,
+      rejectionReason: true,
+      cancelledAt: true,
+      cancelReason: true,
+      expiresAt: true,
+    },
+  });
+  for (const request of signatureRequests) {
+    drafts.push({
+      id: `signature-created:${request.id}`,
+      at: request.createdAt,
+      kind: "sent",
+      title: "Solicitud de firma enviada",
+      detail: `${request.title} · código ${request.publicCode}`,
+      actor: actorLabel(request.senderName, audience),
+      tone: "info",
+    });
+    if (request.signedAt) {
+      drafts.push({
+        id: `signature-signed:${request.id}`,
+        at: request.signedAt,
+        kind: "approved",
+        title: "El cliente firmó el documento",
+        detail: request.signatureIdentifier ? `Identificador ${request.signatureIdentifier}` : null,
+        actor: client ? "Vos" : PORTAL_ACTOR,
+        tone: "ok",
+      });
+    }
+    if (request.rejectedAt) {
+      drafts.push({
+        id: `signature-rejected:${request.id}`,
+        at: request.rejectedAt,
+        kind: "cancelled",
+        title: "El cliente rechazó la firma",
+        detail: request.rejectionReason,
+        actor: PORTAL_ACTOR,
+        tone: "danger",
+      });
+    }
+    if (request.cancelledAt) {
+      drafts.push({
+        id: `signature-cancelled:${request.id}`,
+        at: request.cancelledAt,
+        kind: "cancelled",
+        title: "Solicitud de firma cancelada",
+        detail: request.cancelReason,
+        actor: actorLabel(request.cancelledByName, audience),
+        tone: "danger",
+      });
+    }
+    if (request.status === "EXPIRED") {
+      drafts.push({
+        id: `signature-expired:${request.id}`,
+        at: request.expiresAt,
+        kind: "cancelled",
+        title: "Solicitud de firma vencida",
+        detail: null,
+        actor: null,
+        tone: "danger",
+      });
+    }
+  }
+
   // Primera vista del link del portal.
   if (budget.viewedAt) {
     drafts.push({

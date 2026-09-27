@@ -63,6 +63,8 @@ export type AdminIconName =
   | "settings"
   /** Copiar al portapapeles (API keys de servicio, issue #69). */
   | "copy"
+  /** Firma del cliente (issue #79): solicitud, firma y auditoría. */
+  | "pen"
   /** Colapsar/expandir el sidebar de escritorio (solo íconos). */
   | "panel-left";
 
@@ -1808,6 +1810,8 @@ export const AUDIT_ENTITIES = [
   "MessageTemplate",
   // API key de servicio (issue #69): creación y revocación desde Seguridad.
   "ApiToken",
+  // Solicitud de firma del cliente (issue #79): alta, cancelación y eventos.
+  "SignatureRequest",
   // Alerta de operación del sistema (issue #43): respaldo vencido o fallido.
   "System",
   "PlanChangeRequest",
@@ -2281,4 +2285,69 @@ export type AdminSystemStatus = {
   disk: { freeBytes: number | null; totalBytes: number | null };
   /** Último error real de una corrida fallida. */
   lastError: { message: string; at: string } | null;
+};
+
+// ── Portal de firma del cliente (issue #79) ─────────────────────────────────
+// Vista del panel para el diálogo «Enviar a firma»: estado real de cada
+// solicitud del presupuesto, cadena de auditoría, evidencias y último correo.
+// Los estados y métodos son los del contrato (`SignatureRequestStatus` /
+// `SignatureMethod`); las etiquetas las resuelve `lib/server/signature/rules`.
+
+export type AdminSignatureEventRow = {
+  id: string;
+  type: string;
+  label: string;
+  status: string | null;
+  at: string;
+  actor: string | null;
+  actorType: string;
+  detail: string | null;
+  /** Hash del evento encadenado al anterior (`SignatureEvent.eventHash`). */
+  hash: string;
+  previousHash: string | null;
+};
+
+export type AdminSignatureEvidenceRow = {
+  type: string;
+  status: string;
+  reference: string | null;
+  capturedAt: string | null;
+};
+
+export type AdminSignatureRequestRow = {
+  id: string;
+  code: string;
+  title: string;
+  status: string;
+  statusLabel: string;
+  method: string;
+  methodLabel: string;
+  otpRequired: boolean;
+  otpVerified: boolean;
+  recipient: { name: string; email: string | null; phone: string | null };
+  senderName: string;
+  document: { kind: "attachment" | "budget"; name: string };
+  documentHash: string;
+  signedDocumentHash: string | null;
+  signatureIdentifier: string | null;
+  signatureProvider: string;
+  expiresAt: string;
+  sentAt: string | null;
+  viewedAt: string | null;
+  signedAt: string | null;
+  validatedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+  portalUrl: string;
+  /** La solicitud sigue activa (se puede cancelar o reenviar). */
+  active: boolean;
+  /** La cadena de eventos verifica completa. */
+  chainValid: boolean;
+  events: AdminSignatureEventRow[];
+  evidence: AdminSignatureEvidenceRow[];
+  /** Último correo de la solicitud (`MailLog`): estado, destinatario y motivo. */
+  mail: { status: string; error: string | null; to: string; at: string } | null;
 };

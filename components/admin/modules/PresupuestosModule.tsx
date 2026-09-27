@@ -65,6 +65,7 @@ import {
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
+import { SignatureDialog } from "./SignatureDialog";
 import { DateField, EmailField, MoneyField, NumberField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { emailValid, FIELD_MESSAGES, normalizeEmail } from "@/lib/field-rules";
@@ -769,6 +770,8 @@ export function PresupuestosModule() {
   const [linksBudget, setLinksBudget] = useState<AdminBudgetRow | null>(null);
   // Cronología real del presupuesto (issue #33).
   const [timelineBudget, setTimelineBudget] = useState<AdminBudgetRow | null>(null);
+  // Portal de firma del cliente (issue #79): solicitudes y auditoría del presupuesto.
+  const [signatureBudget, setSignatureBudget] = useState<AdminBudgetRow | null>(null);
   const [reservationReport, setReservationReport] = useState<{ title: string; reservation: AdminBudgetReservation } | null>(null);
   // Comprobantes de pago (issue #17): metadatos por presupuesto y visor.
   const [proofsByBudget, setProofsByBudget] = useState<Record<string, AdminBudgetPaymentProofRow[]>>({});
@@ -853,6 +856,12 @@ export function PresupuestosModule() {
                 icon="print"
                 label={`Imprimir presupuesto: ${budget.title}`}
                 external
+              />
+              <AdminButton
+                icon="pen"
+                title={`Firma del cliente: ${budget.title}`}
+                aria-label={`Firma del cliente: ${budget.title}`}
+                onClick={() => setSignatureBudget(budget)}
               />
               <AdminButton
                 icon="globe"
@@ -1593,6 +1602,12 @@ export function PresupuestosModule() {
                         aria-label={`Ver la cronología: ${budget.title}`}
                         onClick={() => setTimelineBudget(budget)}
                       />
+                      <AdminButton
+                        icon="pen"
+                        title={`Firma del cliente: ${budget.title}`}
+                        aria-label={`Firma del cliente: ${budget.title}`}
+                        onClick={() => setSignatureBudget(budget)}
+                      />
                       <AdminIconLink
                         href={`/imprimir/presupuesto/${budget.id}`}
                         icon="print"
@@ -2245,6 +2260,10 @@ export function PresupuestosModule() {
           onClose={() => setProofDialog(null)}
         />
       ) : null}
+      {signatureBudget ? (
+        <SignatureDialog budget={signatureBudget} onClose={() => setSignatureBudget(null)} />
+      ) : null}
+
       {timelineBudget ? (
         <AdminTimelineDialog
           title={`Cronología · ${timelineBudget.title}`}

@@ -118,8 +118,45 @@ export function normalizeBudgetCode(input: string | null | undefined): string | 
   return formatBudgetCode(compact);
 }
 
-// ── Token de invitación al equipo (issue #31) ──────────────────────────────
-// El token del link de invitación es la única credencial de la página pública
+// ── Código público de la solicitud de firma (issue #79) ────────────────────
+// Misma credencial que el link del presupuesto: alfabeto sin caracteres
+// ambiguos y 20 caracteres (100 bits) en grupos de cuatro. Lo genera el
+// servidor (`lib/server/signature/codes.ts`); acá viven el link público, el
+// formato y la normalización que comparten el portal, el panel y el correo.
+
+/** Alfabeto del código de firma (mismo alfabeto público único). */
+export const SIGNATURE_CODE_ALPHABET = UNAMBIGUOUS_ALPHABET;
+
+const SIGNATURE_CODE_LENGTH = 20;
+
+/** Link público de una solicitud de firma en el portal del cliente. */
+export function signaturePortalUrl(code: string): string {
+  return `${publicConfig.clientUrl}/firma/${code}`;
+}
+
+/** Código canónico agrupado (`XXXX-XXXX-XXXX-XXXX-XXXX`). */
+export function formatSignatureCode(compact: string): string {
+  return formatBudgetCode(compact);
+}
+
+/**
+ * Acepta el link completo (`https://clientes.ledbox.online/firma/<código>`), el
+ * path o el código suelto —con o sin guiones, en cualquier caja— y devuelve el
+ * código canónico agrupado, o `null` si no tiene la forma esperada.
+ */
+export function normalizeSignatureCode(input: string | null | undefined): string | null {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  const fromUrl = raw.match(/\/firma\/([^/?#\s]+)/i)?.[1] ?? raw;
+  const compact = fromUrl.toUpperCase().replace(/[^0-9A-Z]/g, "");
+  if (compact.length !== SIGNATURE_CODE_LENGTH) return null;
+  for (const char of compact) {
+    if (!SIGNATURE_CODE_ALPHABET.includes(char)) return null;
+  }
+  return formatSignatureCode(compact);
+}
+
+// ── Token de invitación al equipo (issue #31) ──────────────────────────────// El token del link de invitación es la única credencial de la página pública
 // de aceptación: mismo alfabeto sin caracteres ambiguos que el código del
 // presupuesto y 24 caracteres (120 bits), largo suficiente para que no se
 // enumere. Se genera en el servidor (`lib/server/invitations.ts`); acá viven el
