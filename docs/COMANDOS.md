@@ -30,7 +30,35 @@ Un agente por rol, cada uno en su workspace. Detalle operativo:
 | **`hd`** | `npm run hd` | Alias de `ht`. |
 | `auto` | `npm run auto-hd` | Una pasada del disparo automático (ver abajo). |
 | `watch` | `npm run watch-hd` | Queda corriendo y dispara `auto` cada 10 minutos. |
+| `e2e` | `npm run e2e` | Humo E2E de los flujos críticos contra producción (o una base configurable). |
 | — | `node scripts/orquestador.mjs ht --dry-run` | Muestra qué mergearía sin tocar nada. |
+
+### Humo E2E (`npm run e2e`, issue #84)
+
+`scripts/e2e-smoke.mjs` recorre los flujos críticos y devuelve exit code (0
+verde, 1 con fallos). Usa `fetch` para lo que no necesita navegador y
+`puppeteer-core` con el **Chrome del sistema** para lo visual (no descarga
+navegadores).
+
+- **Login del panel**: 200, versión visible, sin scroll lateral a 1440 y 390.
+- **Panel demo**: Resumen con KPIs y Eventos (lista) renderizan; tablero como
+  único deslizamiento lateral.
+- **Portal del presupuesto** (demo): decisión con 3 opciones y fórmula; rebaja
+  de 10.000.000 formateada y 89.898.999 con el tope del subtotal (nunca
+  «Gs 0»).
+- **Firma**: código inválido → 404 claro, `noindex`, API sin exponer nada.
+- **SEO por host** y **`/api/health`** con la cantidad de migraciones.
+
+Config por variables de entorno (todas opcionales):
+
+```bash
+npm run e2e                                            # producción
+E2E_BASE_URL=http://localhost:3001 npm run e2e          # otra base (deriva los hosts)
+E2E_CHROME_PATH="/ruta/al/Chrome" npm run e2e           # Chrome no estándar
+```
+
+En el ciclo `ht`, el E2E corre **después del smoke y no bloquea** el release:
+si falla, queda anotado en `~/.config/ledbox/auto-hd.log`.
 
 ## Política automática de integración
 

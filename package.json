@@ -20,6 +20,7 @@
     "al": "node scripts/orquestador.mjs al",
     "ht": "node scripts/orquestador.mjs ht",
     "hd": "node scripts/orquestador.mjs hd",
+    "e2e": "node scripts/e2e-smoke.mjs",
     "auto-hd": "node scripts/orquestador.mjs auto",
     "watch-hd": "node scripts/orquestador.mjs watch"
   },
@@ -41,6 +42,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
+    "puppeteer-core": "^25.12.0",
     "tsx": "^4.19.2",
     "typescript": "^5.9.2"
   },
