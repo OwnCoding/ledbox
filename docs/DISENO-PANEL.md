@@ -381,13 +381,15 @@ producto). Cada superficie tiene su voz dentro de la misma piel.
 | Acción primaria | Degradado `#5ad9ff→#a78bfa` (oscuro) / `#0b6f8f→#4f46e5` (claro), tinta `#0d1026` / blanco, controles en píldora | Degradado `#00e5ff→#a78bfa` (oscuro) / `#0b6f8f→#4f46e5` (claro), esquina cortada de la marca |
 | Tipografía | Space Grotesk display + Inter cuerpo (los `@font-face` del panel) | Igual que el portal |
 | Vidrio | Barra superior, pie móvil y avisos; nunca en listas | Barra, CTA pegajoso, carrito y diálogo de consulta |
-| Papel | La firma (canvas, vista previa, sellos) queda **blanca en los dos temas**, con borde de control ≥ 3:1 y «Limpiar»/«Firmar» ≥ 44 px | — |
+| Papel | La firma (canvas, vista previa, sellos) queda **blanca en los dos temas**; su borde se dibuja con **tinta de papel** (`rgba(16,22,26,.55)` en el punteado del canvas, ≥ 3:1 sobre el blanco) y «Limpiar»/«Firmar» miden ≥ 44 px | — |
 
 Detalles de la ronda:
 
 - **Control ≥ 3:1** en ambos portales: campos, botones fantasma, selector
-  segmentado, steppers, tarjetas de decisión y el recuadro de firma usan
-  `--line-control` (`rgba(255,255,255,.40)` oscuro / `rgba(28,34,74,.55)` claro).
+  segmentado, steppers y tarjetas de decisión usan `--line-control`
+  (`rgba(255,255,255,.40)` oscuro / `rgba(28,34,74,.55)` claro); el recuadro de
+  firma, que siempre es papel blanco, usa tinta de papel para que el punteado se
+  vea igual en los dos temas.
 - **Impresión apagada**: `@media print` del portal fuerza `background-image:
   none` y quita sombras; las hojas `lbprint` no se tocaron.
 - **Sitio**: el tema lo fija `SITE_BOOT_SCRIPT` (`lib/site-theme.ts`) antes del
