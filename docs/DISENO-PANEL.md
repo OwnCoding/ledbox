@@ -10,6 +10,10 @@ No contradice `docs/REGLAS-GENERALES.md` ni `AGENTS.md`: los completa.
 > aprobado en la fase 1) y claro **C1 · Aurora viva** (elegido el 26-09). Los
 > valores están en **§12** y los tres tonos de estado (issue #75) en **§3**.
 > La **ola 3** (§12.5) completó el barrido de todos los módulos.
+>
+> **Piel fase 3 (27-09-2026, issue #83)**: la misma identidad se extendió al
+> **portal del cliente** (`clientes.ledbox.online`) y al **sitio público**
+> (`ledbox.online`), cada superficie con su voz: **§13**.
 
 ## 1. Objetivo
 
@@ -274,9 +278,10 @@ fase 2:
   `public/fonts/` (`space-grotesk-latin-var.woff2` 22 KB +
   `inter-latin-var.woff2` 48 KB) con `@font-face` en `globals.css`.
 - Las familias se llaman **«Space Grotesk Panel»** e **«Inter Panel»** a
-  propósito: adentro del panel son reales y el **sitio público y las hojas
-  `lbprint` quedan igual que antes** (declaran `Space Grotesk`/`Archivo Black`
-  por nombre y siguen cayendo al genérico del sistema). Sin librerías nuevas.
+  propósito: mantienen un nombre propio y estable en `@font-face`, así el panel
+  las declara sin pisar a nadie. Desde la **fase 3 (§13)** el portal del cliente
+  y el sitio público también las consumen (los woff2 son los mismos); `lbprint`
+  sigue con su stack y no se toca. Sin librerías nuevas.
 - Licencias en `public/fonts/LICENSE-*.txt`.
 
 ### 12.3 Contraste (AA medido)
@@ -307,7 +312,8 @@ de blanco para llegar a 3:1 sobre la aurora violeta.
   búsqueda), command palette, login (con el botón de Google existente) y foco
   visible; **Resumen** completo (KPIs, «Qué mirar hoy», agenda) y los tres tonos
   de estado en badges/chips, celdas, KPIs y filas del shell + Resumen.
-- **Fuera**: hojas `lbprint` y el sitio público (no cambian).
+- **Fuera**: hojas `lbprint` (siguen igual en la fase 3) y el sitio público (que
+  pasó a la **fase 3, §13**).
 
 ### 12.5 Ola 3 — barrido de módulos (26-09-2026, issues #72 y #75)
 
@@ -356,3 +362,74 @@ Pendientes (próxima ronda, sin bloquear): medir el costo del `backdrop-filter`
 en equipos de gama baja (riesgo declarado de C·Vitrina) y revisar si algún tono
 de estado fuera de las tres canastas (p. ej. urgencias «faltan N días») merece
 su propia escala.
+
+## 13. Piel fase 3 — portal del cliente y sitio público (27-09-2026, issue #83)
+
+La identidad de la fase 2 se extendió a las dos superficies que faltaban, sin
+tocar contratos, lógica ni estructura: **portal del cliente**
+(`clientes.ledbox.online`: portada, presupuesto `/p/[token]`, firma
+`/firma/[codigo]`) y **sitio público** (`ledbox.online`: landing y ficha de
+producto). Cada superficie tiene su voz dentro de la misma piel.
+
+### 13.1 Qué cambió, por superficie
+
+| | Portal del cliente | Sitio público |
+| --- | --- | --- |
+| Tokens | Los del panel (§12.1), sobre el contrato propio del portal (`--bg`, `--surface`, `--border`, `--led`, `--p-ok/warn/danger/info`) | Propios (`.site`): cian eléctrico de marca como luz, aurora y vidrio |
+| Oscuro | **C · Vitrina**: `#0a0a13` + 3 auroras, tarjetas translúcidas, vidrio en barra y pie móvil | **C · Vitrina (sitio)**: `#08080f` + 3 auroras, cian `#00e5ff` intacto, matriz LED y esquinas cortadas |
+| Claro | **C1 · Aurora viva**: `#f6f8ff` + 4 auroras, tarjetas blancas flotando, radios 18/26 | **C1 · Aurora viva (sitio)**: misma aurora, cian baja a `#085a75` para sostener AA sobre la aurora |
+| Acción primaria | Degradado `#5ad9ff→#a78bfa` (oscuro) / `#0b6f8f→#4f46e5` (claro), tinta `#0d1026` / blanco, controles en píldora | Degradado `#00e5ff→#a78bfa` (oscuro) / `#0b6f8f→#4f46e5` (claro), esquina cortada de la marca |
+| Tipografía | Space Grotesk display + Inter cuerpo (los `@font-face` del panel) | Igual que el portal |
+| Vidrio | Barra superior, pie móvil y avisos; nunca en listas | Barra, CTA pegajoso, carrito y diálogo de consulta |
+| Papel | La firma (canvas, vista previa, sellos) queda **blanca en los dos temas**; su borde se dibuja con **tinta de papel** (`rgba(16,22,26,.55)` en el punteado del canvas, ≥ 3:1 sobre el blanco) y «Limpiar»/«Firmar» miden ≥ 44 px | — |
+
+Detalles de la ronda:
+
+- **Control ≥ 3:1** en ambos portales: campos, botones fantasma, selector
+  segmentado, steppers y tarjetas de decisión usan `--line-control`
+  (`rgba(255,255,255,.40)` oscuro / `rgba(28,34,74,.55)` claro); el recuadro de
+  firma, que siempre es papel blanco, usa tinta de papel para que el punteado se
+  vea igual en los dos temas.
+- **Impresión apagada**: `@media print` del portal fuerza `background-image:
+  none` y quita sombras; las hojas `lbprint` no se tocaron.
+- **Sitio**: el tema lo fija `SITE_BOOT_SCRIPT` (`lib/site-theme.ts`) antes del
+  primer pintado — preferencia guardada y, si no hay, la del sistema (claro →
+  C1). **No tiene toggle visible**: se resolvió así para no cambiar la
+  navegación de la landing sin pedido del dueño; el mecanismo queda listo para
+  agregarlo. Sin preferencia ni JS queda el oscuro de siempre.
+- **`app/(product)/producto`** (landing de ventas de EventOS) queda **fuera**:
+  el pedido del issue #83 apunta al sitio de LedBox (`app/(public)`); si el
+  dueño quiere la misma piel ahí, es un brief aparte (hoy mantiene su stack sin
+  Space Grotesk/Inter).
+
+### 13.2 AA medido (tokens finales)
+
+Mismo método que §12.3: tonos translúcidos compuestos sobre la base del tema y,
+para el peor caso, sobre el campo más saturado de su aurora.
+
+| Par | Portal oscuro | Portal claro | Sitio oscuro | Sitio claro |
+| --- | --- | --- | --- | --- |
+| Texto / fondo | 17.1 | 16.2 | 17.3 | 16.2 |
+| Muted / aurora (peor campo) | 5.3 | 4.6 | 5.9 | 4.7 |
+| Acento / aurora | 8.2 | 5.3 | 9.7 | 5.5 |
+| Muted sobre tarjeta / aurora | 4.7 | 6.3 | — | — |
+| Borde de control / fondo | 3.8 | 3.6 | 3.8 | 3.6 |
+| Tinta de acción / degradado | 6.9 | 5.7 | 6.9 | 5.7 |
+| Ok / warn / danger (texto o tinte) | ≥ 6.9 | ≥ 5.5 | — | — |
+
+Ajustes de la ronda: en claro el acento del portal y del sitio bajó a su
+variante de texto (`#085a75`) porque el acento base (`#0b6f8f`) no llegaba a
+4.5 sobre el campo cian de la aurora; los tonos de estado del portal en claro
+usan las variantes de texto del panel (`#0b6b43`, `#7a5005`, `#a82640`).
+
+### 13.3 Verificación y evidencia
+
+- `npm run typecheck`, `npm run test:rules`, `npm run build` en verde; sin
+  marcadores de conflicto.
+- 0 errores de consola, 0 scroll horizontal de página a 390 y 1440 en las cinco
+  superficies (medido con CDP); fuentes reales cargadas
+  (`document.fonts.check`); impresión del portal sin aurora ni sombras.
+- Capturas claro/oscuro a 390/1440 en **`docs/rediseno-v2-fase3/`** (sin
+  commitear): portal (portada, presupuesto, firma y firma-canvas) y sitio
+  (landing, ficha, carrito y consulta), más el arranque por preferencia del
+  sistema.

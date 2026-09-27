@@ -108,6 +108,38 @@ en el encabezado y el texto descriptivo movido a la ayuda del módulo. Los
 módulos de solo consulta (Auditoría, Sistema) van directo al contenido con su
 filtro.
 
+## Portal del cliente y sitio público (fase 3, 27-09-2026)
+
+La guía de orden también aplica fuera del panel. El portal y el sitio **no**
+tienen shell ni KPIs: su ritmo es «una columna, una acción principal».
+
+**Portal del cliente** (`clientes.ledbox.online`)
+
+| Pantalla | Orden | Acción principal |
+| --- | --- | --- |
+| Portada (`/portal`) | kicker → título → qué se puede hacer → validador del código + entrada al ejemplo | **Ver presupuesto** |
+| Presupuesto (`/p/[token]`) | estado y hechos → **pendientes del cliente** → ajuste de ítems → decisión (una sola) → plan de pagos → cronología → ayuda | **Autorizar / pedir cambio** (la que corresponda al estado) |
+| Firma (`/firma/[codigo]`) | estado de la solicitud → documento → **firmar** (consentimiento + método + firma) → resumen y evidencias | **Firmar documento** |
+
+**Sitio público** (`ledbox.online`)
+
+| Pantalla | Orden | Acción principal |
+| --- | --- | --- |
+| Landing (`/`) | hero (acción) → ticker → números → productos → servicios → marcas → proceso → por qué → FAQ → contacto | **Consultar disponibilidad** |
+| Ficha (`/productos/[slug]`) | migas → hero con precio y hechos → **pedido** → incluido → otros equipos | **Agregar al pedido** (WhatsApp como secundaria) |
+
+Lo que se revisa en estas superficies (además de la guía de la fase 2):
+
+1. El tema (`data-theme`) queda aplicado antes del primer pintado y no
+   parpadea; el portal lo elige el visitante, el sitio sigue la preferencia
+   guardada y, si no hay, la del sistema.
+2. AA de texto ≥ 4.5 y controles ≥ 3 en los dos temas (incluido el texto que
+   vive directo sobre la aurora); la firma mantiene el papel blanco.
+3. Botones ≥ 44 px y foco visible en todo el flujo de firma (consentimiento,
+   canvas, «Limpiar», envío).
+4. Impresión del portal sin aurora, vidrio ni sombras; `lbprint` intacto.
+5. 0 scroll horizontal a 390 y capturas claro/oscuro 390/1440 de cada pantalla.
+
 ## Qué se revisa en cada PR de pantalla
 
 1. El orden de arriba se cumple (o el reporte explica por qué no).
