@@ -157,3 +157,11 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 
 - overrides de postcss y deepmerge-ts para npm audit en cero
 
+## v2.1.46 — 2026-09-27
+
+- botones del portal con área táctil de 44 px
+- hitos de firma en la cronología del presupuesto
+- portal público /firma/[codigo] con firma y auditoría
+- enviar a firma desde la ficha del presupuesto
+- modelo, migración y núcleo del portal de firma
+
