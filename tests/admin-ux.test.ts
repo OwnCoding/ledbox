@@ -26,14 +26,14 @@ test("la navegación respeta los grupos y el orden de la guía (§6)", () => {
     [
       { label: "General", hrefs: ["/dashboard", "/eventos"] },
       { label: "Operación", hrefs: ["/inventario", "/proveedores", "/promotoras"] },
-      { label: "Comercial", hrefs: ["/clientes", "/leads", "/presupuestos", "/plantillas"] },
+      { label: "Comercial", hrefs: ["/clientes", "/leads", "/presupuestos", "/firmas", "/plantillas"] },
       { label: "Finanzas", hrefs: ["/finanzas", "/facturacion"] },
       { label: "Sistema", hrefs: ["/ajustes", "/estado"] },
     ],
   );
-  // Consolidación (issue #56): 13 destinos en el nav, sin repetidos.
+  // Consolidación (issue #56) + Firmas (issue #81): 14 destinos en el nav, sin repetidos.
   const items = ADMIN_NAV.flatMap((group) => group.items);
-  assert.equal(items.length, 13);
+  assert.equal(items.length, 14);
   // El calendario ya no es un destino: es una vista dentro de Eventos.
   assert.equal(items.some((item) => item.href === "/calendario"), false);
 });

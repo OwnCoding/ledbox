@@ -94,6 +94,57 @@ export function buildSignatureCompletedMail(input: SignatureCompletedMailInput):
   return { subject, html: renderMail(content), text: renderMailText(content) };
 }
 
+export type SignatureReminderMailInput = {
+  organizationName: string;
+  title: string;
+  recipientName: string;
+  senderName: string;
+  code: string;
+  portalUrl: string;
+  expiresAt: Date;
+  /** Días de Asunción que faltan para el vencimiento (0 = hoy). */
+  daysLeft: number;
+  methodLabel: string;
+};
+
+/** Texto del vencimiento en lenguaje del cliente: "vence hoy", "vence en 3 días". */
+export function signatureDueText(daysLeft: number): string {
+  if (daysLeft <= 0) return "vence hoy";
+  if (daysLeft === 1) return "vence mañana";
+  return `vence en ${daysLeft} día${daysLeft === 1 ? "" : "s"}`;
+}
+
+/**
+ * Recordatorio de vencimiento (issue #81): el cliente ya recibió la solicitud y
+ * todavía no firmó. Lleva el link, el código, el vencimiento y cuánto falta; el
+ * asunto lo distingue del aviso original.
+ */
+export function buildSignatureReminderMail(input: SignatureReminderMailInput): SignatureRequestMailContent {
+  const dueText = signatureDueText(input.daysLeft);
+  const subject = `Recordatorio · falta firmar «${input.title}» · ${dueText}`;
+  const content: MailContent = {
+    title: `Recordatorio · ${dueText === "vence hoy" ? "firma hoy" : "tu firma sigue pendiente"}`,
+    intro: [
+      `Hola ${clientLabel(input.recipientName)},`,
+      `${input.senderName} de ${input.organizationName} te recuerda que falta firmar «${input.title}»: el enlace ${dueText}.`,
+    ],
+    rows: [
+      { label: "Documento", value: input.title, strong: true },
+      { label: "Vencimiento", value: `${formatDate(input.expiresAt)} · ${dueText}`, strong: true },
+      { label: "Código de la solicitud", value: input.code },
+      { label: "Método de firma", value: input.methodLabel },
+    ],
+    cta: { label: "Firmar ahora", url: input.portalUrl },
+    note: "Si ya firmaste, ignorá este mensaje: la solicitud queda registrada con fecha y hora.",
+    preheader: `${dueText} · ${input.title} · código ${input.code}`,
+    eyebrow: "Firma de documentos",
+    status: { label: "Firma pendiente", tone: "warning" },
+    organization: input.organizationName,
+    reason: `te recordamos firmar el documento «${input.title}»`,
+  };
+  return { subject, html: renderMail(content), text: renderMailText(content) };
+}
+
 export type SignatureOtpMailInput = {
   organizationName: string;
   title: string;

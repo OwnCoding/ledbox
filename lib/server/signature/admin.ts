@@ -94,14 +94,22 @@ function adminEventDetail(row: { eventType: string; metadataJson: unknown; actor
   if (row.eventType === "EMAIL_SENT" || row.eventType === "EMAIL_FAILED" || row.eventType === "COMPLETION_EMAIL_SENT") {
     const to = text("to");
     const reason = text("motivo");
-    return [to ? `A: ${to}` : null, reason].filter((part): part is string => Boolean(part)).join(" · ") || null;
+    const reminder = text("tipo") === "recordatorio";
+    const days = metadata?.diasRestantes;
+    const marker = reminder
+      ? typeof days === "number"
+        ? `Recordatorio · vence en ${days} día${days === 1 ? "" : "s"}`
+        : "Recordatorio de vencimiento"
+      : metadata?.reenvio === true
+        ? "Reenvío"
+        : null;
+    return [marker, to ? `A: ${to}` : null, reason].filter((part): part is string => Boolean(part)).join(" · ") || null;
   }
   if (row.eventType === "REJECTED" || row.eventType === "CANCELLED") return text("motivo");
   if (row.eventType === "OTP_SENT") {
     const to = text("destino");
     return to ? `A: ${maskEmail(to)}` : null;
   }
-  if (row.eventType === "SIGNATURE_RECEIVED") return text("identificador");
   return null;
 }
 
@@ -129,6 +137,8 @@ export function adminSignatureView(row: AdminSignatureRow, mail?: { status: stri
     recipient: { name: row.recipientName, email: row.recipientEmail, phone: row.recipientPhone },
     senderName: row.senderName,
     document: row.attachment ? { kind: "attachment", name: row.attachment.name } : { kind: "budget", name: row.budget.title },
+    /** Presupuesto de origen (issue #81): el listado global lo dibuja siempre. */
+    budgetTitle: row.budget.title,
     documentHash: row.documentHash,
     signedDocumentHash: row.signedDocumentHash,
     signatureIdentifier: row.signatureIdentifier,
@@ -189,6 +199,48 @@ export async function getSignatureRequest(context: AdminContext, id: string): Pr
 }
 
 /**
+ * Vence las solicitudes activas con plazo cumplido (misma transición perezosa
+ * del portal) y devuelve las filas re-leídas cuando hubo cambios, para que el
+ * estado que ve el panel sea el real.
+ */
+async function expireStaleSignatureRequests(
+  rows: AdminSignatureRow[],
+  where: { organizationId: string; budgetId?: string },
+): Promise<AdminSignatureRow[]> {
+  const { expireSignatureRequest } = await import("./portal");
+  let expiredAny = false;
+  for (const row of rows) {
+    if (signatureIsExpired(row.status as SignatureStatusValue, row.expiresAt, new Date())) {
+      await expireSignatureRequest(row.id);
+      expiredAny = true;
+    }
+  }
+  if (!expiredAny) return rows;
+  return db.signatureRequest.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: rows.length,
+    include: adminInclude,
+  });
+}
+
+/** Último correo de cada solicitud (una sola consulta del historial de correo). */
+async function attachLastMail(rows: AdminSignatureRow[]): Promise<AdminSignatureRequestRow[]> {
+  const mails = await db.mailLog.findMany({
+    where: { entity: "SignatureRequest", entityId: { in: rows.map((row) => row.id) }, category: "signature" },
+    orderBy: { sentAt: "desc" },
+    select: { entityId: true, status: true, error: true, to: true, sentAt: true },
+  });
+  const lastMail = new Map<string, { status: string; error: string | null; to: string; at: Date }>();
+  for (const mail of mails) {
+    if (mail.entityId && !lastMail.has(mail.entityId)) {
+      lastMail.set(mail.entityId, { status: mail.status, error: mail.error, to: mail.to, at: mail.sentAt });
+    }
+  }
+  return rows.map((row) => adminSignatureView(row, lastMail.get(row.id) ?? null));
+}
+
+/**
  * Lista las solicitudes de un presupuesto con su cadena completa. Antes de
  * leer, vence las activas con plazo cumplido (misma transición de la lazily
  * expiry del portal) para que el estado que ve el panel sea el real.
@@ -200,41 +252,30 @@ export async function listSignatureRequests(context: AdminContext, budgetId: str
   });
   if (!budget) return [];
 
+  const where = { organizationId: context.organizationId, budgetId: budget.id };
   const rows = await db.signatureRequest.findMany({
-    where: { organizationId: context.organizationId, budgetId: budget.id },
+    where,
     orderBy: { createdAt: "desc" },
     take: 50,
     include: adminInclude,
   });
-  const { expireSignatureRequest } = await import("./portal");
-  let expiredAny = false;
-  for (const row of rows) {
-    if (signatureIsExpired(row.status as SignatureStatusValue, row.expiresAt, new Date())) {
-      await expireSignatureRequest(row.id);
-      expiredAny = true;
-    }
-  }
-  const fresh = expiredAny
-    ? await db.signatureRequest.findMany({
-        where: { organizationId: context.organizationId, budgetId: budget.id },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        include: adminInclude,
-      })
-    : rows;
+  return attachLastMail(await expireStaleSignatureRequests(rows, where));
+}
 
-  const mails = await db.mailLog.findMany({
-    where: { entity: "SignatureRequest", entityId: { in: fresh.map((row) => row.id) }, category: "signature" },
-    orderBy: { sentAt: "desc" },
-    select: { entityId: true, status: true, error: true, to: true, sentAt: true },
+/**
+ * Listado global de la empresa (sección «Firmas», issue #81): las últimas 200
+ * solicitudes con su estado real, presupuesto de origen y último correo. Los
+ * filtros (estado, búsqueda) los resuelve la UI sobre esta lista.
+ */
+export async function listOrganizationSignatureRequests(context: AdminContext): Promise<AdminSignatureRequestRow[]> {
+  const where = { organizationId: context.organizationId };
+  const rows = await db.signatureRequest.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    include: adminInclude,
   });
-  const lastMail = new Map<string, { status: string; error: string | null; to: string; at: Date }>();
-  for (const mail of mails) {
-    if (mail.entityId && !lastMail.has(mail.entityId)) {
-      lastMail.set(mail.entityId, { status: mail.status, error: mail.error, to: mail.to, at: mail.sentAt });
-    }
-  }
-  return fresh.map((row) => adminSignatureView(row, lastMail.get(row.id) ?? null));
+  return attachLastMail(await expireStaleSignatureRequests(rows, where));
 }
 
 export type CreateSignatureRequestInput = {

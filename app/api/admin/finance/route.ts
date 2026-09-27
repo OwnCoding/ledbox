@@ -14,6 +14,7 @@ import {
 } from "@/lib/server/finance-snapshots";
 import { clientLabel, dayKeyOf, dayStart, isValidDayKey, shiftDayKey } from "@/lib/server/notifications";
 import { runDailyPaymentReminders } from "@/lib/server/reminders";
+import { runDailySignatureReminders } from "@/lib/server/signature/reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,6 +117,12 @@ export async function GET() {
         await runDailyPaymentReminders({ organizationId });
       } catch (error) {
         console.error("[reminders] Falló el despacho diario:", error instanceof Error ? error.message : error);
+      }
+      // Recordatorios de vencimiento de firma (issue #81): misma corrida diaria.
+      try {
+        await runDailySignatureReminders({ organizationId });
+      } catch (error) {
+        console.error("[signature-reminders] Falló el despacho diario:", error instanceof Error ? error.message : error);
       }
     });
   }

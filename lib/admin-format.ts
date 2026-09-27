@@ -1603,3 +1603,24 @@ export function auditDetailText(
     .join(" · ");
 }
 
+
+// ── Datos sensibles enmascarados (issue #81) ────────────────────────────────
+// El panel muestra el destinatario de una firma enmascarado cuando el dato ya
+// no se está editando (`a***@dominio.com`, `••• 456`): la ficha del cliente y
+// los formularios siguen mostrando el dato real. Fuente única: el portal y los
+// servicios del servidor reexportan estas funciones.
+
+/** Correo enmascarado para pantalla: `ana.perez@acme.com` → `a***@acme.com`. */
+export function maskEmailDisplay(email: string | null | undefined): string | null {
+  const value = (email ?? "").trim();
+  const at = value.lastIndexOf("@");
+  if (at <= 0) return value ? "***" : null;
+  return `${value.slice(0, 1)}***@${value.slice(at + 1)}`;
+}
+
+/** Teléfono enmascarado para pantalla: solo los últimos 3 dígitos. */
+export function maskPhoneDisplay(phone: string | null | undefined): string | null {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return `••• ${digits.slice(-3)}`;
+}

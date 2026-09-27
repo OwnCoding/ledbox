@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatDate, formatDateTime } from "@/lib/admin-format";
+import { formatDate, maskEmailDisplay } from "@/lib/admin-format";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import type { AdminBudgetRow, AdminSignatureRequestRow } from "@/lib/admin-types";
 import { canWriteFinance } from "@/lib/admin-policy";
-import { signatureEventLabel, signatureStatusLabel, signatureStatusTone } from "@/lib/server/signature/rules";
+import { signatureStatusTone } from "@/lib/server/signature/rules";
 import { useAdminSession } from "../AdminShell";
 import { EmailField, PhoneField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
 import { AdminIcon } from "../AdminIcons";
+import { SignatureTimeline } from "../SignatureTimeline";
 import { AdminBadge, AdminButton, AdminDialog, AdminIconLink, AdminNote } from "../AdminUI";
 
 /**
@@ -126,11 +127,12 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
     resource.reload();
   }
 
-  async function resendRequest(request: AdminSignatureRequestRow) {
+  /** Envía (o reenvía) el correo de la solicitud con el destinatario enmascarado. */
+  async function sendByEmail(request: AdminSignatureRequestRow) {
     setActionBusy(true);
     setFormError("");
     setNotice("");
-    const result = await adminSend<{ mail: { status: string; error: string | null; to: string | null } }>(
+    const result = await adminSend<{ mail: { status: "sent" | "failed" | "skipped"; error: string | null; to: string | null } }>(
       `/api/admin/signatures/${encodeURIComponent(request.id)}/resend`,
       {},
     );
@@ -139,11 +141,17 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
       setFormError(result.error);
       return;
     }
+    const masked = maskEmailDisplay(result.data.mail.to);
+    const sent = result.data.mail.status === "sent";
     setNotice(
-      result.data.mail.status === "sent"
-        ? `Correo reenviado a ${result.data.mail.to}.`
-        : `No se pudo reenviar: ${result.data.mail.error ?? "el correo no está configurado"}.`,
+      sent
+        ? `Correo enviado a ${masked ?? "el destinatario"}.`
+        : `No se pudo enviar a ${masked ?? "el destinatario"}: ${result.data.mail.error ?? "el correo no está configurado"}.`,
     );
+    if (!sent) setFormError("El envío falló: revisá el historial de correo o compartí el link a mano.");
+    if (created && created.request.id === request.id) {
+      setCreated({ ...created, mail: result.data.mail });
+    }
     resource.reload();
   }
 
@@ -172,9 +180,9 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
               <dt>Correo</dt>
               <dd>
                 {created.mail.status === "sent"
-                  ? `enviado a ${created.mail.to}`
+                  ? `enviado a ${maskEmailDisplay(created.mail.to) ?? "el destinatario"}`
                   : created.mail.to
-                    ? `no se pudo enviar a ${created.mail.to}: ${created.mail.error ?? "sin detalle"}`
+                    ? `no se pudo enviar a ${maskEmailDisplay(created.mail.to)}: ${created.mail.error ?? "sin detalle"}`
                     : "sin correo cargado: compartí el link"}
               </dd>
             </div>
@@ -187,6 +195,16 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
             >
               Copiar link
             </AdminButton>
+            {created.request.recipient.email && created.request.active ? (
+              <AdminButton
+                icon="mail"
+                busy={actionBusy}
+                onClick={() => void sendByEmail(created.request)}
+                title={`Enviar por correo a ${maskEmailDisplay(created.request.recipient.email)}`}
+              >
+                Enviar por correo
+              </AdminButton>
+            ) : null}
             <AdminIconLink href={created.request.portalUrl} icon="external" label="Abrir el portal de firma" external />
             <span className="admin-dialog-spacer" />
             <AdminButton icon="pen" onClick={() => setCreated(null)}>
@@ -279,7 +297,9 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
                     <AdminBadge tone={signatureStatusTone(request.status)}>{request.statusLabel}</AdminBadge>
                     <span className="admin-signature-code">{request.code}</span>
                     <span className="admin-signature-meta">
-                      {request.recipient.name} · {request.methodLabel} · vence {formatDate(request.expiresAt)}
+                      {request.recipient.name}
+                      {request.recipient.email ? ` · ${maskEmailDisplay(request.recipient.email)}` : " · sin correo"} ·{" "}
+                      {request.methodLabel} · vence {formatDate(request.expiresAt)}
                     </span>
                   </header>
                   {request.rejectionReason ? (
@@ -304,10 +324,15 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
                       <AdminButton
                         icon="mail"
                         busy={actionBusy}
-                        onClick={() => void resendRequest(request)}
-                        title="Reenviar el correo de la solicitud"
+                        onClick={() => void sendByEmail(request)}
+                        title={
+                          request.recipient.email
+                            ? `Enviar por correo a ${maskEmailDisplay(request.recipient.email)}`
+                            : "La solicitud no tiene correo cargado: compartí el link a mano"
+                        }
+                        disabled={!request.recipient.email}
                       >
-                        Reenviar
+                        Enviar por correo
                       </AdminButton>
                     ) : null}
                     {writable && request.active ? (
@@ -337,38 +362,14 @@ export function SignatureDialog({ budget, onClose }: { budget: AdminBudgetRow; o
                     </div>
                   ) : null}
                   {isSelected && selected ? (
-                    <div className="admin-signature-timeline">
-                      {!selected.chainValid ? (
-                        <AdminNote tone="error">La cadena de auditoría no verifica: hay un evento alterado o fuera de orden.</AdminNote>
-                      ) : null}
-                      {selected.signatureIdentifier ? (
-                        <p className="admin-signature-detail">
-                          Identificador de firma: <strong>{selected.signatureIdentifier}</strong>
-                          {selected.signedAt ? ` · ${formatDateTime(selected.signedAt)}` : ""}
-                        </p>
-                      ) : null}
-                      <ol className="admin-timeline">
-                        {selected.events.map((event) => (
-                          <li className="admin-timeline-step" key={event.id} data-tone="neutral">
-                            <span className="admin-timeline-when">{formatDateTime(event.at)}</span>
-                            <span className="admin-timeline-body">
-                              <strong>
-                                {event.label}
-                                {event.actor ? <span className="admin-timeline-actor"> · {event.actor}</span> : null}
-                              </strong>
-                              {event.detail ? <small>{event.detail}</small> : null}
-                              <small className="admin-timeline-meta" title={event.hash}>
-                                {signatureEventLabel(event.type)} · hash {event.hash.slice(0, 12)}…
-                              </small>
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                      <p className="admin-signature-hash" title={selected.documentHash}>
-                        Huella del documento: {selected.documentHash.slice(0, 16)}…
-                        {selected.signedDocumentHash ? ` · firmada: ${selected.signedDocumentHash.slice(0, 16)}…` : ""}
-                      </p>
-                    </div>
+                    <SignatureTimeline
+                      events={selected.events}
+                      chainValid={selected.chainValid}
+                      documentHash={selected.documentHash}
+                      signedDocumentHash={selected.signedDocumentHash}
+                      identifier={selected.signatureIdentifier}
+                      signedAt={selected.signedAt}
+                    />
                   ) : null}
                 </article>
               );

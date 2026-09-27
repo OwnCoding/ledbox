@@ -60,6 +60,8 @@ export const ADMIN_NAV: readonly AdminNavGroup[] = [
       { href: "/clientes", label: "Clientes", icon: "clients" },
       { href: "/leads", label: "Leads", icon: "leads" },
       { href: "/presupuestos", label: "Presupuestos", icon: "budgets" },
+      // Firma de documentos (issue #81): listado global de solicitudes.
+      { href: "/firmas", label: "Firmas", icon: "pen" },
       { href: "/plantillas", label: "Plantillas", icon: "mail" },
     ],
   },

@@ -53,6 +53,7 @@ import {
   type AdminPaymentReminder,
   type AdminPaymentRow,
   type AdminReminderRun,
+  type AdminSignatureReminderRun,
   type AdminSupplierJobRow,
   type AdminTreasuryAccountRow,
   type AdminTreasuryAccountRef,
@@ -1354,7 +1355,10 @@ export function FinanzasModule() {
   async function runReminders() {
     setRunningReminders(true);
     setNotice(null);
-    const result = await adminSend<{ result?: AdminReminderRun }>("/api/admin/reminders/run", {});
+    const result = await adminSend<{ result?: AdminReminderRun; signatureReminders?: AdminSignatureReminderRun }>(
+      "/api/admin/reminders/run",
+      {},
+    );
     setRunningReminders(false);
     if (!result.ok) {
       setNotice({ tone: "error", text: result.error });
@@ -1376,9 +1380,16 @@ export function FinanzasModule() {
         `${formatNumber(summary.skipped)} sin correo`,
       ];
       if (summary.failed > 0) parts.push(`${formatNumber(summary.failed)} fallidos`);
+      // Recordatorios de firma (issue #81): misma corrida diaria.
+      const signatures = result.data.signatureReminders;
+      const signaturePart = signatures
+        ? ` · firmas: ${formatNumber(signatures.sent)} enviados${
+            signatures.alreadySentToday > 0 ? ` · ${formatNumber(signatures.alreadySentToday)} ya enviados hoy` : ""
+          } de ${formatNumber(signatures.candidates)} por vencer`
+        : "";
       setNotice({
-        tone: summary.failed > 0 ? "error" : "ok",
-        text: `Recordatorios de hoy: ${parts.join(" · ")} (${formatNumber(summary.candidates)} cobros en la ventana de 7 días).`,
+        tone: summary.failed > 0 || (signatures?.failed ?? 0) > 0 ? "error" : "ok",
+        text: `Recordatorios de hoy: ${parts.join(" · ")} (${formatNumber(summary.candidates)} cobros en la ventana de 7 días)${signaturePart}.`,
       });
     }
     finance.reload();

@@ -1333,6 +1333,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-table--clientes { --clientes-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.2fr) 5.5rem 5.5rem 2.75rem 2.75rem 5.25rem minmax(4.5rem, .9fr) 4.75rem 9.75rem; --admin-cols: var(--clientes-cols); --admin-table-min: 62rem; }
 .admin-table--eventos { --eventos-cols: 7.5rem 7rem minmax(8.5rem, 1.6fr) minmax(6.5rem, 1.1fr) minmax(5.5rem, 1fr) 4rem 4.5rem 5.75rem 7.5rem; --admin-cols: var(--eventos-cols); --admin-table-min: 61rem; }
 .admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5.5rem 5rem 5.25rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
+/* Firmas (issue #81): documento con su presupuesto de origen, destinatario
+   enmascarado, estado con el método, vencimiento con cuenta regresiva, último
+   correo, alta y acciones. Fila compacta: en mobile la tabla se desplaza sola. */
+.admin-table--firmas { --firmas-cols: minmax(9.5rem, 1.5fr) minmax(9rem, 1.3fr) 7.75rem 7.5rem minmax(7rem, 1fr) 5.75rem 11rem; --admin-cols: var(--firmas-cols); --admin-table-min: 66rem; }
 .admin-table--cobros { --cobros-cols: 5.75rem minmax(7rem, 1.2fr) minmax(8rem, 1.4fr) 4.5rem minmax(6.25rem, 1fr) 5.5rem 5.5rem 5.25rem; --admin-cols: var(--cobros-cols); --admin-table-min: 51.5rem; }
 /* Cobros a plazo (issues #16, #17 y #19): identidad, factura con su emisión,
    vencimiento con la cuenta regresiva, método con el cheque, recordatorio del

@@ -25,11 +25,21 @@ import {
   signatureCanReject,
   signatureCanSign,
   signatureCanTransition,
+  signatureEventTone,
   signatureIsExpired,
+  SIGNATURE_RESEND_LIMIT_PER_REQUEST,
+  SIGNATURE_RESEND_LIMIT_PER_USER,
   type SignatureStatusValue,
 } from "../lib/server/signature/rules";
 import { parseSignatureSubmission } from "../lib/server/signature/submission";
 import { localSignatureProvider } from "../lib/server/signature/provider";
+import { buildSignatureReminderMail, signatureDueText } from "../lib/server/mail/signature";
+import {
+  clampReminderDays,
+  shouldRemindSignature,
+  signatureReminderDaysLeft,
+  signatureReminderWindow,
+} from "../lib/server/signature/reminders";
 
 /**
  * Flujo del portal de firma (issue #79), en funciones puras: estados y
@@ -278,4 +288,84 @@ test("los estados del contrato incluyen los once del documento", () => {
     "CANCELLED",
   ] satisfies SignatureStatusValue[]);
   assert.equal(formatSignatureCode("ABCDEFGHJKLMNPQRSTUV"), "ABCD-EFGH-JKLM-NPQR-STUV");
+});
+
+// ── Recordatorio de vencimiento (issue #81) ─────────────────────────────────
+
+test("la ventana del recordatorio termina al fin del día de Asunción de hoy + días", () => {
+  const now = new Date("2026-09-27T12:00:00.000Z"); // 09:00 en Asunción
+  const { dayKey, windowEnd } = signatureReminderWindow(now, 3);
+  assert.equal(dayKey, "2026-09-27");
+  // 01-10 00:00 en Asunción (UTC-3) = 03:00 UTC: cubre los 3 días completos.
+  assert.equal(windowEnd.toISOString(), "2026-10-01T03:00:00.000Z");
+});
+
+test("los días restantes se miden por día de Asunción", () => {
+  const now = new Date("2026-09-27T12:00:00.000Z"); // 27/09 09:00 Asunción (UTC-3)
+  assert.equal(signatureReminderDaysLeft(new Date("2026-09-30T02:00:00.000Z"), now), 2); // 29/09 23:00 Asunción
+  assert.equal(signatureReminderDaysLeft(new Date("2026-10-01T02:00:00.000Z"), now), 3); // 30/09 23:00 Asunción
+  assert.equal(signatureReminderDaysLeft(new Date("2026-09-27T12:00:00.000Z"), now), 0);
+  assert.equal(signatureReminderDaysLeft(new Date("2026-09-26T12:00:00.000Z"), now), -1);
+});
+
+test("solo se recuerda una solicitud activa, sin vencer, dentro de la ventana y sin correo de hoy", () => {
+  const now = new Date("2026-09-27T12:00:00.000Z");
+  const { windowEnd } = signatureReminderWindow(now, 3);
+  const base = { now, windowEnd, emailedToday: false };
+  assert.equal(shouldRemindSignature({ ...base, status: "VIEWED", expiresAt: new Date("2026-09-29T12:00:00.000Z") }), true);
+  assert.equal(shouldRemindSignature({ ...base, status: "SENT", expiresAt: windowEnd }), false, "el límite es exclusivo");
+  assert.equal(shouldRemindSignature({ ...base, status: "SIGNED", expiresAt: new Date("2026-09-28T12:00:00.000Z") }), false);
+  assert.equal(shouldRemindSignature({ ...base, status: "VALIDATED", expiresAt: new Date("2026-09-28T12:00:00.000Z") }), false);
+  assert.equal(shouldRemindSignature({ ...base, status: "CANCELLED", expiresAt: new Date("2026-09-28T12:00:00.000Z") }), false);
+  assert.equal(shouldRemindSignature({ ...base, status: "VIEWED", expiresAt: new Date("2026-09-27T11:00:00.000Z") }), false, "vencida no se recuerda");
+  assert.equal(
+    shouldRemindSignature({ ...base, emailedToday: true, status: "VIEWED", expiresAt: new Date("2026-09-28T12:00:00.000Z") }),
+    false,
+    "un correo de hoy (aviso, reenvío o recordatorio) alcanza",
+  );
+});
+
+test("los días de antelación se normalizan entre 1 y 15 (default 3)", () => {
+  assert.equal(clampReminderDays(undefined), 3);
+  assert.equal(clampReminderDays("0"), 3);
+  assert.equal(clampReminderDays("-2"), 3);
+  assert.equal(clampReminderDays(2), 2);
+  assert.equal(clampReminderDays("30"), 15);
+});
+
+test("el correo de recordatorio lleva el código, el link y cuánto falta", () => {
+  const mail = buildSignatureReminderMail({
+    organizationName: "LedBox",
+    title: "Alquiler de pantallas",
+    recipientName: "Ana Pérez",
+    senderName: "Dario Deoli",
+    code: "ABCD-EFGH-JKLM-NPQR-STUV",
+    portalUrl: "https://clientes.ledbox.online/firma/ABCD-EFGH-JKLM-NPQR-STUV",
+    expiresAt: new Date("2026-09-30T03:00:00.000Z"),
+    daysLeft: 3,
+    methodLabel: "Firma dibujada",
+  });
+  assert.match(mail.subject, /Recordatorio/);
+  assert.match(mail.subject, /vence en 3 días/);
+  assert.match(mail.html, /ABCD-EFGH-JKLM-NPQR-STUV/);
+  assert.match(mail.html, /https:\/\/clientes\.ledbox\.online\/firma\//);
+  assert.match(mail.text, /vence en 3 días/);
+  assert.equal(signatureDueText(0), "vence hoy");
+  assert.equal(signatureDueText(1), "vence mañana");
+});
+
+test("el envío manual por correo tiene rate limit por solicitud y por usuario", () => {
+  assert.ok(SIGNATURE_RESEND_LIMIT_PER_REQUEST >= 1 && SIGNATURE_RESEND_LIMIT_PER_REQUEST <= 10);
+  assert.ok(SIGNATURE_RESEND_LIMIT_PER_USER >= SIGNATURE_RESEND_LIMIT_PER_REQUEST);
+});
+
+test("los eventos de firma tienen tono por significado (panel y portal)", () => {
+  assert.equal(signatureEventTone("EMAIL_FAILED"), "danger");
+  assert.equal(signatureEventTone("REJECTED"), "danger");
+  assert.equal(signatureEventTone("SIGNATURE_RECEIVED"), "ok");
+  assert.equal(signatureEventTone("DOCUMENT_VALIDATED"), "ok");
+  assert.equal(signatureEventTone("VIEWED"), "accent");
+  assert.equal(signatureEventTone("EMAIL_SENT"), "info");
+  assert.equal(signatureEventTone("OTP_VALIDATED"), "info");
+  assert.equal(signatureEventTone("OTRO"), "neutral");
 });

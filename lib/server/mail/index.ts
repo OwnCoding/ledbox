@@ -31,9 +31,12 @@ export {
 export {
   buildSignatureCompletedMail,
   buildSignatureOtpMail,
+  buildSignatureReminderMail,
   buildSignatureRequestMail,
+  signatureDueText,
   type SignatureCompletedMailInput,
   type SignatureOtpMailInput,
+  type SignatureReminderMailInput,
   type SignatureRequestMailContent,
   type SignatureRequestMailInput,
 } from "./signature";
