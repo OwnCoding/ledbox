@@ -153,3 +153,7 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - rebaja con monto formateado y tope validado en vivo (Refs #76,
 - monto Gs y porcentaje con el manejo de owncoding-ui
 
+## v2.1.45 — 2026-09-27
+
+- overrides de postcss y deepmerge-ts para npm audit en cero
+
