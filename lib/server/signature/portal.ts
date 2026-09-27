@@ -90,6 +90,7 @@ export type PortalSignatureRequest = {
   methodLabel: string;
   otpRequired: boolean;
   otpVerified: boolean;
+  otpSentAt: string | null;
   demo: boolean;
   createdAt: string;
   expiresAt: string;
@@ -119,8 +120,11 @@ export type PortalSignatureRequest = {
 /** Evidencia de navegación ya protegida (hashes listos para guardar). */
 export type SignatureClientEvidence = { ipHash: string | null; userAgentHash: string | null };
 
+/** Headers mínimos que necesita la evidencia (sirve para `Request` y `headers()`). */
+export type SignatureHeaderSource = { get(name: string): string | null };
+
 /** Hashes de IP/user-agent a partir de los headers del pedido del cliente. */
-export function signatureClientEvidence(headers: Headers): SignatureClientEvidence {
+export function signatureClientEvidence(headers: SignatureHeaderSource): SignatureClientEvidence {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const ip = forwarded || headers.get("x-real-ip") || "";
   return { ipHash: hashIp(ip), userAgentHash: hashUserAgent(headers.get("user-agent")) };
@@ -136,6 +140,17 @@ export class SignatureActionError extends Error {
     super(message);
     this.name = "SignatureActionError";
   }
+}
+
+/** Respuesta JSON de un error de negocio del portal (con `Retry-After` si aplica). */
+export function signatureJsonError(error: unknown): Response {
+  if (error instanceof SignatureActionError) {
+    return Response.json(
+      { error: error.message },
+      { status: error.status, headers: error.retryAfter ? { "Retry-After": String(error.retryAfter) } : undefined },
+    );
+  }
+  throw error;
 }
 
 const iso = (value: Date | null | undefined) => (value ? value.toISOString() : null);
@@ -154,9 +169,10 @@ function eventDetail(row: {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   };
   if (row.eventType === "EMAIL_SENT" || row.eventType === "EMAIL_FAILED" || row.eventType === "COMPLETION_EMAIL_SENT") {
+    // El cliente ve a quién fue (enmascarado); el motivo técnico crudo queda
+    // para el panel (`adminEventDetail`), nunca en la auditoría pública.
     const to = text("to");
-    const reason = text("motivo");
-    return [to ? `A: ${maskEmail(to)}` : null, reason].filter((part): part is string => Boolean(part)).join(" · ") || null;
+    return to ? `A: ${maskEmail(to)}` : null;
   }
   if (row.eventType === "REJECTED" || row.eventType === "CANCELLED") return text("motivo");
   if (row.eventType === "SIGNATURE_RECEIVED") {
@@ -329,6 +345,7 @@ function portalView(row: SignatureRequestRow): PortalSignatureRequest {
     methodLabel: signatureMethodLabel(row.method),
     otpRequired: row.otpRequired,
     otpVerified: Boolean(row.otpVerifiedAt),
+    otpSentAt: iso(row.otpSentAt),
     demo,
     createdAt: row.createdAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
@@ -896,4 +913,47 @@ export async function verifySignatureOtp(input: { code: string; evidence: Signat
       tx,
     );
   });
+}
+
+/**
+ * Firma dibujada guardada, como data URL PNG (la constancia imprimible la
+ * embebe sin pedir otra credencial). `null` si la firma fue tipográfica o la
+ * solicitud no existe.
+ */
+export async function loadSignatureImage(code: string | null | undefined): Promise<string | null> {
+  const normalized = normalizeSignatureCode(code);
+  if (!normalized) return null;
+  const request = await db.signatureRequest.findUnique({ where: { publicCode: normalized }, select: { id: true } });
+  if (!request) return null;
+  const evidence = await db.signatureEvidence.findFirst({
+    where: { requestId: request.id, type: "SIGNATURE", status: "COMPLETED" },
+    select: { data: true, mime: true },
+  });
+  if (!evidence?.data || !evidence.mime?.startsWith("image/")) return null;
+  return `data:${evidence.mime};base64,${Buffer.from(evidence.data).toString("base64")}`;
+}
+
+/**
+ * Adjunto de una solicitud con código válido (rate limit por IP): el documento
+ * nunca se sirve sin código. Devuelve `null` si el código no existe o si la
+ * solicitud firma el presupuesto imprimible (no hay binario).
+ */
+export async function loadSignatureAttachment(
+  code: string | null | undefined,
+  evidence: SignatureClientEvidence,
+): Promise<{ name: string; mime: string; size: number; data: Uint8Array } | null> {
+  await limitedOrThrow(`signature-doc:${evidence.ipHash ?? "sin-ip"}`, 120);
+  const normalized = normalizeSignatureCode(code);
+  if (!normalized) return null;
+  const row = await db.signatureRequest.findUnique({
+    where: { publicCode: normalized },
+    select: { attachment: { select: { name: true, mime: true, size: true, data: true } } },
+  });
+  if (!row?.attachment) return null;
+  return {
+    name: row.attachment.name,
+    mime: row.attachment.mime,
+    size: row.attachment.size,
+    data: new Uint8Array(row.attachment.data),
+  };
 }
