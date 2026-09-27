@@ -122,6 +122,11 @@ export function verifySignatureChain(
 }
 
 // ── Protección de datos del cliente ─────────────────────────────────────────
+// El enmascarado de pantalla vive en `lib/admin-format.ts` (fuente única que
+// comparten panel y portal); acá se reexporta para el contrato del portal y las
+// pruebas.
+
+export { maskEmailDisplay as maskEmail, maskPhoneDisplay as maskPhone } from "@/lib/admin-format";
 
 function hashPepper(): string {
   return process.env.SIGNATURE_HASH_PEPPER || process.env.AUTH_SECRET || "ledbox-signature-dev-pepper";
@@ -139,24 +144,6 @@ export function hashUserAgent(userAgent: string | null | undefined): string | nu
   const value = (userAgent ?? "").trim().slice(0, 400);
   if (!value) return null;
   return createHmac("sha256", hashPepper()).update(`ua:${value}`).digest("hex");
-}
-
-/** Correo enmascarado para el portal: `ana@dominio.com` → `a***@dominio.com`. */
-export function maskEmail(email: string | null | undefined): string | null {
-  const value = (email ?? "").trim();
-  const at = value.lastIndexOf("@");
-  if (at <= 0) return value ? "***" : null;
-  const local = value.slice(0, at);
-  const domain = value.slice(at + 1);
-  const head = local.slice(0, 1);
-  return `${head}***@${domain}`;
-}
-
-/** Teléfono enmascarado para el portal: solo los últimos 3 dígitos visibles. */
-export function maskPhone(phone: string | null | undefined): string | null {
-  const digits = (phone ?? "").replace(/\D/g, "");
-  if (!digits) return null;
-  return `••• ${digits.slice(-3)}`;
 }
 
 /** Etiqueta corta de una huella (primeros 12 hex) para las pantallas de auditoría. */

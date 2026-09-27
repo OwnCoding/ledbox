@@ -18,6 +18,7 @@ import {
   signatureCanReject,
   signatureCanSign,
   signatureEventLabel,
+  signatureEventTone,
   signatureEvidenceLabel,
   signatureIsExpired,
   signatureMethodLabel,
@@ -169,10 +170,17 @@ function eventDetail(row: {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   };
   if (row.eventType === "EMAIL_SENT" || row.eventType === "EMAIL_FAILED" || row.eventType === "COMPLETION_EMAIL_SENT") {
-    // El cliente ve a quién fue (enmascarado); el motivo técnico crudo queda
-    // para el panel (`adminEventDetail`), nunca en la auditoría pública.
+    // El cliente ve a quién fue (enmascarado) y si fue un recordatorio; el
+    // motivo técnico crudo queda para el panel (`adminEventDetail`).
     const to = text("to");
-    return to ? `A: ${maskEmail(to)}` : null;
+    const reminder = text("tipo") === "recordatorio";
+    const days = metadata.diasRestantes;
+    const marker = reminder
+      ? typeof days === "number"
+        ? `Recordatorio · vence en ${days} día${days === 1 ? "" : "s"}`
+        : "Recordatorio de vencimiento"
+      : null;
+    return [marker, to ? `A: ${maskEmail(to)}` : null].filter((part): part is string => Boolean(part)).join(" · ") || null;
   }
   if (row.eventType === "REJECTED" || row.eventType === "CANCELLED") return text("motivo");
   if (row.eventType === "SIGNATURE_RECEIVED") {
@@ -204,17 +212,9 @@ export function portalTimeline(rows: Array<{
     label: signatureEventLabel(row.eventType),
     detail: eventDetail(row),
     actor: eventActorLabel(row.actorType),
-    tone: eventTone(row.eventType),
+    tone: signatureEventTone(row.eventType),
     hash: row.eventHash,
   }));
-}
-
-function eventTone(type: string): AdminTone {
-  if (type === "REJECTED" || type === "EXPIRED" || type === "CANCELLED" || type === "EMAIL_FAILED") return "danger";
-  if (type === "SIGNATURE_RECEIVED" || type === "DOCUMENT_VALIDATED" || type === "TIMESTAMP_APPLIED" || type === "SEAL") return "ok";
-  if (type === "VIEWED" || type === "CONSENT_ACCEPTED" || type === "SIGNING_STARTED") return "accent";
-  if (type === "EMAIL_SENT" || type === "OTP_SENT" || type === "COMPLETION_EMAIL_SENT") return "info";
-  return "neutral";
 }
 
 const requestInclude = {

@@ -84,8 +84,15 @@ const TRANSITIONS: Record<SignatureStatusValue, readonly SignatureStatusValue[]>
   CANCELLED: [],
 };
 
-/** ¿La transición `from → to` es válida? (misma regla que aplica el servidor). */
-export function signatureCanTransition(from: SignatureStatusValue, to: SignatureStatusValue): boolean {
+/**
+ * Rate limit del envío manual por correo (issue #81): por solicitud y por
+ * usuario, en la ventana de 15 minutos de `lib/server/rate-limit.ts`. Evita que
+ * un doble clic o un reenvío en loop llenen el correo del cliente.
+ */
+export const SIGNATURE_RESEND_LIMIT_PER_REQUEST = 5;
+export const SIGNATURE_RESEND_LIMIT_PER_USER = 20;
+
+/** ¿La transición `from → to` es válida? (misma regla que aplica el servidor). */export function signatureCanTransition(from: SignatureStatusValue, to: SignatureStatusValue): boolean {
   return TRANSITIONS[from]?.includes(to) ?? false;
 }
 
@@ -232,8 +239,24 @@ export function signatureEvidenceLabel(type: string | null | undefined): string 
   return EVIDENCE_LABELS[type as SignatureEvidenceTypeValue] ?? "Evidencia";
 }
 
-/** Motivo público por el que la firma está bloqueada (copy del doc). */
-export function signatureBlockedReason(status: SignatureStatusValue): string {
+/**
+ * Tono visual de un evento de firma: el mismo criterio en el panel y en el
+ * portal (una sola fuente). Ámbar para lo pendiente, verde para lo firmado
+ * y validado, rojo para lo fallido o bloqueado.
+ */
+export function signatureEventTone(type: string | null | undefined): AdminTone {
+  if (type === "REJECTED" || type === "EXPIRED" || type === "CANCELLED" || type === "EMAIL_FAILED" || type === "OTP_FAILED") {
+    return "danger";
+  }
+  if (type === "SIGNATURE_RECEIVED" || type === "TIMESTAMP_APPLIED" || type === "DOCUMENT_VALIDATED" || type === "SEAL") {
+    return "ok";
+  }
+  if (type === "VIEWED" || type === "CONSENT_ACCEPTED" || type === "SIGNING_STARTED") return "accent";
+  if (type === "EMAIL_SENT" || type === "OTP_SENT" || type === "OTP_VALIDATED" || type === "COMPLETION_EMAIL_SENT") return "info";
+  return "neutral";
+}
+
+/** Motivo público por el que la firma está bloqueada (copy del doc). */export function signatureBlockedReason(status: SignatureStatusValue): string {
   if (status === "REJECTED") return "Esta solicitud de firma fue rechazada. Escribinos si necesitás firmar una versión nueva.";
   if (status === "EXPIRED") return "El enlace venció o ya no está disponible. Pedinos uno nuevo para firmar.";
   if (status === "CANCELLED") return "Esta solicitud fue cancelada por el equipo. Escribinos si necesitás firmar una versión nueva.";

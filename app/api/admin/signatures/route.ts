@@ -1,15 +1,16 @@
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { jsonError, readJson } from "@/lib/server/http";
-import { createSignatureRequest, listSignatureRequests } from "@/lib/server/signature/admin";
+import { createSignatureRequest, listOrganizationSignatureRequests, listSignatureRequests } from "@/lib/server/signature/admin";
 import { SignatureActionError } from "@/lib/server/signature/portal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * `GET /api/admin/signatures?budgetId=…` (issue #79): solicitudes de firma del
- * presupuesto con su estado real, cadena de auditoría, evidencias y último
- * correo. Cualquier rol con membresía lee (VIEWER incluido).
+ * `GET /api/admin/signatures` (issues #79 y #81): con `?budgetId=…` devuelve las
+ * solicitudes de ese presupuesto (ficha); sin `budgetId` devuelve el listado
+ * global de la empresa (sección «Firmas»), con estado real, presupuesto de
+ * origen y último correo. Cualquier rol con membresía lee (VIEWER incluido).
  *
  * `POST /api/admin/signatures`: crea la solicitud desde la ficha del
  * presupuesto (documento = imprimible y/o adjunto, destinatario, vencimiento,
@@ -20,7 +21,9 @@ export async function GET(request: Request) {
   const auth = await requireAdminContext();
   if (!auth.ok) return auth.response;
   const budgetId = new URL(request.url).searchParams.get("budgetId")?.trim() ?? "";
-  if (!budgetId) return jsonError("Elegí el presupuesto para ver sus solicitudes de firma.", 400);
+  if (!budgetId) {
+    return Response.json({ requests: await listOrganizationSignatureRequests(auth.context) });
+  }
   return Response.json({ requests: await listSignatureRequests(auth.context, budgetId) });
 }
 
