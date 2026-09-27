@@ -9,6 +9,7 @@ import { sendMail } from "../mail";
 import { buildSignatureRequestMail } from "../mail/signature";
 import type { AdminContext } from "../tenancy";
 import { paymentPlanOf } from "../budget-portal";
+import type { AdminSignatureRequestRow } from "@/lib/admin-types";
 import { appendSignatureEvent, lockSignatureRequest } from "./events";
 import { attachmentDocumentHash, budgetDocumentHash, budgetDocumentPayload, type SignatureBudgetDocument } from "./document";
 import { generateSignatureCode } from "./codes";
@@ -40,62 +41,6 @@ const MAX_MESSAGE = 600;
 const MAX_CANCEL_REASON = 300;
 const DEFAULT_EXPIRES_DAYS = 15;
 const MAX_EXPIRES_DAYS = 90;
-
-export type AdminSignatureEventView = {
-  id: string;
-  type: string;
-  label: string;
-  status: string | null;
-  at: string;
-  actor: string | null;
-  actorType: string;
-  detail: string | null;
-  hash: string;
-  previousHash: string | null;
-};
-
-export type AdminSignatureEvidenceView = {
-  type: string;
-  status: string;
-  reference: string | null;
-  capturedAt: string | null;
-};
-
-export type AdminSignatureRequestView = {
-  id: string;
-  code: string;
-  title: string;
-  status: SignatureStatusValue;
-  statusLabel: string;
-  method: SignatureMethodValue;
-  methodLabel: string;
-  otpRequired: boolean;
-  otpVerified: boolean;
-  recipient: { name: string; email: string | null; phone: string | null };
-  senderName: string;
-  document: { kind: "attachment" | "budget"; name: string };
-  documentHash: string;
-  signedDocumentHash: string | null;
-  signatureIdentifier: string | null;
-  signatureProvider: string;
-  expiresAt: string;
-  sentAt: string | null;
-  viewedAt: string | null;
-  signedAt: string | null;
-  validatedAt: string | null;
-  rejectedAt: string | null;
-  rejectionReason: string | null;
-  cancelledAt: string | null;
-  cancelReason: string | null;
-  createdAt: string;
-  portalUrl: string;
-  active: boolean;
-  chainValid: boolean;
-  events: AdminSignatureEventView[];
-  evidence: AdminSignatureEvidenceView[];
-  /** Último envío de correo de la solicitud (historial real). */
-  mail: { status: string; error: string | null; to: string; at: string } | null;
-};
 
 const adminInclude = {
   organization: { select: { name: true, slug: true } },
@@ -167,7 +112,7 @@ function adminEventActor(row: { actorType: string; actorName: string | null }): 
 }
 
 /** Vista del panel de una solicitud: estado real, cadena y último correo. */
-export function adminSignatureView(row: AdminSignatureRow, mail?: { status: string; error: string | null; to: string; at: Date } | null): AdminSignatureRequestView {
+export function adminSignatureView(row: AdminSignatureRow, mail?: { status: string; error: string | null; to: string; at: Date } | null): AdminSignatureRequestRow {
   const status = row.status as SignatureStatusValue;
   const stale = signatureIsExpired(status, row.expiresAt, new Date());
   const effective = stale ? ("EXPIRED" as SignatureStatusValue) : status;
@@ -237,7 +182,7 @@ async function loadAdminRow(organizationId: string, id: string): Promise<AdminSi
 }
 
 /** Solicitud de la empresa por id (para el diálogo del panel). */
-export async function getSignatureRequest(context: AdminContext, id: string): Promise<AdminSignatureRequestView | null> {
+export async function getSignatureRequest(context: AdminContext, id: string): Promise<AdminSignatureRequestRow | null> {
   const row = await loadAdminRow(context.organizationId, id);
   if (!row) return null;
   return adminSignatureView(row, await lastMailForRequest(row.id));
@@ -248,7 +193,7 @@ export async function getSignatureRequest(context: AdminContext, id: string): Pr
  * leer, vence las activas con plazo cumplido (misma transición de la lazily
  * expiry del portal) para que el estado que ve el panel sea el real.
  */
-export async function listSignatureRequests(context: AdminContext, budgetId: string): Promise<AdminSignatureRequestView[]> {
+export async function listSignatureRequests(context: AdminContext, budgetId: string): Promise<AdminSignatureRequestRow[]> {
   const budget = await db.budget.findFirst({
     where: { id: budgetId, organizationId: context.organizationId },
     select: { id: true },
@@ -306,7 +251,7 @@ export type CreateSignatureRequestInput = {
 };
 
 export type CreateSignatureRequestResult = {
-  request: AdminSignatureRequestView;
+  request: AdminSignatureRequestRow;
   mail: { status: "sent" | "failed" | "skipped"; error: string | null; to: string | null };
 };
 
@@ -557,7 +502,7 @@ export async function cancelSignatureRequest(
   context: AdminContext,
   id: string,
   reason: string | null | undefined,
-): Promise<AdminSignatureRequestView> {
+): Promise<AdminSignatureRequestRow> {
   const cleanReason = String(reason ?? "").trim().slice(0, MAX_CANCEL_REASON);
   const row = await loadAdminRow(context.organizationId, id);
   if (!row) throw new SignatureActionError(404, "No encontramos esa solicitud de firma.");
