@@ -15,10 +15,19 @@ import {
 } from "@/lib/admin-format";
 import { canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import { csvBool, csvFilename, downloadCsv, type CsvBlock } from "@/lib/admin-export";
+import {
+  FIELD_LIMITS,
+  FIELD_MESSAGES,
+  inventoryImageError,
+  inventoryPriceValue,
+  inventoryPriceWarning,
+  inventoryWholesaleDaysValue,
+} from "@/lib/field-rules";
 import type {
   AdminApiResponse,
   AdminInventoryAvailability,
   AdminInventoryItemRow,
+  AdminInventoryRow,
   AdminInventorySubstitute,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
@@ -38,10 +47,11 @@ import {
   AdminTable,
   AdminToolbar,
 } from "../AdminUI";
-import { DateField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
+import { DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { AdminIcon } from "../AdminIcons";
 
 const KIND_OPTIONS = [
   { value: "ALL", label: "Todos los tipos" },
@@ -64,7 +74,79 @@ const STATUS_PICK_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "
 /** Vistas del inventario (issue #57): lista densa y cuadrícula de tarjetas. */
 const INVENTARIO_VIEWS = ["list", "grid"] as const;
 
-const EMPTY_FORM = { name: "", category: "", inventoryKind: "REUSABLE", quantity: "1" };
+const EMPTY_FORM = {
+  name: "",
+  category: "",
+  inventoryKind: "REUSABLE",
+  quantity: "1",
+  imageUrl: "",
+  listPrice: "",
+  wholesalePrice: "",
+  wholesaleFromDays: "0",
+  minimumPrice: "",
+};
+
+/** Precios del formulario de edición (issue #90), en el contrato de `MoneyField`. */
+const EMPTY_PRICES = { listPrice: "", wholesalePrice: "", wholesaleFromDays: "0", minimumPrice: "" };
+
+/**
+ * Precio de venta listo para mostrar: Gs formateado o «—» cuando todavía no
+ * está cargado (0 = sin precio, nunca un cero engañoso).
+ */
+function priceText(value: number): string {
+  return value > 0 ? formatMoney(value) : "—";
+}
+
+/** Regla del mayorista en palabras: `desde 3 días` (0 = sin regla). */
+function wholesaleDaysText(days: number): string {
+  return days === 1 ? "desde 1 día" : `desde ${formatNumber(days)} días`;
+}
+
+/** Mayorista en una línea: `Gs 500.000 · desde 3 días`; sin precio, «—». */
+function wholesaleText(item: Pick<AdminInventoryRow, "wholesalePrice" | "wholesaleFromDays">): string {
+  if (item.wholesalePrice <= 0) return "—";
+  return item.wholesaleFromDays > 0
+    ? `${formatMoney(item.wholesalePrice)} · ${wholesaleDaysText(item.wholesaleFromDays)}`
+    : formatMoney(item.wholesalePrice);
+}
+
+/** Detalle completo de los tres precios para el `title` de una fila o tarjeta. */
+function pricesTitle(
+  item: Pick<AdminInventoryRow, "listPrice" | "wholesalePrice" | "minimumPrice" | "wholesaleFromDays">,
+): string {
+  return `Lista ${priceText(item.listPrice)} · Mayorista ${wholesaleText(item)} · Mínimo ${priceText(item.minimumPrice)} (PYG)`;
+}
+
+/**
+ * Miniatura del ítem (issue #86): la imagen del producto con fallback al ícono
+ * del módulo. Nunca queda un cuadro roto: si la URL no carga, vuelve al ícono
+ * (misma mecánica que el avatar único del panel).
+ */
+function InventoryThumb({ item, size = 26 }: { item: Pick<AdminInventoryRow, "imageUrl">; size?: number }) {
+  const [failed, setFailed] = useState(false);
+
+  // Una imagen nueva (otro ítem u otra URL) vuelve a intentar cargarla.
+  useEffect(() => setFailed(false), [item.imageUrl]);
+
+  return (
+    <span className="admin-item-thumb" style={{ width: size, height: size }} aria-hidden="true">
+      {item.imageUrl && !failed ? (
+        <img
+          src={item.imageUrl}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <AdminIcon name="inventory" size={Math.max(12, Math.round(size * 0.5))} />
+      )}
+    </span>
+  );
+}
 
 /** Horas de salida/devolución en formato de tabla (es-PY, 24 h). */
 function stamp(value: string | null): string {
@@ -106,6 +188,14 @@ export function InventarioModule() {
   const [statusError, setStatusError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [view, setView] = useAdminModuleView("inventario", INVENTARIO_VIEWS);
+
+  // Edición de precios de venta del ítem abierto (issue #90).
+  const [priceItem, setPriceItem] = useState<AdminInventoryItemRow | null>(null);
+  const [priceForm, setPriceForm] = useState(EMPTY_PRICES);
+  const [priceBusy, setPriceBusy] = useState(false);
+  const [priceError, setPriceError] = useState("");
+  /** El aviso del alta (por ejemplo, precios incoherentes) se muestra en tono warn. */
+  const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
 
   // Disponibilidad del ítem abierto en el rango pedido (issue #18).
   const [rangeAvailability, setRangeAvailability] = useState<AdminInventoryAvailability | null>(null);
@@ -159,6 +249,26 @@ export function InventarioModule() {
     [inventory, rangeActive],
   );
 
+  // Aviso de coherencia de precios (issue #90): se ve mientras se cargan o
+  // editan (el guardado no se bloquea; el API devuelve el mismo aviso).
+  const formPriceWarning = useMemo(() => {
+    const list = inventoryPriceValue(form.listPrice);
+    const wholesale = inventoryPriceValue(form.wholesalePrice);
+    const minimum = inventoryPriceValue(form.minimumPrice);
+    if (list === false || wholesale === false || minimum === false) return null;
+    return inventoryPriceWarning({ listPrice: list ?? 0, wholesalePrice: wholesale ?? 0, minimumPrice: minimum ?? 0 });
+  }, [form.listPrice, form.wholesalePrice, form.minimumPrice]);
+
+  const editPriceWarning = useMemo(() => {
+    const list = inventoryPriceValue(priceForm.listPrice);
+    const wholesale = inventoryPriceValue(priceForm.wholesalePrice);
+    const minimum = inventoryPriceValue(priceForm.minimumPrice);
+    if (list === false || wholesale === false || minimum === false) return null;
+    return inventoryPriceWarning({ listPrice: list ?? 0, wholesalePrice: wholesale ?? 0, minimumPrice: minimum ?? 0 });
+  }, [priceForm.listPrice, priceForm.wholesalePrice, priceForm.minimumPrice]);
+
+  const selectedPriceWarning = selected ? inventoryPriceWarning(selected) : null;
+
   // Disponibilidad del ítem abierto en el rango pedido + sustitutos sugeridos.
   useEffect(() => {
     if (!selectedId || !rangeActive) {
@@ -194,24 +304,107 @@ export function InventarioModule() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
     setFormError("");
     setNotice("");
+    const image = form.imageUrl.trim();
+    const imageError = inventoryImageError(image);
+    if (imageError) {
+      setFormError(imageError);
+      return;
+    }
+    const listPrice = inventoryPriceValue(form.listPrice);
+    const wholesalePrice = inventoryPriceValue(form.wholesalePrice);
+    const minimumPrice = inventoryPriceValue(form.minimumPrice);
+    if (listPrice === false || wholesalePrice === false || minimumPrice === false) {
+      setFormError(FIELD_MESSAGES.price);
+      return;
+    }
+    const wholesaleFromDays = inventoryWholesaleDaysValue(form.wholesaleFromDays);
+    if (wholesaleFromDays === false) {
+      setFormError(FIELD_MESSAGES.wholesaleDays);
+      return;
+    }
+    setBusy(true);
     // El alta de ítems vive en `/api/admin/resources` (contrato existente del panel).
-    const result = await adminSend("/api/admin/resources", {
+    const result = await adminSend<AdminApiResponse>("/api/admin/resources", {
       kind: "inventory",
       name: form.name,
       category: form.category || "General",
       inventoryKind: form.inventoryKind,
       quantity: Number(form.quantity) || 1,
+      imageUrl: image,
+      listPrice: listPrice ?? 0,
+      wholesalePrice: wholesalePrice ?? 0,
+      wholesaleFromDays: wholesaleFromDays ?? 0,
+      minimumPrice: minimumPrice ?? 0,
     });
     setBusy(false);
     if (!result.ok) {
       setFormError(result.error);
       return;
     }
-    setNotice(`Ítem «${form.name}» cargado.`);
+    // El aviso de precios incoherentes no bloquea el alta: se muestra tal cual.
+    const warning = typeof result.data.warning === "string" ? result.data.warning : "";
+    setNotice(`Ítem «${form.name}» cargado.${warning ? ` ${warning}` : ""}`);
+    setNoticeTone(warning ? "warn" : "ok");
     setForm(EMPTY_FORM);
+    resources.reload();
+  }
+
+  /** Abre la edición de precios del ítem con los valores actuales. */
+  function openPrices(item: AdminInventoryItemRow) {
+    setShowForm(false);
+    setFormError("");
+    setPriceError("");
+    setNotice("");
+    setNoticeTone("ok");
+    setPriceItem(item);
+    setPriceForm({
+      listPrice: item.listPrice > 0 ? String(item.listPrice) : "",
+      wholesalePrice: item.wholesalePrice > 0 ? String(item.wholesalePrice) : "",
+      wholesaleFromDays: String(item.wholesaleFromDays),
+      minimumPrice: item.minimumPrice > 0 ? String(item.minimumPrice) : "",
+    });
+  }
+
+  /** Guarda los precios de venta del ítem abierto (issue #90). */
+  async function submitPrices(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!priceItem) return;
+    setPriceError("");
+    setNotice("");
+    setNoticeTone("ok");
+    const listPrice = inventoryPriceValue(priceForm.listPrice);
+    const wholesalePrice = inventoryPriceValue(priceForm.wholesalePrice);
+    const minimumPrice = inventoryPriceValue(priceForm.minimumPrice);
+    if (listPrice === false || wholesalePrice === false || minimumPrice === false) {
+      setPriceError(FIELD_MESSAGES.price);
+      return;
+    }
+    const wholesaleFromDays = inventoryWholesaleDaysValue(priceForm.wholesaleFromDays);
+    if (wholesaleFromDays === false) {
+      setPriceError(FIELD_MESSAGES.wholesaleDays);
+      return;
+    }
+    setPriceBusy(true);
+    const result = await adminSend<AdminApiResponse>("/api/admin/inventory", {
+      kind: "prices",
+      id: priceItem.id,
+      listPrice: listPrice ?? 0,
+      wholesalePrice: wholesalePrice ?? 0,
+      wholesaleFromDays: wholesaleFromDays ?? 0,
+      minimumPrice: minimumPrice ?? 0,
+    });
+    setPriceBusy(false);
+    if (!result.ok) {
+      setPriceError(result.error);
+      return;
+    }
+    const warning = typeof result.data.warning === "string" ? result.data.warning : "";
+    setNotice(`Precios de «${priceItem.name}» guardados.${warning ? ` ${warning}` : ""}`);
+    setNoticeTone(warning ? "warn" : "ok");
+    setPriceItem(null);
+    setPriceForm(EMPTY_PRICES);
     resources.reload();
   }
 
@@ -349,6 +542,7 @@ export function InventarioModule() {
             icon="plus"
             onClick={() => {
               setFormError("");
+              setPriceItem(null);
               setShowForm((open) => !open);
             }}
             aria-expanded={showForm}
@@ -358,7 +552,7 @@ export function InventarioModule() {
         ) : null}
       </AdminToolbar>
 
-      {notice ? <AdminNote tone="ok">{notice}</AdminNote> : null}
+      {notice ? <AdminNote tone={noticeTone}>{notice}</AdminNote> : null}
       {statusError ? <AdminNote tone="error">{statusError}</AdminNote> : null}
       {from && !to ? <AdminNote>Elegí «Hasta» para ver la disponibilidad en el rango (mientras tanto se muestra la de hoy).</AdminNote> : null}
       {!from && to ? <AdminNote>Elegí «Disponible desde» para ver la disponibilidad en el rango (mientras tanto se muestra la de hoy).</AdminNote> : null}
@@ -371,6 +565,7 @@ export function InventarioModule() {
           onCancel={() => setShowForm(false)}
           busy={busy}
           status={formError}
+          statusNote={!formError && formPriceWarning ? <AdminNote tone="warn">{formPriceWarning}</AdminNote> : undefined}
         >
           <TextField
             label="Artículo"
@@ -404,6 +599,79 @@ export function InventarioModule() {
             value={form.quantity}
             onChange={(value) => setForm({ ...form, quantity: value })}
           />
+          <TextField
+            label="Imagen (URL)"
+            maxLength={FIELD_LIMITS.image}
+            value={form.imageUrl}
+            onChange={(value) => setForm({ ...form, imageUrl: value })}
+            placeholder="Ej.: /assets/products/pantalla-led.png"
+            hint="Ruta interna (/assets/…) o URL http(s). Opcional."
+            inputMode="url"
+            autoCapitalize="none"
+          />
+          <MoneyField
+            label="Precio de lista"
+            value={form.listPrice}
+            onChange={(value) => setForm({ ...form, listPrice: value })}
+            hint="En guaraníes; vacío o 0 = sin cargar."
+          />
+          <MoneyField
+            label="Mayorista"
+            value={form.wholesalePrice}
+            onChange={(value) => setForm({ ...form, wholesalePrice: value })}
+            hint="Precio por volumen."
+          />
+          <NumberField
+            label="Mayorista desde (días)"
+            maxLength={4}
+            value={form.wholesaleFromDays}
+            onChange={(value) => setForm({ ...form, wholesaleFromDays: value })}
+            hint="0 = sin regla mayorista."
+          />
+          <MoneyField
+            label="Mínimo"
+            value={form.minimumPrice}
+            onChange={(value) => setForm({ ...form, minimumPrice: value })}
+            hint="Piso de venta del ítem."
+          />
+        </AdminFormPanel>
+      ) : null}
+
+      {writable && priceItem ? (
+        <AdminFormPanel
+          title={`Precios de venta · ${priceItem.name}`}
+          submitLabel="Guardar precios"
+          onSubmit={submitPrices}
+          onCancel={() => setPriceItem(null)}
+          busy={priceBusy}
+          status={priceError}
+          statusNote={!priceError && editPriceWarning ? <AdminNote tone="warn">{editPriceWarning}</AdminNote> : undefined}
+        >
+          <MoneyField
+            label="Precio de lista"
+            value={priceForm.listPrice}
+            onChange={(value) => setPriceForm({ ...priceForm, listPrice: value })}
+            hint="En guaraníes; vacío o 0 = sin cargar."
+          />
+          <MoneyField
+            label="Mayorista"
+            value={priceForm.wholesalePrice}
+            onChange={(value) => setPriceForm({ ...priceForm, wholesalePrice: value })}
+            hint="Precio por volumen."
+          />
+          <NumberField
+            label="Mayorista desde (días)"
+            maxLength={4}
+            value={priceForm.wholesaleFromDays}
+            onChange={(value) => setPriceForm({ ...priceForm, wholesaleFromDays: value })}
+            hint="0 = sin regla mayorista."
+          />
+          <MoneyField
+            label="Mínimo"
+            value={priceForm.minimumPrice}
+            onChange={(value) => setPriceForm({ ...priceForm, minimumPrice: value })}
+            hint="Piso de venta del ítem."
+          />
         </AdminFormPanel>
       ) : null}
 
@@ -428,7 +696,12 @@ export function InventarioModule() {
             }${conflictEvents.length > 0 ? ` · ${conflictEvents.map((conflict) => `${conflict.eventName} (${formatNumber(conflict.quantity)})`).join(", ")}` : ""}`;
             return {
               id: item.id,
-              title: item.name,
+              title: (
+                <span className="admin-item-identity">
+                  <InventoryThumb item={item} size={32} />
+                  <span className="admin-item-name">{item.name}</span>
+                </span>
+              ),
               titleTooltip: item.sku ? `${item.name} · ${item.sku}` : item.name,
               subtitle: item.sku ? `SKU ${item.sku} · ${item.category}` : item.category,
               badges: [
@@ -440,6 +713,9 @@ export function InventarioModule() {
                 { label: rangeActive ? "Libres en rango" : "Libres ahora", value: formatNumber(available), title: availableTitle },
                 { label: "Reposición", value: formatMoney(item.replacementCost), title: formatMoney(item.replacementCost) },
                 { label: "Costo diario", value: formatMoney(item.dailyCost), title: formatMoney(item.dailyCost) },
+                { label: "Precio lista", value: priceText(item.listPrice), title: pricesTitle(item) },
+                { label: "Mayorista", value: wholesaleText(item), title: pricesTitle(item) },
+                { label: "Mínimo", value: priceText(item.minimumPrice), title: pricesTitle(item) },
                 {
                   label: "Estado",
                   value: <AdminBadge tone={statusTone(item.status)}>{inventoryStatusLabel(item.status)}</AdminBadge>,
@@ -460,6 +736,14 @@ export function InventarioModule() {
                     />
                   ) : null}
                   <span className="admin-actions">
+                    {writable ? (
+                      <AdminButton
+                        icon="edit"
+                        title={`Editar precios: ${item.name}`}
+                        aria-label={`Editar precios: ${item.name}`}
+                        onClick={() => openPrices(item)}
+                      />
+                    ) : null}
                     <AdminButton
                       icon="info"
                       title={`Ver asignaciones y disponibilidad: ${item.name}`}
@@ -483,6 +767,7 @@ export function InventarioModule() {
               { label: rangeActive ? "Libres en rango" : "Libres ahora", end: true },
               { label: "Reposición", end: true },
               { label: "Costo diario", end: true },
+              { label: "Precios", end: true },
               { label: "Estado" },
               { label: "Acciones", end: true },
             ]}
@@ -496,8 +781,13 @@ export function InventarioModule() {
               return (
                 <AdminRow key={item.id}>
                   <AdminCell title={item.name}>
-                    <strong>{item.name}</strong>
-                    {item.sku ? <span className="admin-code"> · {item.sku}</span> : null}
+                    <span className="admin-item-identity">
+                      <InventoryThumb item={item} />
+                      <span className="admin-item-name">
+                        <strong>{item.name}</strong>
+                        {item.sku ? <span className="admin-code"> · {item.sku}</span> : null}
+                      </span>
+                    </span>
                   </AdminCell>
                   <AdminCell title={item.category}>{item.category}</AdminCell>
                   <AdminCell>
@@ -534,6 +824,20 @@ export function InventarioModule() {
                   <AdminCell end title={formatMoney(item.dailyCost)}>
                     {formatMoney(item.dailyCost)}
                   </AdminCell>
+                  <AdminCell end title={pricesTitle(item)}>
+                    <span className="admin-cell-stack">
+                      <span className="admin-nowrap">{priceText(item.listPrice)}</span>
+                      {item.wholesalePrice > 0 || item.minimumPrice > 0 ? (
+                        <small className="admin-cell-sub">
+                          {item.wholesalePrice > 0
+                            ? `May. ${formatNumber(item.wholesalePrice)}${item.wholesaleFromDays > 0 ? ` (${item.wholesaleFromDays} d)` : ""}`
+                            : null}
+                          {item.wholesalePrice > 0 && item.minimumPrice > 0 ? " · " : null}
+                          {item.minimumPrice > 0 ? `Mín. ${formatNumber(item.minimumPrice)}` : null}
+                        </small>
+                      ) : null}
+                    </span>
+                  </AdminCell>
                   <AdminCell title={writable ? `Cambiar estado: ${item.name}` : `Estado: ${inventoryStatusLabel(item.status)}`}>
                     {writable ? (
                       <AdminSelect
@@ -552,6 +856,14 @@ export function InventarioModule() {
                   </AdminCell>
                   <AdminCell end className="admin-cell--actions">
                     <span className="admin-actions">
+                      {writable ? (
+                        <AdminButton
+                          icon="edit"
+                          title={`Editar precios: ${item.name}`}
+                          aria-label={`Editar precios: ${item.name}`}
+                          onClick={() => openPrices(item)}
+                        />
+                      ) : null}
                       <AdminButton
                         icon="info"
                         title={`Ver asignaciones y disponibilidad: ${item.name}`}
@@ -576,14 +888,48 @@ export function InventarioModule() {
               : `${formatNumber(selected.availability.availableNow)} de ${formatNumber(selected.quantity)} libres ahora`
           }
           action={
-            <AdminButton
-              icon="close"
-              title="Cerrar disponibilidad"
-              aria-label="Cerrar disponibilidad"
-              onClick={() => setSelectedId("")}
-            />
+            <span className="admin-panel-actions">
+              {writable ? (
+                <AdminButton
+                  icon="edit"
+                  title={`Editar precios: ${selected.name}`}
+                  aria-label={`Editar precios: ${selected.name}`}
+                  onClick={() => openPrices(selected)}
+                />
+              ) : null}
+              <AdminButton
+                icon="close"
+                title="Cerrar disponibilidad"
+                aria-label="Cerrar disponibilidad"
+                onClick={() => setSelectedId("")}
+              />
+            </span>
           }
         >
+          {selected.imageUrl ? (
+            <figure className="admin-item-figure">
+              <InventoryThumb item={selected} size={72} />
+              <figcaption>
+                {selected.category}
+                {selected.sku ? ` · ${selected.sku}` : ""}
+              </figcaption>
+            </figure>
+          ) : null}
+          <dl className="admin-item-prices">
+            <div>
+              <dt>Precio de lista</dt>
+              <dd>{priceText(selected.listPrice)}</dd>
+            </div>
+            <div>
+              <dt>Mayorista</dt>
+              <dd>{wholesaleText(selected)}</dd>
+            </div>
+            <div>
+              <dt>Mínimo</dt>
+              <dd>{priceText(selected.minimumPrice)}</dd>
+            </div>
+          </dl>
+          {selectedPriceWarning ? <AdminNote tone="warn">{selectedPriceWarning}</AdminNote> : null}
           {rangeActive ? (
             rangeLoading ? (
               <AdminNote>Calculando la disponibilidad del rango…</AdminNote>

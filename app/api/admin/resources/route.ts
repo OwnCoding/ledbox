@@ -4,6 +4,14 @@ import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
+import {
+  FIELD_MESSAGES,
+  inventoryImageValid,
+  inventoryPriceValue,
+  inventoryPriceWarning,
+  inventoryWholesaleDaysValue,
+  normalizeInventoryImage,
+} from "@/lib/field-rules";
 import { PROMOTER_AVAILABILITIES, type PromoterAvailabilityValue } from "@/lib/admin-types";
 
 export const runtime = "nodejs";
@@ -53,6 +61,18 @@ function readUntil(raw: unknown): Date | null | false {
   if (typeof raw !== "string") return false;
   const key = raw.trim().slice(0, 10);
   return isValidDayKey(key) ? dayStart(key) : false;
+}
+
+/**
+ * Imagen del ítem de inventario (issue #86): ruta interna `/assets/…` o URL
+ * http(s) ya validada. Sin valor → `null`; con un valor inválido → `false`.
+ */
+function readInventoryImage(raw: unknown): string | null | false {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") return false;
+  const image = normalizeInventoryImage(raw);
+  if (!image) return null;
+  return inventoryImageValid(image) ? image : false;
 }
 
 /**
@@ -160,14 +180,29 @@ export async function POST(request: Request) {
     const auth = await requireAdminContext("inventory.write");
     if (!auth.ok) return auth.response;
     if (typeof body.name !== "string") return jsonError("Name is required.", 400);
+    const imageUrl = readInventoryImage(body.imageUrl);
+    if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
+    const listPrice = inventoryPriceValue(body.listPrice);
+    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
+    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const minimumPrice = inventoryPriceValue(body.minimumPrice);
+    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
+    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
     const inventory = await db.inventoryItem.create({
       data: {
         id: randomUUID(),
         organizationId: auth.context.organizationId,
         name: body.name.trim(),
         category: typeof body.category === "string" ? body.category.trim() : "General",
+        imageUrl,
         kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
         quantity: typeof body.quantity === "number" ? body.quantity : 1,
+        listPrice: listPrice ?? 0,
+        wholesalePrice: wholesalePrice ?? 0,
+        minimumPrice: minimumPrice ?? 0,
+        wholesaleFromDays: wholesaleFromDays ?? 0,
       },
     });
     await recordAudit({
@@ -176,9 +211,25 @@ export async function POST(request: Request) {
       entity: "InventoryItem",
       entityId: inventory.id,
       summary: `Cargó el ítem de inventario «${inventory.name}»`,
-      detail: { fields: auditPick(inventory, ["name", "category", "kind", "quantity", "status", "sku"]) },
+      detail: {
+        fields: auditPick(inventory, [
+          "name",
+          "category",
+          "kind",
+          "quantity",
+          "status",
+          "sku",
+          "imageUrl",
+          "listPrice",
+          "wholesalePrice",
+          "minimumPrice",
+          "wholesaleFromDays",
+        ]),
+      },
     });
-    return Response.json({ inventory }, { status: 201 });
+    // Aviso (no error) si el mayorista o el mínimo superan al precio de lista.
+    const warning = inventoryPriceWarning(inventory);
+    return Response.json(warning ? { inventory, warning } : { inventory }, { status: 201 });
   }
 
   if (kind === "promoter") {

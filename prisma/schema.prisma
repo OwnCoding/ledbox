@@ -1566,22 +1566,32 @@ model BankStatementRow {
 }
 
 model InventoryItem {
-  id              String           @id
-  organizationId  String
-  name            String
-  category        String
-  sku             String?
-  kind            InventoryKind    @default(REUSABLE)
-  status          InventoryStatus  @default(AVAILABLE)
-  quantity        Int              @default(1)
-  replacementCost Int              @default(0)
-  dailyCost       Int              @default(0)
-  notes           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  assignments     EventInventory[]
-  budgetItems     BudgetItem[]
+  id                String           @id
+  organizationId    String
+  name              String
+  category          String
+  sku               String?
+  /// Imagen del ítem (issue #86): ruta interna `/assets/…` o URL http(s).
+  /// La miniatura del panel la dibuja con fallback al ícono (nunca rota).
+  imageUrl          String?
+  kind              InventoryKind    @default(REUSABLE)
+  status            InventoryStatus  @default(AVAILABLE)
+  quantity          Int              @default(1)
+  replacementCost   Int              @default(0)
+  dailyCost         Int              @default(0)
+  /// Precios de venta en guaraníes (issue #90). En 0 no están cargados: los
+  /// define el dueño desde el panel; no salen de la landing.
+  listPrice         Int              @default(0)
+  wholesalePrice    Int              @default(0)
+  minimumPrice      Int              @default(0)
+  /// Días desde los que aplica el precio mayorista; 0 = sin regla.
+  wholesaleFromDays Int              @default(0)
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignments       EventInventory[]
+  budgetItems       BudgetItem[]
 
   @@unique([organizationId, sku])
   @@index([status, category])

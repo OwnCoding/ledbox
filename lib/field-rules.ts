@@ -57,6 +57,8 @@ export const FIELD_LIMITS = {
   email: 200,
   /** Seriales/IMEI. */
   serial: 40,
+  /** Imagen de un ítem de inventario: ruta interna o URL http(s). */
+  image: 400,
   /** Monto general (compras, anticipos, cobros). */
   amountGeneral: 10_000_000_000,
   /** Monto de ventas: presupuestos y precios unitarios. */
@@ -71,6 +73,9 @@ export const FIELD_MESSAGES = {
   phone: "Ingresá un teléfono válido con código de país.",
   email: "Ingresá un correo válido.",
   serial: "El serial solo admite letras, números, guiones y guiones bajos.",
+  image: "Usá una ruta interna (/assets/…) o una URL http(s) válida.",
+  price: "Ingresá un precio válido en guaraníes (hasta Gs 10.000.000.000).",
+  wholesaleDays: "Ingresá los días del mayorista (0 a 3.650).",
   amount: "Ingresá un monto válido en guaraníes.",
   amountLimit: "El monto supera el máximo permitido.",
   percent: "Ingresá un porcentaje entre 0 y 100.",
@@ -267,6 +272,98 @@ export function serialValid(value: string): boolean {
 
 export function serialError(value: string): string | null {
   return serialValid(value) ? null : FIELD_MESSAGES.serial;
+}
+
+/**
+ * Imagen de un ítem de inventario (issue #86): ruta interna (`/assets/…`) o URL
+ * http(s), recortada y sin HTML. El campo es opcional; vacío no es error.
+ */
+export function normalizeInventoryImage(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+/** ¿Imagen válida? Ruta interna `/assets/…` o URL http(s), sin HTML ni espacios y dentro del tope. */
+export function inventoryImageValid(value: string | null | undefined): boolean {
+  const image = normalizeInventoryImage(value);
+  if (!image || image.length > FIELD_LIMITS.image) return false;
+  if (/[<>"'`\\]/.test(image) || /[\s\u0000-\u001f\u007f]/.test(image)) return false;
+  if (image.startsWith("/assets/")) return true;
+  try {
+    const url = new URL(image);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Error de la imagen: `null` también cuando viene vacía (el campo es opcional). */
+export function inventoryImageError(value: string | null | undefined): string | null {
+  const image = normalizeInventoryImage(value);
+  if (!image) return null;
+  return inventoryImageValid(image) ? null : FIELD_MESSAGES.image;
+}
+
+/**
+ * Precios de venta del inventario (issue #90): en guaraníes enteros, 0 = sin
+ * cargar. El tope es el del `MoneyInput` (10.000 millones).
+ */
+export const INVENTORY_PRICE_LIMIT = FIELD_LIMITS.amountGeneral;
+
+/** Tope de los días del precio mayorista (10 años alcanza y evita desbordar el Int). */
+export const INVENTORY_WHOLESALE_DAYS_MAX = 3650;
+
+/**
+ * Precio de venta validado: entero ≥ 0 dentro del tope. `null` cuando no viene
+ * valor (queda en 0 / no cambia) y `false` cuando es inválido (texto, HTML,
+ * negativo, decimal o fuera del tope).
+ */
+export function inventoryPriceValue(raw: unknown): number | null | false {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw === "number") {
+    return Number.isSafeInteger(raw) && raw >= 0 && raw <= INVENTORY_PRICE_LIMIT ? raw : false;
+  }
+  if (typeof raw === "string") {
+    const clean = raw.trim();
+    if (!/^\d+$/.test(clean)) return false;
+    const price = Number(clean);
+    return price <= INVENTORY_PRICE_LIMIT ? price : false;
+  }
+  return false;
+}
+
+/** Días del precio mayorista validados: entero entre 0 y `INVENTORY_WHOLESALE_DAYS_MAX`. */
+export function inventoryWholesaleDaysValue(raw: unknown): number | null | false {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw === "number") {
+    return Number.isInteger(raw) && raw >= 0 && raw <= INVENTORY_WHOLESALE_DAYS_MAX ? raw : false;
+  }
+  if (typeof raw === "string") {
+    const clean = raw.trim();
+    if (!/^\d+$/.test(clean)) return false;
+    const days = Number(clean);
+    return days <= INVENTORY_WHOLESALE_DAYS_MAX ? days : false;
+  }
+  return false;
+}
+
+/**
+ * Aviso de coherencia de los precios (issue #90): con lista cargada, el
+ * mayorista o el mínimo no deberían superarla. Devuelve el texto del aviso o
+ * `null` si están en orden; el guardado nunca se bloquea por esto.
+ */
+export function inventoryPriceWarning(prices: {
+  listPrice: number;
+  wholesalePrice: number;
+  minimumPrice: number;
+}): string | null {
+  if (prices.listPrice <= 0) return null;
+  const above: string[] = [];
+  if (prices.wholesalePrice > prices.listPrice) above.push("mayorista");
+  if (prices.minimumPrice > prices.listPrice) above.push("mínimo");
+  if (above.length === 0) return null;
+  return above.length === 1
+    ? `El precio ${above[0]} supera al de lista.`
+    : `Los precios ${above[0]} y ${above[1]} superan al de lista.`;
 }
 
 export type ParsedPhone = {

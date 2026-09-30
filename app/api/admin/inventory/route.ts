@@ -6,6 +6,12 @@ import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import {
+  FIELD_MESSAGES,
+  inventoryPriceValue,
+  inventoryPriceWarning,
+  inventoryWholesaleDaysValue,
+} from "@/lib/field-rules";
+import {
   BLOCKED_INVENTORY_STATUSES,
   EVENT_RANGE_SELECT,
   assignmentIsActiveNow,
@@ -35,7 +41,8 @@ export const dynamic = "force-dynamic";
  * - `GET ?fields=selector` (issue #62): opción mínima para los selectores —ítem
  *   con su disponibilidad de hoy y **sin** el historial de asignaciones—. Sin el
  *   parámetro la respuesta es la de siempre (compatible).
- * - `POST`: `status` (estado del ítem), `assignment` (alta/edición con
+ * - `POST`: `status` (estado del ítem), `prices` (precios de venta: lista,
+ *   mayorista con su umbral de días y mínimo), `assignment` (alta/edición con
  *   validación de disponibilidad), `checkout` (salida), `checkin` (devolución
  *   con estado, daños y faltantes) y `assignment-delete`.
  *
@@ -185,6 +192,47 @@ export async function POST(request: Request) {
       });
     }
     return Response.json({ inventory });
+  }
+
+  if (kind === "prices") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return jsonError("Falta el ítem de inventario.", 400);
+    const listPrice = inventoryPriceValue(body.listPrice);
+    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
+    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const minimumPrice = inventoryPriceValue(body.minimumPrice);
+    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
+    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
+    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
+    const existing = await db.inventoryItem.findFirst({
+      where: { id, organizationId },
+      select: { id: true, name: true, listPrice: true, wholesalePrice: true, minimumPrice: true, wholesaleFromDays: true },
+    });
+    if (!existing) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
+    // Los campos sin valor no cambian: es una edición parcial de precios.
+    const inventory = await db.inventoryItem.update({
+      where: { id: existing.id },
+      data: {
+        listPrice: listPrice ?? undefined,
+        wholesalePrice: wholesalePrice ?? undefined,
+        minimumPrice: minimumPrice ?? undefined,
+        wholesaleFromDays: wholesaleFromDays ?? undefined,
+      },
+    });
+    const changes = auditChanges(existing, inventory, ["listPrice", "wholesalePrice", "minimumPrice", "wholesaleFromDays"]);
+    if (changes) {
+      await recordAudit({
+        context: auth.context,
+        action: "update",
+        entity: "InventoryItem",
+        entityId: inventory.id,
+        summary: `Actualizó los precios de «${existing.name}»`,
+        detail: { changes },
+      });
+    }
+    const warning = inventoryPriceWarning(inventory);
+    return Response.json(warning ? { inventory, warning } : { inventory });
   }
 
   if (kind === "assignment") {

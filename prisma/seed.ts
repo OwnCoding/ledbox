@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_MESSAGE_TEMPLATES } from '@/lib/server/message-templates';
+import { LEDBOX_INVENTORY_CATALOG, ledboxInventoryItemId } from '@/lib/server/inventory-catalog';
 import { DEFAULT_PLAN_CODE, PLAN_CATALOG } from '@/lib/plan-rules';
 
 const prisma = new PrismaClient();
@@ -62,6 +63,32 @@ async function main() {
       skipDuplicates: true,
     });
     console.log(`Seeded ${DEFAULT_MESSAGE_TEMPLATES.length} message templates for ${organization.slug}.`);
+  }
+
+  // Inventario de arranque (issue #86): los 7 productos del catálogo de la
+  // landing (P·01…P·07) con su imagen, solo si la empresa todavía no tiene
+  // ítems. Misma lista que la provisión de la migración
+  // `202609300001_inventory_item_image` (que cubre el deploy, donde el seed no
+  // corre); nunca pisa lo que el equipo haya editado.
+  const inventoryCount = await prisma.inventoryItem.count({ where: { organizationId: organization.id } });
+  if (inventoryCount === 0) {
+    await prisma.inventoryItem.createMany({
+      data: LEDBOX_INVENTORY_CATALOG.map((item) => ({
+        id: ledboxInventoryItemId(organization.id, item.slug),
+        organizationId: organization.id,
+        name: item.name,
+        category: item.category,
+        sku: item.sku,
+        imageUrl: item.imageUrl,
+        kind: item.kind,
+        quantity: item.quantity,
+        replacementCost: item.replacementCost,
+        dailyCost: item.dailyCost,
+        notes: item.notes,
+      })),
+      skipDuplicates: true,
+    });
+    console.log(`Seeded ${LEDBOX_INVENTORY_CATALOG.length} inventory items for ${organization.slug}.`);
   }
 
   // Catálogo de planes (issue #42): misma lista que la migración
