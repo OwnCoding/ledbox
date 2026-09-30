@@ -19,6 +19,7 @@ import {
   FIELD_LIMITS,
   FIELD_MESSAGES,
   inventoryImageError,
+  inventoryImageValid,
   inventoryPriceValue,
   inventoryPriceWarning,
   inventoryWholesaleDaysValue,
@@ -609,6 +610,15 @@ export function InventarioModule() {
             inputMode="url"
             autoCapitalize="none"
           />
+          {/* Vista previa con la misma caja uniforme del módulo (issue #98):
+              sin imagen (o con una URL que no carga) muestra el ícono, nunca
+              un cuadro roto. */}
+          <div className="admin-field">
+            <span className="admin-field-label">Vista previa</span>
+            <span className="admin-image-preview">
+              <InventoryThumb item={{ imageUrl: inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null }} size={64} />
+            </span>
+          </div>
           <MoneyField
             label="Precio de lista"
             value={form.listPrice}
