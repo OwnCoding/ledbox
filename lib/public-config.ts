@@ -64,6 +64,16 @@ export function whatsappUrl(message: string): string {
   return `https://wa.me/${publicConfig.whatsappNumber}?text=${encodeURIComponent(message)}`;
 }
 
+/**
+ * Política de privacidad del sitio público (issue #93, Ley 7593/2025): la
+ * página la publica el sitio (PANEL, issue #92); acá vive la URL única que
+ * enlazan el portal del presupuesto y el portal de firma. Sin dependencia
+ * dura: si la página todavía no está publicada, el enlace apunta igual.
+ */
+export function privacyPolicyUrl(): string {
+  return `${publicConfig.siteUrl}/privacidad`;
+}
+
 /** Host (sin puerto) de una URL de configuración; `""` si no es una URL válida. */
 export function hostnameOf(url: string): string {
   try {

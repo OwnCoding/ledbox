@@ -2757,6 +2757,11 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-form { display: grid; gap: 12px; }
 .portal-consent { display: flex; align-items: flex-start; gap: 10px; color: var(--muted-2); font-size: 12.5px; line-height: 1.5; cursor: pointer; }
 .portal-consent input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--led); }
+/* Finalidad y política de privacidad junto al consentimiento (issue #93): una
+   línea informativa alineada con el texto del checkbox, con el enlace del sitio. */
+.portal-consent-purpose { margin: 0; padding-left: 28px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.portal-consent-purpose a { color: var(--led); font-weight: 600; text-decoration: none; }
+.portal-consent-purpose a:hover { text-decoration: underline; }
 
 /* Autogestión del presupuesto (issue #14): editor de ítems, rebaja, solicitudes y pago */
 .portal-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 12px; }
