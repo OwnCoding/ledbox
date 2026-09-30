@@ -176,3 +176,14 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - fase 3 — portal del cliente y sitio público en las guías
 - piel fase 3 — C·Vitrina y C1·Aurora viva en portal del cliente y sitio público
 
+## v2.1.49 — 2026-09-30
+
+- reglas de precios y coherencia
+- precios visibles y editables en el panel
+- precios de venta del ítem (lista, mayorista y mínimo)
+- reglas de la imagen y provisión del catálogo
+- miniatura y alta con imagen en el panel
+- imagen del ítem, migración aditiva y catálogo de la landing
+- alta rápida de cliente y evento con selectores de búsqueda
+- combobox con búsqueda en el kit del panel
+
