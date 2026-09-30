@@ -65,6 +65,7 @@ import {
   DateField,
   MoneyField,
   NumberField,
+  RucField,
   SearchField,
   SegmentedField,
   SelectField,
@@ -1123,13 +1124,11 @@ export function FacturacionModule() {
           meta="los edita OWNER/ADMIN"
         >
           <form className="admin-form-grid" onSubmit={saveProfile} aria-busy={busy || undefined}>
-            <TextField
+            <RucField
               label="RUC"
               value={profileForm.ruc}
               onChange={(value) => setProfileForm({ ...profileForm, ruc: value })}
-              maxLength={20}
               disabled={!canProfile}
-              placeholder="80012345-6"
               hint="El RUC de la empresa emisora"
             />
             <TextField
@@ -1245,11 +1244,10 @@ export function FacturacionModule() {
                   maxLength={160}
                   placeholder="Eventos del Sur S.A."
                 />
-                <TextField
+                <RucField
                   label="RUC del receptor"
                   value={invoiceForm.clientRuc}
                   onChange={(value) => setInvoiceForm({ ...invoiceForm, clientRuc: value })}
-                  maxLength={20}
                   placeholder="80098765-4 (opcional)"
                   hint="Sin RUC queda como consumidor final"
                 />
@@ -1513,7 +1511,7 @@ export function FacturacionModule() {
               maxLength={160}
               placeholder="Gráfica del Sur S.A."
             />
-            <TextField label="RUC" value={purchaseForm.ruc} onChange={(value) => setPurchaseForm({ ...purchaseForm, ruc: value })} maxLength={20} placeholder="80055555-1" />
+            <RucField label="RUC" value={purchaseForm.ruc} onChange={(value) => setPurchaseForm({ ...purchaseForm, ruc: value })} placeholder="80055555-1" />
             <TextField label="Timbrado" value={purchaseForm.timbrado} onChange={(value) => setPurchaseForm({ ...purchaseForm, timbrado: value })} maxLength={30} placeholder="99887766" />
             <TextField
               label="Nº de comprobante"

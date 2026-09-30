@@ -5,12 +5,15 @@
  * montos PYG, porcentajes y la ayuda de ciudad. La UI dibuja el formato y el API
  * revalida siempre; el front solo ayuda. Un solo mensaje de error por regla.
  *
- * Adopción de `owncoding-ui` (issues #48 y #49): el teléfono y el monto PYG
- * delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
- * `parseGsInput`) y el catálogo de ciudades sale de `CIUDADES_PARAGUAY` +
- * `departamentoDe`. La validación de teléfono y su mensaje quedan locales a
- * propósito: la librería es solo-móvil para Paraguay y rechazaría los fijos que
- * LedBox ya acepta y guarda (owncoding-ui#4).
+ * Adopción de `owncoding-ui` (issues #48, #49 y #99): el teléfono y el monto
+ * PYG delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
+ * `parseGsInput`, `normalizarMontoInput`) y el catálogo de ciudades sale de
+ * `CIUDADES_PARAGUAY` + `departamentoDe`. El campo de monto del panel envuelve
+ * el `MoneyInput` de la librería (`components/admin/AdminFields.tsx`); los
+ * utils de acá quedan para el resto de los consumidores (el descuento del
+ * portal). La validación de teléfono y su mensaje quedan locales a propósito:
+ * la librería es solo-móvil para Paraguay y rechazaría los fijos que LedBox ya
+ * acepta y guarda (owncoding-ui#4).
  */
 
 import {
@@ -22,6 +25,7 @@ import {
   formatGsInput,
   largoMaximoMonto,
   limpiarPercent,
+  limpiarTaxId,
   normalizarMontoInput,
   parseGsInput,
   parseTelefono,
@@ -177,11 +181,6 @@ export function amountExceeds(value: string, limit: number = FIELD_LIMITS.amount
   return excedeMonto(value, limit);
 }
 
-/** Título del campo cuando el monto supera el tope. */
-export function amountLimitTitle(limit: number = FIELD_LIMITS.amountGeneral): string {
-  return `${FIELD_MESSAGES.amountLimit} (Gs ${new Intl.NumberFormat("es-PY").format(limit)})`;
-}
-
 /** Posición del caret tras N dígitos: el formateo no mueve el cursor. */
 export function caretAfterDigits(display: string, digits: number): number {
   return caretTrasDigitos(display, digits);
@@ -218,6 +217,22 @@ export function amountError(value: string, limit: number = FIELD_LIMITS.amountGe
  */
 export function percentInput(value: string): string {
   return limpiarPercent(value);
+}
+
+/**
+ * RUC / C.I. mientras se tipea: dígitos con un guion opcional antes del
+ * verificador (`80012345-6`). Se apoya en `limpiarTaxId` de la librería (la
+ * limpieza genérica de identificaciones) y cierra el formato paraguayo: sin
+ * letras, sin puntos, un solo guion y nunca al principio. No valida: eso queda
+ * para el API, como en el resto de los campos (issue #101).
+ */
+export function rucInput(value: string, maxLength = 20): string {
+  const limpio = limpiarTaxId(value, maxLength).replace(/[^0-9-]/g, "").replace(/^-+/, "");
+  const [cuerpo = "", ...cola] = limpio.split("-");
+  if (!cola.length) return cuerpo;
+  const verificador = cola.join("").slice(0, 1);
+  // El guion recién tipeado se conserva para poder escribir el verificador.
+  return verificador ? `${cuerpo}-${verificador}` : `${cuerpo}-`;
 }
 
 /** Porcentaje 0–100 con hasta 2 decimales; `null` si no es válido. */

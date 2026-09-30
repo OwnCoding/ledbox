@@ -5,7 +5,6 @@ import {
   amountError,
   amountExceeds,
   amountInput,
-  amountLimitTitle,
   amountValid,
   caretAfterDigits,
   CITY_OPTIONS,
@@ -30,6 +29,7 @@ import {
   normalizePersonName,
   normalizePhone,
   normalizeSerial,
+  rucInput,
   parseAmount,
   parsePercent,
   parsePhone,
@@ -103,6 +103,20 @@ test("correo: se guarda en minúsculas y valida hasta 200 caracteres", () => {
   assert.equal(emailValid(`${"a".repeat(FIELD_LIMITS.email)}@ledbox.online`), false);
   assert.equal(emailError("no-es-correo"), FIELD_MESSAGES.email);
   assert.equal(emailError("ana@ledbox.online"), null);
+});
+
+test("RUC / C.I.: dígitos con un guion opcional antes del verificador", () => {
+  assert.equal(rucInput("80012345-6"), "80012345-6");
+  assert.equal(rucInput(" 80012345-6 "), "80012345-6");
+  assert.equal(rucInput("80012345"), "80012345");
+  assert.equal(rucInput("abc80012345-6"), "80012345-6");
+  assert.equal(rucInput("800.12345-6"), "80012345-6");
+  assert.equal(rucInput("-80012345-6"), "80012345-6");
+  assert.equal(rucInput("800-12-345-6"), "800-1");
+  assert.equal(rucInput("80012345-"), "80012345-"); // el guion recién tipeado se conserva
+  assert.equal(rucInput(""), "");
+  assert.equal(rucInput("80012345678901234567890123"), "80012345678901234567"); // tope de 20
+  assert.equal(rucInput("1234567890", 5), "12345");
 });
 
 test("serial: mayúsculas, sin espacios ni símbolos raros", () => {
@@ -213,7 +227,6 @@ test("monto PYG: el campo se dibuja con separadores y avisa si supera el tope", 
   assert.equal(moneyInputDisplay(""), "");
   assert.equal(amountExceeds("10000000000", FIELD_LIMITS.amountGeneral), false);
   assert.equal(amountExceeds("10000000001", FIELD_LIMITS.amountGeneral), true);
-  assert.equal(amountLimitTitle(FIELD_LIMITS.amountGeneral), `${FIELD_MESSAGES.amountLimit} (Gs 10.000.000.000)`);
   assert.equal(moneyInputMaxLength(FIELD_LIMITS.amountGeneral), 14); // 11 dígitos + 3 separadores
   // El caret no salta al final cuando el formateo agrega separadores.
   assert.equal(caretAfterDigits("1.234", 3), 4);

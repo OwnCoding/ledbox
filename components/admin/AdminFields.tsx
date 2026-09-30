@@ -1,20 +1,18 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { MoneyInput } from "owncoding-ui";
 import {
   amountExceeds,
   amountInput,
-  amountLimitTitle,
-  caretAfterDigits,
   DEFAULT_PHONE_COUNTRY,
   digitsOnly,
   FIELD_LIMITS,
   FIELD_MESSAGES,
-  moneyInputDisplay,
-  moneyInputMaxLength,
   normalizeEmail,
   normalizePhone,
   normalizeSerial,
+  rucInput,
   parsePercent,
   parsePhone,
   percentInput,
@@ -246,10 +244,17 @@ export function TextAreaField({
 }
 
 /**
- * Monto PYG con el manejo de `MoneyInput` de la librería (vía los utils puros):
- * separadores de miles al tipear, letras bloqueadas (teclado y pegado) y tope
- * marcado con `aria-invalid` + `title`. El valor de transporte sigue siendo el
- * entero limpio (solo dígitos), como antes.
+ * Monto PYG con el **`MoneyInput` de owncoding-ui** (issue #99): el componente
+ * de la librería aporta el prefijo de la moneda, los separadores de miles al
+ * tipear, el bloqueo de letras (teclado y pegado) y el tope con `aria-invalid`
+ * + `title`. El kit solo lo envuelve con su `FieldChrome` y traduce el valor:
+ * el contrato del panel sigue siendo el entero limpio (solo dígitos).
+ *
+ * Dos detalles de la v0.39.0 se resuelven acá, sin subir el pin:
+ * - `onValueChange` entrega un número (o `""` al vaciar), no el string del kit.
+ * - el componente pisa `aria-invalid` con su propio cálculo del tope, así que
+ *   el error del campo (y el tope) se sincronizan después del render; el borde
+ *   rojo sigue saliendo de `.admin-field input[aria-invalid="true"]`.
  */
 export function MoneyField({
   label,
@@ -284,45 +289,34 @@ export function MoneyField({
   limit?: number;
 }) {
   const { fieldId, hintId, errorId } = useFieldIds(id);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const amount = amountInput(value);
-  const exceeds = amountExceeds(amount, limit);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const invalid = Boolean(error) || amountExceeds(amountInput(value), limit);
+  // El `MoneyInput` de la librería decide `aria-invalid` por su cuenta (tope):
+  // acá se completa con el error del campo, que la librería no ve.
+  useEffect(() => {
+    const input = wrapperRef.current?.querySelector("input");
+    if (!input) return;
+    if (invalid) input.setAttribute("aria-invalid", "true");
+    else input.removeAttribute("aria-invalid");
+  }, [invalid, value]);
   return (
     <FieldChrome label={label} ariaLabel={ariaLabel} hint={hint} error={error} wide={wide} htmlFor={fieldId} hintId={hintId} errorId={errorId}>
-      <input
-        ref={inputRef}
-        id={label ? fieldId : id}
-        type="text"
-        inputMode="numeric"
-        value={moneyInputDisplay(amount)}
-        maxLength={moneyInputMaxLength(limit)}
-        onKeyDown={(event) => {
-          if (event.ctrlKey || event.metaKey || event.altKey) return;
-          if (event.key.length === 1 && !/^\d$/.test(event.key)) event.preventDefault();
-        }}
-        onChange={(event) => {
-          const input = event.currentTarget;
-          const before = input.value.slice(0, input.selectionStart ?? input.value.length);
-          const digitsBefore = (before.match(/\d/g) || []).length;
-          onChange(amountInput(input.value));
-          // El formateo no mueve el caret: se reubica tras la misma cantidad de dígitos.
-          requestAnimationFrame(() => {
-            const node = inputRef.current;
-            if (!node || document.activeElement !== node) return;
-            const caret = caretAfterDigits(node.value, digitsBefore);
-            node.setSelectionRange?.(caret, caret);
-          });
-        }}
-        required={required}
-        placeholder={placeholder}
-        disabled={disabled}
-        readOnly={readOnly}
-        name={name}
-        aria-label={label ? undefined : ariaLabel}
-        aria-invalid={error || exceeds ? true : undefined}
-        aria-describedby={describedBy(error, hint, hintId, errorId)}
-        title={exceeds ? amountLimitTitle(limit) : undefined}
-      />
+      <div className="admin-money" ref={wrapperRef}>
+        <MoneyInput
+          id={label ? fieldId : id}
+          name={name}
+          value={value}
+          onValueChange={(next) => onChange(next === "" ? "" : String(next))}
+          max={limit}
+          integerOnly
+          required={required}
+          placeholder={placeholder}
+          disabled={disabled}
+          readOnly={readOnly}
+          aria-label={label ? undefined : ariaLabel}
+          aria-describedby={describedBy(error, hint, hintId, errorId)}
+        />
+      </div>
     </FieldChrome>
   );
 }
@@ -564,6 +558,70 @@ export function EmailField({
         autoComplete={autoComplete}
         inputMode="email"
         disabled={disabled}
+        name={name}
+        aria-label={label ? undefined : ariaLabel}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(error, hint, hintId, errorId)}
+      />
+    </FieldChrome>
+  );
+}
+
+/**
+ * RUC / C.I. (issue #101): un solo componente para las identificaciones
+ * tributarias del panel. Máscara de dígitos con guion opcional antes del
+ * verificador (`80012345-6`, regla `rucInput` sobre `limpiarTaxId` de la
+ * librería), teclado numérico y el contrato del kit (label/aria/hint/error).
+ * No valida la forma del RUC: el API revalida siempre, como en el resto.
+ */
+export function RucField({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+  hint,
+  error,
+  wide,
+  required,
+  placeholder = "80012345-6",
+  disabled,
+  readOnly,
+  name,
+  id,
+  maxLength = 20,
+}: {
+  label?: string;
+  ariaLabel?: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  error?: string | null;
+  wide?: boolean;
+  required?: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
+  name?: string;
+  id?: string;
+  /** Largo máximo del documento (20 para RUC; el «RUC / CI» del cliente usa 30). */
+  maxLength?: number;
+}) {
+  const { fieldId, hintId, errorId } = useFieldIds(id);
+  return (
+    <FieldChrome label={label} ariaLabel={ariaLabel} hint={hint} error={error} wide={wide} htmlFor={fieldId} hintId={hintId} errorId={errorId}>
+      <input
+        id={label ? fieldId : id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        value={rucInput(value, maxLength)}
+        maxLength={maxLength}
+        onChange={(event) => onChange(rucInput(event.target.value, maxLength))}
+        required={required}
+        placeholder={placeholder}
+        disabled={disabled}
+        readOnly={readOnly}
         name={name}
         aria-label={label ? undefined : ariaLabel}
         aria-invalid={error ? true : undefined}

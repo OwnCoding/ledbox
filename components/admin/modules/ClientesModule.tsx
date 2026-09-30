@@ -64,7 +64,7 @@ import {
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
-import { EmailField, PhoneField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
+import { EmailField, PhoneField, RucField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import { FIELD_LIMITS, FIELD_MESSAGES, emailValid } from "@/lib/field-rules";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
@@ -559,13 +559,11 @@ export function ClientesModule() {
                 { value: "RESELLER", label: "Mayorista / revendedor" },
               ]}
             />
-            <TextField
+            <RucField
               label="RUC / CI"
               maxLength={30}
               value={form.ruc}
               onChange={(value) => setForm({ ...form, ruc: value })}
-              placeholder="80012345-6"
-              inputMode="numeric"
             />
           </div>
 
