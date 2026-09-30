@@ -15,10 +15,12 @@ import {
 } from "@/lib/admin-format";
 import { canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import { csvBool, csvFilename, downloadCsv, type CsvBlock } from "@/lib/admin-export";
+import { FIELD_LIMITS, inventoryImageError } from "@/lib/field-rules";
 import type {
   AdminApiResponse,
   AdminInventoryAvailability,
   AdminInventoryItemRow,
+  AdminInventoryRow,
   AdminInventorySubstitute,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
@@ -42,6 +44,7 @@ import { DateField, NumberField, SearchField, SelectField, TextField } from "../
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { AdminIcon } from "../AdminIcons";
 
 const KIND_OPTIONS = [
   { value: "ALL", label: "Todos los tipos" },
@@ -64,7 +67,38 @@ const STATUS_PICK_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "
 /** Vistas del inventario (issue #57): lista densa y cuadrícula de tarjetas. */
 const INVENTARIO_VIEWS = ["list", "grid"] as const;
 
-const EMPTY_FORM = { name: "", category: "", inventoryKind: "REUSABLE", quantity: "1" };
+const EMPTY_FORM = { name: "", category: "", inventoryKind: "REUSABLE", quantity: "1", imageUrl: "" };
+
+/**
+ * Miniatura del ítem (issue #86): la imagen del producto con fallback al ícono
+ * del módulo. Nunca queda un cuadro roto: si la URL no carga, vuelve al ícono
+ * (misma mecánica que el avatar único del panel).
+ */
+function InventoryThumb({ item, size = 26 }: { item: Pick<AdminInventoryRow, "imageUrl">; size?: number }) {
+  const [failed, setFailed] = useState(false);
+
+  // Una imagen nueva (otro ítem u otra URL) vuelve a intentar cargarla.
+  useEffect(() => setFailed(false), [item.imageUrl]);
+
+  return (
+    <span className="admin-item-thumb" style={{ width: size, height: size }} aria-hidden="true">
+      {item.imageUrl && !failed ? (
+        <img
+          src={item.imageUrl}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <AdminIcon name="inventory" size={Math.max(12, Math.round(size * 0.5))} />
+      )}
+    </span>
+  );
+}
 
 /** Horas de salida/devolución en formato de tabla (es-PY, 24 h). */
 function stamp(value: string | null): string {
@@ -194,9 +228,15 @@ export function InventarioModule() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
     setFormError("");
     setNotice("");
+    const image = form.imageUrl.trim();
+    const imageError = inventoryImageError(image);
+    if (imageError) {
+      setFormError(imageError);
+      return;
+    }
+    setBusy(true);
     // El alta de ítems vive en `/api/admin/resources` (contrato existente del panel).
     const result = await adminSend("/api/admin/resources", {
       kind: "inventory",
@@ -204,6 +244,7 @@ export function InventarioModule() {
       category: form.category || "General",
       inventoryKind: form.inventoryKind,
       quantity: Number(form.quantity) || 1,
+      imageUrl: image,
     });
     setBusy(false);
     if (!result.ok) {
@@ -404,6 +445,16 @@ export function InventarioModule() {
             value={form.quantity}
             onChange={(value) => setForm({ ...form, quantity: value })}
           />
+          <TextField
+            label="Imagen (URL)"
+            maxLength={FIELD_LIMITS.image}
+            value={form.imageUrl}
+            onChange={(value) => setForm({ ...form, imageUrl: value })}
+            placeholder="Ej.: /assets/products/pantalla-led.png"
+            hint="Ruta interna (/assets/…) o URL http(s). Opcional."
+            inputMode="url"
+            autoCapitalize="none"
+          />
         </AdminFormPanel>
       ) : null}
 
@@ -428,7 +479,12 @@ export function InventarioModule() {
             }${conflictEvents.length > 0 ? ` · ${conflictEvents.map((conflict) => `${conflict.eventName} (${formatNumber(conflict.quantity)})`).join(", ")}` : ""}`;
             return {
               id: item.id,
-              title: item.name,
+              title: (
+                <span className="admin-item-identity">
+                  <InventoryThumb item={item} size={32} />
+                  <span className="admin-item-name">{item.name}</span>
+                </span>
+              ),
               titleTooltip: item.sku ? `${item.name} · ${item.sku}` : item.name,
               subtitle: item.sku ? `SKU ${item.sku} · ${item.category}` : item.category,
               badges: [
@@ -496,8 +552,13 @@ export function InventarioModule() {
               return (
                 <AdminRow key={item.id}>
                   <AdminCell title={item.name}>
-                    <strong>{item.name}</strong>
-                    {item.sku ? <span className="admin-code"> · {item.sku}</span> : null}
+                    <span className="admin-item-identity">
+                      <InventoryThumb item={item} />
+                      <span className="admin-item-name">
+                        <strong>{item.name}</strong>
+                        {item.sku ? <span className="admin-code"> · {item.sku}</span> : null}
+                      </span>
+                    </span>
                   </AdminCell>
                   <AdminCell title={item.category}>{item.category}</AdminCell>
                   <AdminCell>
@@ -584,6 +645,15 @@ export function InventarioModule() {
             />
           }
         >
+          {selected.imageUrl ? (
+            <figure className="admin-item-figure">
+              <InventoryThumb item={selected} size={72} />
+              <figcaption>
+                {selected.category}
+                {selected.sku ? ` · ${selected.sku}` : ""}
+              </figcaption>
+            </figure>
+          ) : null}
           {rangeActive ? (
             rangeLoading ? (
               <AdminNote>Calculando la disponibilidad del rango…</AdminNote>

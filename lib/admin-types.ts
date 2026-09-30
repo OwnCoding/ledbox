@@ -1402,6 +1402,8 @@ export type AdminInventoryRow = {
   name: string;
   category: string;
   sku: string | null;
+  /** Imagen del ítem (issue #86): ruta interna o URL http(s); `null` sin imagen. */
+  imageUrl: string | null;
   kind: string;
   status: string;
   quantity: number;

@@ -2106,6 +2106,17 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-cards { grid-template-columns: 1fr; }
 }
 
+/* ── Imagen del inventario (issue #86) ──
+   Miniatura de lista, cuadrícula y detalle con fallback al ícono del módulo:
+   si la URL no carga, nunca queda un cuadro roto. El tamaño lo pasa el módulo
+   (valor dinámico); la caja no cambia de tamaño al caer al ícono. */
+.admin-item-thumb { display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--a-line); border-radius: 6px; background: var(--a-panel-2); color: var(--a-muted); }
+.admin-item-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.admin-item-identity { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; vertical-align: middle; }
+.admin-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-item-figure { display: flex; align-items: center; gap: 12px; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel-2); }
+.admin-item-figure figcaption { min-width: 0; color: var(--a-muted); font-size: 12px; }
+
 /* ── Plan de la empresa (issue #42) ──
    Plan vigente, consumo del mes con barra y comparación del catálogo en tarjetas
    con pie anclado (misma altura por fila). Las solicitudes usan la tabla densa
