@@ -37,6 +37,12 @@ test("limpiarPercent queda como la única excepción del root (pedido upstream)"
   assert.doesNotMatch(library, /limpiarPercent/, "si upstream la publica en utils, migrar y borrar la excepción");
 });
 
+test("qrDataUrl delega en la librería y conserva las opciones del QR", () => {
+  const qr = repoFile("lib/qr.ts");
+  assert.match(qr, /qrDataUrlDeLibreria\(text, \{ ancho: size \}\)/);
+  assert.match(qr, /import \{ QR_OPCIONES, qrDataUrl as qrDataUrlDeLibreria \} from "owncoding-ui\/utils"/);
+});
+
 test("countdownDays y countdownTone siguen el contrato de la librería", () => {
   assert.equal(diasHasta("2026-10-03", { hoy: "2026-10-01" }), 2);
   assert.equal(diasHasta("2026-02-31"), null, "un día inexistente ya no se corre de fecha");
