@@ -41,6 +41,7 @@ import {
   AdminCell,
   AdminCountdown,
   AdminDataState,
+  AdminDisclosure,
   AdminEmpty,
   AdminFormPanel,
   AdminIconLink,
@@ -57,7 +58,9 @@ import {
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
+import { ClientQuickDialog } from "./ClientQuickForm";
 import {
+  Combobox,
   DateField,
   DateTimeField,
   NumberField,
@@ -224,6 +227,9 @@ export function EventosModule() {
   const [taskBusy, setTaskBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [formLimit, setFormLimit] = useState("");
+  const [formNotice, setFormNotice] = useState("");
+  /** «+ Nuevo cliente» del evento (issue #106, patrón de #88); `null` = cerrado. */
+  const [newClientName, setNewClientName] = useState<string | null>(null);
   const [taskError, setTaskError] = useState("");
   const [taskNotice, setTaskNotice] = useState("");
   const [checklistError, setChecklistError] = useState("");
@@ -252,6 +258,19 @@ export function EventosModule() {
   const checklistWritable = canWriteOperations(role);
   const events = useMemo(() => operations.data ?? [], [operations.data]);
   const clientOptions = useMemo(() => clients.data ?? [], [clients.data]);
+  /** Opciones del selector de cliente (issue #106): empresa manda, el nombre va de detalle. */
+  const clientChoices = useMemo(
+    () =>
+      clientOptions.map((client) => {
+        const company = client.company?.trim() || "";
+        return {
+          value: client.id,
+          label: company || client.name,
+          description: company && company !== client.name ? client.name : undefined,
+        };
+      }),
+    [clientOptions],
+  );
   const inventoryItems = useMemo(() => inventoryResource.data ?? [], [inventoryResource.data]);
   const promoters = useMemo(() => promotersResource.data ?? [], [promotersResource.data]);
   const equipmentEvent = useMemo(() => events.find((event) => event.id === equipmentEventId) ?? null, [events, equipmentEventId]);
@@ -415,6 +434,7 @@ export function EventosModule() {
     setBusy(true);
     setFormError("");
     setFormLimit("");
+    setFormNotice("");
     const result = await adminSend("/api/admin/events", {
       clientId: form.clientId,
       name: form.name,
@@ -433,6 +453,17 @@ export function EventosModule() {
     setForm(EMPTY_EVENT_FORM);
     setShowForm(false);
     operations.reload();
+  }
+
+  /**
+   * Alta rápida de cliente desde el evento (issue #106, patrón de #88): queda
+   * elegido en el formulario y el catálogo del selector se refresca.
+   */
+  function selectCreatedClient(client: AdminClientOption) {
+    setNewClientName(null);
+    setForm((current) => ({ ...current, clientId: client.id }));
+    setFormNotice(`Cliente «${client.company?.trim() || client.name}» creado y elegido.`);
+    clients.reload();
   }
 
   async function submitTask(formEvent: React.FormEvent<HTMLFormElement>) {
@@ -669,59 +700,86 @@ export function EventosModule() {
           submitLabel="Crear evento"
           onSubmit={submitEvent}
           onCancel={() => setShowForm(false)}
+          onEscape={() => setShowForm(false)}
           busy={busy}
           status={formError}
-          statusNote={formLimit ? <AdminPlanLimitNote message={formLimit} /> : null}
+          statusNote={
+            formError ? undefined : formLimit ? (
+              <AdminPlanLimitNote message={formLimit} />
+            ) : formNotice ? (
+              <AdminNote tone="ok">{formNotice}</AdminNote>
+            ) : undefined
+          }
         >
-          <SelectField
-            label="Cliente"
-            required
-            value={form.clientId}
-            onChange={(value) => setForm({ ...form, clientId: value })}
-            options={[
-              { value: "", label: "Elegí un cliente…" },
-              ...clientOptions.map((client) => ({ value: client.id, label: client.company || client.name })),
-            ]}
-          />
+          {/* Alta rápida (issue #106): Nombre con foco + Cliente + Inicio; el
+              lugar y la ciudad viven en «Más datos» y no se pierden al plegarlos. */}
           <TextField
             label="Nombre del evento"
             required
+            autoFocus
             maxLength={120}
             value={form.name}
             onChange={(value) => setForm({ ...form, name: value })}
             placeholder="Ej.: Lanzamiento Samsung"
           />
-          <TextField
-            label="Lugar"
-            maxLength={160}
-            value={form.location}
-            onChange={(value) => setForm({ ...form, location: value })}
-            placeholder="Ej.: Centro de Convenciones"
-          />
-          <TextField
-            label="Ciudad"
-            maxLength={120}
-            list={EVENT_CITY_LIST_ID}
-            value={form.city}
-            onChange={(value) => setForm({ ...form, city: value })}
-            placeholder="Ej.: Asunción"
-            hint={
-              cityArea
-                ? `Departamento: ${cityArea}`
-                : "Se permite texto libre; sugerencias del catálogo de ciudades."
-            }
-          />
-          <datalist id={EVENT_CITY_LIST_ID}>
-            {CITY_OPTIONS.map((option) => (
-              <option key={option.ciudad} value={option.ciudad} label={`${option.ciudad} · ${option.departamento}`} />
-            ))}
-          </datalist>
+          <div className="admin-field-action">
+            <Combobox
+              label="Cliente"
+              required
+              value={form.clientId}
+              onChange={(value) => setForm({ ...form, clientId: value })}
+              options={clientChoices}
+              placeholder="Buscá por nombre o empresa…"
+              emptyLabel={clients.loading ? "Cargando clientes…" : "No hay clientes cargados."}
+              onCreate={(name) => setNewClientName(name)}
+              createLabel={(query) => (query ? `Crear cliente «${query}»` : "Crear cliente")}
+            />
+            <AdminButton
+              type="button"
+              icon="plus"
+              title="Crear un cliente nuevo y dejarlo elegido"
+              aria-label="Crear un cliente nuevo y dejarlo elegido"
+              onClick={() => {
+                setFormNotice("");
+                setNewClientName("");
+              }}
+            >
+              Nuevo cliente
+            </AdminButton>
+          </div>
           <DateTimeField
             label="Inicio"
             hint="Fecha y hora del evento"
             value={form.startsAt}
             onChange={(value) => setForm({ ...form, startsAt: value })}
           />
+          <AdminDisclosure title="Más datos" hint="lugar y ciudad">
+            <TextField
+              label="Lugar"
+              maxLength={160}
+              value={form.location}
+              onChange={(value) => setForm({ ...form, location: value })}
+              placeholder="Ej.: Centro de Convenciones"
+            />
+            <TextField
+              label="Ciudad"
+              maxLength={120}
+              list={EVENT_CITY_LIST_ID}
+              value={form.city}
+              onChange={(value) => setForm({ ...form, city: value })}
+              placeholder="Ej.: Asunción"
+              hint={
+                cityArea
+                  ? `Departamento: ${cityArea}`
+                  : "Se permite texto libre; sugerencias del catálogo de ciudades."
+              }
+            />
+            <datalist id={EVENT_CITY_LIST_ID}>
+              {CITY_OPTIONS.map((option) => (
+                <option key={option.ciudad} value={option.ciudad} label={`${option.ciudad} · ${option.departamento}`} />
+              ))}
+            </datalist>
+          </AdminDisclosure>
         </AdminFormPanel>
       ) : null}
 
@@ -1295,6 +1353,15 @@ export function EventosModule() {
       {templateTarget ? (
         <MessageTemplateSendDialog target={templateTarget} onClose={() => setTemplateTarget(null)} />
 
+      ) : null}
+      {/* Alta rápida de cliente desde el evento (issue #106): el mismo
+          formulario mínimo del módulo Clientes; al crear queda elegido. */}
+      {newClientName !== null ? (
+        <ClientQuickDialog
+          initialName={newClientName}
+          onClose={() => setNewClientName(null)}
+          onCreated={selectCreatedClient}
+        />
       ) : null}
       </>
       )}
