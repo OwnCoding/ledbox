@@ -616,17 +616,53 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .cart-disclaimer { color:var(--muted); font-size:10px; line-height:1.45; margin:0 0 13px; }
 .contact-note { margin-top:16px; }
 .lead-overlay { position:fixed; inset:0; z-index:300; display:grid; place-items:center; padding:20px; background:var(--scrim); backdrop-filter:blur(10px); overflow-y:auto; }
-.lead-dialog { width:min(620px,100%); max-height:min(760px,calc(100vh - 40px)); overflow:auto; position:relative; padding:36px; background:var(--sheet); border:1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow:var(--shadow); }
-.lead-dialog h2 { font-family:var(--font-display); color:var(--text-strong); font-size:clamp(30px,5vw,52px); line-height:.98; text-transform:uppercase; margin:10px 0 14px; }
-.lead-dialog > p { color:var(--muted-2); font-size:14px; line-height:1.6; margin-bottom:24px; max-width:470px; }
+/* El popup de consulta entra completo en escritorio (1440×900 y 1280×800) sin
+   scroll: título, paddings y gaps compactos y los campos a dos columnas
+   (issue #104). En mobile scrollea y el botón queda alcanzable. */
+.lead-dialog { width:min(660px,100%); max-height:min(760px,calc(100vh - 40px)); overflow:auto; position:relative; padding:18px 24px 14px; background:var(--sheet); border:1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow:var(--shadow); }
+.lead-dialog h2 { font-family:var(--font-display); color:var(--text-strong); font-size:clamp(23px,2.8vw,30px); line-height:1; text-transform:uppercase; margin:4px 0 6px; }
+.lead-dialog > p { color:var(--muted-2); font-size:13px; line-height:1.5; margin-bottom:12px; max-width:520px; }
 .dialog-close { position:absolute; top:12px; right:14px; min-width:44px; min-height:44px; border:0; background:transparent; color:var(--muted-2); cursor:pointer; font-size:28px; line-height:1; }
 .dialog-close:hover { color:var(--text-strong); }
-.lead-dialog form { display:grid; gap:14px; }
-.lead-dialog .f-row { grid-template-columns:1fr 1fr; margin:0; }
-.lead-dialog .f-field span { font-size:10px; letter-spacing:1.6px; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.lead-dialog form { display:grid; gap:6px; }
+.lead-dialog .f-row { grid-template-columns:1fr 1fr; gap:5px 12px; margin:0; }
+.lead-dialog .f-full { margin-bottom:0; }
+.lead-dialog .f-field > span { font-size:10px; letter-spacing:1.6px; text-transform:uppercase; color:var(--muted); font-weight:600; }
 .lead-dialog .f-field em { color:var(--led); font-style:normal; }
+.lead-dialog .f-field input, .lead-dialog .f-field select { padding:11px 13px; }
 .lead-dialog .f-field input, .lead-dialog .f-field select, .lead-dialog .f-field textarea { border-color:var(--line-control); }
-.lead-dialog .btn-led { justify-self:start; margin-top:4px; }
+.lead-dialog .f-field textarea { min-height:44px; padding:10px 13px; }
+.lead-dialog .btn-led { justify-self:start; margin-top:0; }
+
+/* Campos guiados con los componentes de `owncoding-ui` (issue #104): la
+   librería entra con su estructura y clases utilitarias que este sitio no carga,
+   así que acá se les da el aspecto del formulario. Teléfono: el `PhoneField` de
+   la librería marca inválidos los fijos paraguayos (owncoding-ui#4), así que se
+   usa su catálogo `CODIGOS_PAIS` con el marcado del sitio. */
+.lead-phone-row { display:flex; gap:8px; }
+.lead-phone-code { flex:0 0 96px; max-width:96px; }
+.lead-email div, .lead-ruc div { position: relative; min-width: 0; }
+.lead-email ul { position:absolute; left:0; right:0; top:100%; z-index:2; margin:4px 0 0; padding:0; list-style:none; overflow:hidden; border:1px solid var(--line-control); border-radius:var(--radius); background:var(--sheet); box-shadow:var(--shadow); }
+.lead-email ul button { display:block; width:100%; padding:10px 14px; border:0; background:transparent; color:var(--text); font:13px var(--font-body); text-align:left; cursor:pointer; }
+.lead-email ul button:hover { background:var(--surface); color:var(--led); }
+.lead-ruc input { padding-right:110px; }
+/* El botón del campo («Extraer») lo dibuja la librería solo con ícono; acá se
+   le agrega el texto y el aspecto del sitio. El de la caja de resultado («Usar
+   estos datos») es otro botón y conserva el suyo. */
+.lead-ruc > div > :first-child button { position:absolute; right:6px; top:50%; transform:translateY(-50%); display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; padding:0 10px; border:1px solid var(--line-control); border-radius:999px; background:var(--surface); color:var(--muted-2); font:700 10px var(--font-body); letter-spacing:.08em; text-transform:uppercase; cursor:pointer; }
+.lead-ruc > div > :first-child button::after { content:"Extraer"; }
+.lead-ruc > div > :first-child button[aria-busy]::after { content:none; }
+.lead-ruc > div > :first-child button:hover:not(:disabled) { border-color:var(--led); color:var(--led); }
+.lead-ruc > div > :first-child button:disabled { opacity:.45; cursor:not-allowed; }
+.lead-ruc > div > span { display:block; margin-top:6px; color:var(--muted); font-size:11px; line-height:1.5; }
+/* La caja de resultado es el tercer hijo del componente (input · ayuda ·
+   resultado · error, en la v0.39.0) y aparece solo cuando la consulta trajo
+   datos; el botón de confirmar es el único que no va dentro del campo. */
+.lead-ruc > div > :nth-child(3) { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; padding:6px 10px; border:1px solid color-mix(in srgb, var(--led) 30%, transparent); border-radius:var(--radius); background:var(--led-soft); font-size:12.5px; }
+.lead-ruc > div > :nth-child(3) b { color:var(--text-strong); }
+.lead-ruc > div > :nth-child(3) span { display:block; color:var(--muted); font-size:12px; }
+.lead-ruc > div > :nth-child(3) button { position:static; transform:none; border-color:var(--led); background:transparent; color:var(--led); }
+.lead-ruc p { margin:6px 0 0; color:var(--danger-text); font-size:12px; line-height:1.5; }
 /* Aviso de finalidad del formulario (issue #92): legible, junto al botón y sin
    casilla premarcada; el enlace va en la voz del sitio. */
 .lead-consent { font-size:11px; line-height:1.55; color:var(--muted); margin:0; max-width:440px; }
