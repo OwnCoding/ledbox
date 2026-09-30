@@ -9,7 +9,10 @@
  *   3. Corre `typecheck`, `test:rules` y `build`.
  *   4. Commitea `chore(release): vX.Y.Z` y pushea la rama.
  *   5. Dispara el deploy del Hub (webhook + token leídos del entorno o de
- *      `~/.config/ledbox/deploy.env`; nunca del repo).
+ *      `~/.config/ledbox/deploy.env`; nunca del repo). Si falta uno de los dos
+ *      falla (salvo `--no-trigger`), y si el Hub responde no-2xx el comando
+ *      termina en error con status y cuerpo (sin el token): nunca reporta un
+ *      deploy que no salió.
  *
  * Uso: `npm run deploy:patch` (o `node scripts/deploy.mjs --no-trigger`).
  */
@@ -73,15 +76,22 @@ async function main() {
   loadDeployEnv();
   const webhook = process.env.LEDBOX_DEPLOY_WEBHOOK_URL;
   const token = process.env.LEDBOX_HUB_API_TOKEN;
-  if (!webhook) {
-    console.warn("[deploy] Sin LEDBOX_DEPLOY_WEBHOOK_URL: disparalo desde el Hub.");
-    return;
+  const missing = [!webhook && "LEDBOX_DEPLOY_WEBHOOK_URL", !token && "LEDBOX_HUB_API_TOKEN"].filter(Boolean);
+  if (missing.length > 0) {
+    console.error(`[deploy] Falta ${missing.join(" y ")}: sin eso no se puede disparar el deploy del Hub (usá --no-trigger para omitirlo a propósito).`);
+    process.exit(1);
   }
   const response = await fetch(webhook, {
     method: "POST",
-    headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
   });
-  console.log(`[deploy] Hub: ${response.status} ${(await response.text()).slice(0, 160)}`);
+  const body = (await response.text()).slice(0, 160);
+  if (!response.ok) {
+    // Un 401/403 del Hub es un deploy que NO salió: el comando tiene que fallar.
+    console.error(`[deploy] El Hub rechazó el deploy: HTTP ${response.status} ${response.statusText} — ${body}`);
+    process.exit(1);
+  }
+  console.log(`[deploy] Hub: ${response.status} ${body}`);
 }
 
 main().catch((error) => {
