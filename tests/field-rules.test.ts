@@ -15,9 +15,12 @@ import {
   FIELD_LIMITS,
   FIELD_MESSAGES,
   formatPercent,
+  inventoryImageError,
+  inventoryImageValid,
   moneyInputDisplay,
   moneyInputMaxLength,
   normalizeEmail,
+  normalizeInventoryImage,
   normalizePersonName,
   normalizePhone,
   normalizeSerial,
@@ -102,6 +105,26 @@ test("serial: mayúsculas, sin espacios ni símbolos raros", () => {
   assert.equal(serialValid("SN-123456"), true);
   assert.equal(serialValid("A"), false);
   assert.equal(serialError("··"), FIELD_MESSAGES.serial);
+});
+
+test("imagen de inventario: ruta interna o URL http(s), sin HTML ni espacios", () => {
+  assert.equal(normalizeInventoryImage("  /assets/products/pantalla-led.png  "), "/assets/products/pantalla-led.png");
+  assert.equal(inventoryImageValid("/assets/products/pantalla-led.png"), true);
+  assert.equal(inventoryImageValid("https://cdn.ledbox.online/equipos/pantalla.png"), true);
+  assert.equal(inventoryImageValid("http://localhost:3001/assets/x.png"), true);
+  assert.equal(inventoryImageValid(""), false); // vacío no es una imagen: el campo es opcional
+  assert.equal(inventoryImageValid("productos/pantalla.png"), false);
+  assert.equal(inventoryImageValid("//cdn.ledbox.online/x.png"), false);
+  assert.equal(inventoryImageValid("javascript:alert(1)"), false);
+  assert.equal(inventoryImageValid("data:image/png;base64,AAAA"), false);
+  assert.equal(inventoryImageValid("ftp://ledbox.online/x.png"), false);
+  assert.equal(inventoryImageValid("/assets/<script>.png"), false);
+  assert.equal(inventoryImageValid("/assets/pantalla led.png"), false);
+  assert.equal(inventoryImageValid(`/assets/products/${"a".repeat(FIELD_LIMITS.image)}.png`), false);
+  assert.equal(inventoryImageError(""), null);
+  assert.equal(inventoryImageError("   "), null);
+  assert.equal(inventoryImageError("/assets/products/totem-led.png"), null);
+  assert.equal(inventoryImageError("no-es-una-imagen"), FIELD_MESSAGES.image);
 });
 
 test("teléfono: default +595, se guarda normalizado y valida largo local", () => {
