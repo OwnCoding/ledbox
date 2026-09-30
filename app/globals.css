@@ -304,7 +304,9 @@ h2.sec-title .led { color: var(--led); }
     transition: background .25s;
     overflow: hidden;
 }
-.prod:last-child { border-right: none; }
+/* El filete derecho va en todas —incluso la última— para que las siete cajas
+   de foto midan exactamente igual (issue #97); el de la última cae en el borde
+   de la pantalla. */
 .prod:hover { background: var(--surface); }
 .prod::after {
     content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
@@ -320,10 +322,15 @@ h2.sec-title .led { color: var(--led); }
     border-radius: 999px;
 }
 
-/* Issue #85: el marco acompaña la orientación del render (vertical 3:4,
-   horizontal 4:3) y la foto entra completa con `contain` — nunca se recorta. */
-.prod-art { height: auto; aspect-ratio: 4 / 3; min-height: 190px; padding: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 26px; overflow: hidden; background: radial-gradient(circle, color-mix(in srgb, var(--led) 8%, transparent), transparent 65%); }
-.prod-art[data-art="portrait"] { aspect-ratio: 3 / 4; }
+/* Issue #97: un solo marco para todas las tarjetas — la misma caja de 4:3 con
+   la foto completa adentro (`contain`, sin recortes), y el marco pintado del
+   mismo blanco del render: la foto horizontal lo llena entero y la vertical
+   queda centrada sobre el mismo lienzo. Así las siete cajas son idénticas y
+   nombre, descripción, precio y botones arrancan a la misma altura.
+   (Se evaluó normalizar los PNG a un lienzo común: da este mismo resultado
+   pero reescribe los binarios y achica la foto vertical en la ficha; se
+   resuelve acá, en el marco, sin tocar los archivos.) */
+.prod-art { height: auto; aspect-ratio: 4 / 3; min-height: 190px; padding: 0; display: flex; align-items: center; justify-content: center; margin-bottom: 26px; overflow: hidden; background: #fff; }
 .prod-art img { width: 100%; height: 100%; object-fit: contain; filter: saturate(.9) contrast(1.05); }
 .prod-price { margin-top: 14px; font-family: var(--font-display); font-size: 20px; color: var(--text); }
 .prod-price small { font: 10px var(--font-body); color: var(--muted); letter-spacing: 1px; }
@@ -560,7 +567,6 @@ body.has-sticky { --wa-bottom: calc(84px + env(safe-area-inset-bottom)); }
 /* ─── RESPONSIVE ─── */
 @media (max-width: 1024px) {
     .prod-grid { grid-template-columns: repeat(2, 1fr); }
-    .prod:nth-child(2n) { border-right: none; }
     .prod:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
     #stats, .steps, .why-grid { grid-template-columns: repeat(2, 1fr); }
     .stat:nth-child(2n), .stp:nth-child(2n), .why:nth-child(2n) { border-right: none; }
@@ -595,8 +601,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .stat-social .n { display:flex; align-items:center; gap:12px; font-size:26px; }
 .stat-social svg, .ft-social svg { width:24px; height:24px; flex:0 0 auto; }
 /* La regla heredada `.prod-art img { object-fit: cover }` se retiró en el
-   issue #85: recortaba las fotos verticales dentro del marco 4:3. */
-.prod-art img { object-fit: contain; }
+   issue #85 (recortaba las fotos verticales); el `contain` vive con el marco
+   único, arriba (issue #97). */
 .cart-backdrop { position:fixed; inset:0; z-index:28; background:var(--scrim); opacity:0; pointer-events:none; transition:opacity .25s ease; }
 .cart-backdrop.open { opacity:1; pointer-events:auto; }
 .cart-panel { z-index:40; border-radius: var(--radius-lg); }
