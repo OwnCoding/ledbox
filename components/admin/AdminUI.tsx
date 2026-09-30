@@ -322,6 +322,7 @@ export function AdminFormPanel({
   busy,
   status,
   statusNote,
+  onEscape,
   children,
 }: {
   title: string;
@@ -332,10 +333,28 @@ export function AdminFormPanel({
   status?: string | null;
   /** Aviso propio con acciones (por ejemplo el límite del plan con su link). */
   statusNote?: React.ReactNode;
+  /**
+   * Escape cancela el formulario (issue #106, sin fricción). No se dispara si
+   * un control ya consumió la tecla (el listado del combobox cierra primero).
+   */
+  onEscape?: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <form className="admin-form-panel" onSubmit={onSubmit} aria-busy={busy || undefined}>
+    <form
+      className="admin-form-panel"
+      onSubmit={onSubmit}
+      aria-busy={busy || undefined}
+      onKeyDown={
+        onEscape
+          ? (event) => {
+              if (event.key !== "Escape" || event.defaultPrevented) return;
+              event.preventDefault();
+              onEscape();
+            }
+          : undefined
+      }
+    >
       <div className="admin-form-head">
         <h2 className="admin-form-title">{title}</h2>
         <button type="button" className="admin-iconbtn" onClick={onCancel} aria-label="Cerrar formulario" title="Cerrar formulario">
@@ -359,10 +378,51 @@ export function AdminFormPanel({
 }
 
 /**
+ * Sección plegable de los formularios («Más datos», issues #88 y #106): deja
+ * lo secundario detrás de un toque sin perder nada — el contenido **no** se
+ * desmonta (los campos conservan lo cargado) y solo se oculta con `hidden`, así
+ * tampoco recibe foco. Un solo objeto para el alta de clientes y de eventos.
+ */
+export function AdminDisclosure({
+  title,
+  hint,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  /** Aclaración de lo que hay adentro («empresa, RUC, encargado y links»). */
+  hint?: string;
+  /** Abierto al editar (los datos existentes se ven de entrada). */
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
+  return (
+    <div className="admin-disclosure" data-open={open ? "true" : undefined}>
+      <button
+        type="button"
+        className="admin-disclosure-toggle"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <AdminIcon name="chevron-down" size={14} />
+        <span>{title}</span>
+        {hint ? <small>{hint}</small> : null}
+      </button>
+      <div className="admin-disclosure-body" id={bodyId} hidden={!open}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Diálogo único del panel: overlay a pantalla completa y panel centrado.
- * Contrato mínimo: rol dialog, foco al abrir, cierre con Escape y clic afuera.
- * `wide` para las tablas chicas y `ficha` para la ficha 360 del cliente
- * (issue #34), que necesita ancho para sus listas.
+ * Contrato mínimo: rol dialog, foco al abrir (respeta un campo con `autoFocus`),
+ * cierre con Escape y clic afuera. `wide` para las tablas chicas y `ficha` para
+ * la ficha 360 del cliente (issue #34), que necesita ancho para sus listas.
  */
 export function AdminDialog({
   title,
@@ -380,7 +440,11 @@ export function AdminDialog({
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    closeRef.current?.focus();
+    // Si un campo del diálogo ya tomó el foco al montar (`autoFocus`), se
+    // respeta: el botón de cerrar es solo el respaldo (issue #106).
+    const active = document.activeElement;
+    const ownsFocus = active instanceof HTMLElement && Boolean(active.closest(".admin-dialog"));
+    if (!ownsFocus) closeRef.current?.focus();
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
     }
