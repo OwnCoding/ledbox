@@ -116,6 +116,8 @@ export type TextFieldProps = {
   autoComplete?: string;
   inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  /** Foco al abrir el formulario (alta rápida, issue #106). */
+  autoFocus?: boolean;
   disabled?: boolean;
   readOnly?: boolean;
   name?: string;
@@ -144,6 +146,7 @@ export function TextField({
   autoComplete,
   inputMode,
   autoCapitalize,
+  autoFocus,
   disabled,
   readOnly,
   name,
@@ -170,6 +173,7 @@ export function TextField({
         autoComplete={autoComplete}
         inputMode={inputMode}
         autoCapitalize={autoCapitalize}
+        autoFocus={autoFocus}
         disabled={disabled}
         readOnly={readOnly}
         name={name}

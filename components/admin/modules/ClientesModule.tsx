@@ -6,8 +6,6 @@ import {
   checklistProgress,
   clientTypeLabel,
   clientWhatsappMessage,
-  CLIENT_LINK_MESSAGES,
-  contactPhoneValid,
   eventStatusLabel,
   formatCountdown,
   formatDate,
@@ -19,14 +17,12 @@ import {
   formatTime,
   instagramHref,
   instagramLabel,
-  instagramValid,
   isOverdue,
   isUpcomingWithin,
   paymentStatusLabel,
   paymentStatusTone,
   statusTone,
   websiteHref,
-  websiteValid,
   whatsappHref,
 } from "@/lib/admin-format";
 import { canWrite, matchesQuery } from "@/lib/admin-policy";
@@ -64,9 +60,10 @@ import {
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
-import { EmailField, PhoneField, RucField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
+import { SearchField, TextAreaField } from "../AdminFields";
+import { ClientQuickFields, clientQuickErrors, clientQuickFirstError } from "./ClientQuickForm";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
-import { FIELD_LIMITS, FIELD_MESSAGES, emailValid } from "@/lib/field-rules";
+import { FIELD_LIMITS } from "@/lib/field-rules";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 
@@ -347,17 +344,10 @@ export function ClientesModule() {
     };
   }, [clients.data]);
 
-  // Ayuda del front con el mismo mensaje que revalida el API (regla única).
-  const fieldErrors = {
-    phone: form.phone && !contactPhoneValid(form.phone) ? FIELD_MESSAGES.phone : null,
-    email: form.email && !emailValid(form.email) ? FIELD_MESSAGES.email : null,
-    contactPhone: form.contactPhone && !contactPhoneValid(form.contactPhone) ? FIELD_MESSAGES.phone : null,
-    contactEmail: form.contactEmail && !emailValid(form.contactEmail) ? FIELD_MESSAGES.email : null,
-    website: form.website && !websiteValid(form.website) ? CLIENT_LINK_MESSAGES.website : null,
-    instagram: form.instagram && !instagramValid(form.instagram) ? CLIENT_LINK_MESSAGES.instagram : null,
-    whatsapp: form.whatsapp && !contactPhoneValid(form.whatsapp) ? FIELD_MESSAGES.phone : null,
-  };
-  const firstFieldError = Object.values(fieldErrors).find(Boolean) ?? "";
+  // Ayuda del front con el mismo mensaje que revalida el API (regla única); la
+  // comparten el alta de Clientes y el «+ Nuevo cliente» del evento (#106).
+  const fieldErrors = clientQuickErrors(form);
+  const firstFieldError = clientQuickFirstError(fieldErrors);
 
   const savedLogo = editingId && !logoRemoved ? editingLogoVersion : null;
   const previewLogoSrc = pendingLogo?.dataUrl ?? (editingId && savedLogo ? clientLogoUrl(editingId, savedLogo) : null);
@@ -529,158 +519,57 @@ export function ClientesModule() {
           submitLabel={editingId ? "Guardar cambios" : "Registrar cliente"}
           onSubmit={submit}
           onCancel={closeForm}
+          onEscape={closeForm}
           busy={busy}
           status={formError}
         >
-          <div className="admin-form-group">
-            <span className="admin-form-group-title">Cliente</span>
-            <TextField
-              label="Nombre"
-              required
-              maxLength={FIELD_LIMITS.name}
-              value={form.name}
-              onChange={(value) => setForm({ ...form, name: value })}
-              placeholder="Ej.: Samsung Paraguay"
-              hint="Como figura en la cartera; si es una persona, su nombre."
-            />
-            <TextField
-              label="Empresa"
-              maxLength={FIELD_LIMITS.company}
-              value={form.company}
-              onChange={(value) => setForm({ ...form, company: value })}
-              placeholder="Ej.: Samsung Paraguay"
-            />
-            <SelectField
-              label="Tipo"
-              value={form.type}
-              onChange={(value) => setForm({ ...form, type: value })}
-              options={[
-                { value: "FINAL", label: "Cliente final" },
-                { value: "RESELLER", label: "Mayorista / revendedor" },
-              ]}
-            />
-            <RucField
-              label="RUC / CI"
-              maxLength={30}
-              value={form.ruc}
-              onChange={(value) => setForm({ ...form, ruc: value })}
-            />
-          </div>
+          {/* Alta rápida (issue #106): Nombre con foco + teléfono/correo; el
+              resto vive en «Más datos» y no se pierde al plegarlo. */}
+          <ClientQuickFields
+            key={editingId ?? "nuevo"}
+            values={form}
+            onChange={(patch) => setForm({ ...form, ...patch })}
+            errors={fieldErrors}
+            autoFocus={!editingId}
+            moreOpen={Boolean(editingId)}
+          >
+            <div className="admin-form-group admin-form-group--wide">
+              <span className="admin-form-group-title">Notas</span>
+              <TextAreaField
+                label="Notas internas"
+                maxLength={FIELD_LIMITS.notes}
+                rows={3}
+                wide
+                value={form.notes}
+                onChange={(value) => setForm({ ...form, notes: value })}
+                placeholder="Acuerdos, condiciones de facturación, contactos alternos…"
+              />
+            </div>
 
-          <div className="admin-form-group">
-            <span className="admin-form-group-title">Contacto general</span>
-            <PhoneField
-              label="Teléfono"
-              hint="Con código de país"
-              value={form.phone}
-              onChange={(value) => setForm({ ...form, phone: value })}
-              error={fieldErrors.phone}
-            />
-            <EmailField
-              label="Correo"
-              value={form.email}
-              onChange={(value) => setForm({ ...form, email: value })}
-              placeholder="contacto@empresa.com"
-              error={fieldErrors.email}
-            />
-          </div>
-
-          <div className="admin-form-group">
-            <span className="admin-form-group-title">Persona encargada</span>
-            <TextField
-              label="Nombre del encargado"
-              maxLength={FIELD_LIMITS.name}
-              value={form.contactName}
-              onChange={(value) => setForm({ ...form, contactName: value })}
-              placeholder="Ej.: María González"
-            />
-            <TextField
-              label="Cargo"
-              maxLength={FIELD_LIMITS.name}
-              value={form.contactRole}
-              onChange={(value) => setForm({ ...form, contactRole: value })}
-              placeholder="Ej.: Gerenta de marketing"
-            />
-            <PhoneField
-              label="Teléfono directo"
-              value={form.contactPhone}
-              onChange={(value) => setForm({ ...form, contactPhone: value })}
-              error={fieldErrors.contactPhone}
-            />
-            <EmailField
-              label="Correo directo"
-              value={form.contactEmail}
-              onChange={(value) => setForm({ ...form, contactEmail: value })}
-              error={fieldErrors.contactEmail}
-            />
-          </div>
-
-          <div className="admin-form-group">
-            <span className="admin-form-group-title">Links directos</span>
-            <TextField
-              label="Sitio web"
-              maxLength={200}
-              value={form.website}
-              onChange={(value) => setForm({ ...form, website: value })}
-              placeholder="empresa.com.py"
-              inputMode="url"
-              error={fieldErrors.website}
-              hint="Sin «https://» también funciona."
-            />
-            <TextField
-              label="Instagram"
-              maxLength={64}
-              value={form.instagram}
-              onChange={(value) => setForm({ ...form, instagram: value })}
-              placeholder="@empresa"
-              error={fieldErrors.instagram}
-              hint="El usuario con arroba o el link del perfil."
-            />
-            <PhoneField
-              label="WhatsApp"
-              hint="Solo si difiere del teléfono general"
-              value={form.whatsapp}
-              onChange={(value) => setForm({ ...form, whatsapp: value })}
-              error={fieldErrors.whatsapp}
-            />
-          </div>
-
-          <div className="admin-form-group admin-form-group--wide">
-            <span className="admin-form-group-title">Notas</span>
-            <TextAreaField
-              label="Notas internas"
-              maxLength={FIELD_LIMITS.notes}
-              rows={3}
-              wide
-              value={form.notes}
-              onChange={(value) => setForm({ ...form, notes: value })}
-              placeholder="Acuerdos, condiciones de facturación, contactos alternos…"
-            />
-          </div>
-
-          <div className="admin-form-group admin-form-group--image">
-            <span className="admin-form-group-title">Logo</span>
-            <AdminImageUpload
-              label="Logo del cliente"
-              mode="logo"
-              hint="JPG, PNG o WebP hasta 1 MB; se recorta y comprime en el navegador. Sin logo queda el monograma de iniciales."
-              preview={<AdminAvatar name={previewName} src={previewLogoSrc} size={64} title={`Logo de ${previewName}`} />}
-              busy={busy}
-              onPrepared={(image) => {
-                setPendingLogo(image);
-                setLogoRemoved(false);
-              }}
-              onRemove={
-                hasLogo
-                  ? () => {
-                      setPendingLogo(null);
-                      setLogoRemoved(true);
-                    }
-                  : undefined
-              }
-              removeLabel="Quitar logo"
-            />
-          </div>
+            <div className="admin-form-group admin-form-group--image">
+              <span className="admin-form-group-title">Logo</span>
+              <AdminImageUpload
+                label="Logo del cliente"
+                mode="logo"
+                hint="JPG, PNG o WebP hasta 1 MB; se recorta y comprime en el navegador. Sin logo queda el monograma de iniciales."
+                preview={<AdminAvatar name={previewName} src={previewLogoSrc} size={64} title={`Logo de ${previewName}`} />}
+                busy={busy}
+                onPrepared={(image) => {
+                  setPendingLogo(image);
+                  setLogoRemoved(false);
+                }}
+                onRemove={
+                  hasLogo
+                    ? () => {
+                        setPendingLogo(null);
+                        setLogoRemoved(true);
+                      }
+                    : undefined
+                }
+                removeLabel="Quitar logo"
+              />
+            </div>
+          </ClientQuickFields>
         </AdminFormPanel>
       ) : null}
 

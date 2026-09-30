@@ -1374,6 +1374,33 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-form-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .admin-form-title { color: var(--a-text-strong); font: 700 12.5px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
 .admin-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
+/* ── Sección plegable del formulario (issues #88 y #106) ──
+   Deja lo secundario detrás de un toque sin perder nada: el contenido sigue
+   montado (solo se oculta con `hidden`) y el botón avisa qué hay adentro. */
+.admin-disclosure { display: grid; gap: 8px; grid-column: 1 / -1; min-width: 0; }
+.admin-disclosure-toggle { display: inline-flex; align-items: center; justify-self: start; gap: 8px; min-height: 34px; padding: 8px 12px; border: 1px dashed var(--a-line-control); border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 700 11px var(--font-body); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; transition: border-color .15s, color .15s; }
+.admin-disclosure-toggle:hover { border-color: var(--a-accent); color: var(--a-accent); }
+.admin-disclosure-toggle .admin-icon { transition: transform .15s; }
+.admin-disclosure-toggle[aria-expanded="true"] .admin-icon { transform: rotate(180deg); }
+.admin-disclosure-toggle small { color: var(--a-muted); font: 400 11px var(--font-body); letter-spacing: 0; text-transform: none; }
+.admin-disclosure-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
+.admin-disclosure-body[hidden] { display: none; }
+/* Campo con su acción al lado (issue #106): el botón queda a la altura del
+   control. En pantallas chicas el botón baja debajo para que el selector
+   conserve el ancho completo; en las grandes comparte las bandas `subgrid` del
+   formulario (issue #102), así el label, el control y el botón alinean con los
+   campos vecinos. */
+.admin-field-action { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: end; min-width: 0; }
+.admin-field-action > .admin-btn { justify-self: start; }
+@media (min-width: 560px) {
+  .admin-field-action { grid-template-columns: minmax(0, 1fr) auto; grid-column: span 2; }
+  .admin-field-action > .admin-btn { justify-self: end; }
+  @supports (grid-template-rows: subgrid) {
+    .admin-form-grid > .admin-field-action { grid-row: span 3; grid-template-rows: subgrid; align-items: start; }
+    .admin-field-action > .admin-field { grid-row: 1 / span 3; grid-column: 1; }
+    .admin-field-action > .admin-btn { grid-column: 2; grid-row: 2; align-self: center; }
+  }
+}
 /* Cada campo ocupa tres filas de la grilla (label · control · mensaje) y las
    comparte con sus vecinos de fila (`subgrid`): los controles quedan a la misma
    altura aunque un campo tenga label de dos líneas, hint o error (issue #102).
