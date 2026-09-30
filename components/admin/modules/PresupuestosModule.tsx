@@ -75,6 +75,7 @@ import {
   EmailField,
   MoneyField,
   NumberField,
+  RucField,
   SearchField,
   TextAreaField,
   TextField,
@@ -543,13 +544,10 @@ function PaymentDetailsDialog({ onClose }: { onClose: () => void }) {
             maxLength={120}
             placeholder="LedBox S.A."
           />
-          <TextField
+          <RucField
             label="RUC"
             value={details.ruc ?? ""}
             onChange={(value) => setDetails({ ...details, ruc: value })}
-            maxLength={20}
-            inputMode="numeric"
-            placeholder="80012345-6"
           />
           <TextField
             label="Cuenta"

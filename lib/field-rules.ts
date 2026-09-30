@@ -25,6 +25,7 @@ import {
   formatGsInput,
   largoMaximoMonto,
   limpiarPercent,
+  limpiarTaxId,
   normalizarMontoInput,
   parseGsInput,
   parseTelefono,
@@ -216,6 +217,22 @@ export function amountError(value: string, limit: number = FIELD_LIMITS.amountGe
  */
 export function percentInput(value: string): string {
   return limpiarPercent(value);
+}
+
+/**
+ * RUC / C.I. mientras se tipea: dígitos con un guion opcional antes del
+ * verificador (`80012345-6`). Se apoya en `limpiarTaxId` de la librería (la
+ * limpieza genérica de identificaciones) y cierra el formato paraguayo: sin
+ * letras, sin puntos, un solo guion y nunca al principio. No valida: eso queda
+ * para el API, como en el resto de los campos (issue #101).
+ */
+export function rucInput(value: string, maxLength = 20): string {
+  const limpio = limpiarTaxId(value, maxLength).replace(/[^0-9-]/g, "").replace(/^-+/, "");
+  const [cuerpo = "", ...cola] = limpio.split("-");
+  if (!cola.length) return cuerpo;
+  const verificador = cola.join("").slice(0, 1);
+  // El guion recién tipeado se conserva para poder escribir el verificador.
+  return verificador ? `${cuerpo}-${verificador}` : `${cuerpo}-`;
 }
 
 /** Porcentaje 0–100 con hasta 2 decimales; `null` si no es válido. */

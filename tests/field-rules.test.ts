@@ -29,6 +29,7 @@ import {
   normalizePersonName,
   normalizePhone,
   normalizeSerial,
+  rucInput,
   parseAmount,
   parsePercent,
   parsePhone,
@@ -102,6 +103,20 @@ test("correo: se guarda en minúsculas y valida hasta 200 caracteres", () => {
   assert.equal(emailValid(`${"a".repeat(FIELD_LIMITS.email)}@ledbox.online`), false);
   assert.equal(emailError("no-es-correo"), FIELD_MESSAGES.email);
   assert.equal(emailError("ana@ledbox.online"), null);
+});
+
+test("RUC / C.I.: dígitos con un guion opcional antes del verificador", () => {
+  assert.equal(rucInput("80012345-6"), "80012345-6");
+  assert.equal(rucInput(" 80012345-6 "), "80012345-6");
+  assert.equal(rucInput("80012345"), "80012345");
+  assert.equal(rucInput("abc80012345-6"), "80012345-6");
+  assert.equal(rucInput("800.12345-6"), "80012345-6");
+  assert.equal(rucInput("-80012345-6"), "80012345-6");
+  assert.equal(rucInput("800-12-345-6"), "800-1");
+  assert.equal(rucInput("80012345-"), "80012345-"); // el guion recién tipeado se conserva
+  assert.equal(rucInput(""), "");
+  assert.equal(rucInput("80012345678901234567890123"), "80012345678901234567"); // tope de 20
+  assert.equal(rucInput("1234567890", 5), "12345");
 });
 
 test("serial: mayúsculas, sin espacios ni símbolos raros", () => {

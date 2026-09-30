@@ -12,6 +12,7 @@ import {
   normalizeEmail,
   normalizePhone,
   normalizeSerial,
+  rucInput,
   parsePercent,
   parsePhone,
   percentInput,
@@ -557,6 +558,70 @@ export function EmailField({
         autoComplete={autoComplete}
         inputMode="email"
         disabled={disabled}
+        name={name}
+        aria-label={label ? undefined : ariaLabel}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(error, hint, hintId, errorId)}
+      />
+    </FieldChrome>
+  );
+}
+
+/**
+ * RUC / C.I. (issue #101): un solo componente para las identificaciones
+ * tributarias del panel. Máscara de dígitos con guion opcional antes del
+ * verificador (`80012345-6`, regla `rucInput` sobre `limpiarTaxId` de la
+ * librería), teclado numérico y el contrato del kit (label/aria/hint/error).
+ * No valida la forma del RUC: el API revalida siempre, como en el resto.
+ */
+export function RucField({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+  hint,
+  error,
+  wide,
+  required,
+  placeholder = "80012345-6",
+  disabled,
+  readOnly,
+  name,
+  id,
+  maxLength = 20,
+}: {
+  label?: string;
+  ariaLabel?: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  error?: string | null;
+  wide?: boolean;
+  required?: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
+  name?: string;
+  id?: string;
+  /** Largo máximo del documento (20 para RUC; el «RUC / CI» del cliente usa 30). */
+  maxLength?: number;
+}) {
+  const { fieldId, hintId, errorId } = useFieldIds(id);
+  return (
+    <FieldChrome label={label} ariaLabel={ariaLabel} hint={hint} error={error} wide={wide} htmlFor={fieldId} hintId={hintId} errorId={errorId}>
+      <input
+        id={label ? fieldId : id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        value={rucInput(value, maxLength)}
+        maxLength={maxLength}
+        onChange={(event) => onChange(rucInput(event.target.value, maxLength))}
+        required={required}
+        placeholder={placeholder}
+        disabled={disabled}
+        readOnly={readOnly}
         name={name}
         aria-label={label ? undefined : ariaLabel}
         aria-invalid={error ? true : undefined}
