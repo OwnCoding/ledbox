@@ -187,3 +187,9 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - alta rápida de cliente y evento con selectores de búsqueda
 - combobox con búsqueda en el kit del panel
 
+## v2.1.50 — 2026-09-30
+
+- barras de herramientas alineadas y conmutador de vistas solo con íconos
+- logos de las marcas en la franja «Marcas que confiaron» (issue #87)
+- las fotos del catálogo se muestran completas (marco según orientación)
+
