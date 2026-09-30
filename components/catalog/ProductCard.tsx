@@ -5,9 +5,12 @@ import { productPath, type Product } from "@/lib/catalog";
 
 export function ProductCard({ product, onAdd }: { product: Product; onAdd: (product: Product) => void }) {
   const href = productPath(product);
+  // El marco de la tarjeta sigue la orientación real del render (issue #85):
+  // 3:4 para verticales, 4:3 para horizontales, siempre con `contain`.
+  const art = product.height > product.width ? "portrait" : "landscape";
   return <article className="prod rise">
     <span className="prod-tag">Alquiler</span>
-    <Link className="prod-art" href={href} aria-label={`Ver la ficha de ${product.name}`}>
+    <Link className="prod-art" data-art={art} href={href} aria-label={`Ver la ficha de ${product.name}`}>
       <Image src={product.image} alt={product.alt} width={product.width} height={product.height} sizes="(max-width: 768px) calc(100vw - 40px), (max-width: 1024px) 45vw, 23vw" />
     </Link>
     <div className="prod-num">{product.code}</div>
