@@ -100,6 +100,11 @@ const MODULE_VIEW_OPTIONS: Record<AdminModuleView, { label: string; icon: "menu"
  * Conmutador de vistas: una sola pieza para todos los módulos. Por defecto
  * lista y tablero; los módulos suman cuadrícula o calendario según su `views`
  * (issues #56 y #57).
+ *
+ * Desde el issue #89 va **solo con íconos**: el nombre de cada vista vive en
+ * `title` y `aria-label` (el ícono es decorativo) y el estado sigue en
+ * `aria-pressed`. El `label` del grupo es el contexto para lectores («Vista de
+ * inventario» → «Lista, presionado»).
  */
 export function AdminViewSwitch({
   view,
@@ -116,18 +121,22 @@ export function AdminViewSwitch({
 }) {
   return (
     <div className="admin-viewswitch" role="group" aria-label={label}>
-      {views.map((option) => (
-        <button
-          key={option}
-          type="button"
-          className="admin-viewswitch-btn"
-          aria-pressed={view === option}
-          onClick={() => onChange(option)}
-        >
-          <AdminIcon name={MODULE_VIEW_OPTIONS[option].icon} size={14} />
-          {MODULE_VIEW_OPTIONS[option].label}
-        </button>
-      ))}
+      {views.map((option) => {
+        const optionLabel = MODULE_VIEW_OPTIONS[option].label;
+        return (
+          <button
+            key={option}
+            type="button"
+            className="admin-viewswitch-btn"
+            aria-pressed={view === option}
+            aria-label={optionLabel}
+            title={optionLabel}
+            onClick={() => onChange(option)}
+          >
+            <AdminIcon name={MODULE_VIEW_OPTIONS[option].icon} size={14} />
+          </button>
+        );
+      })}
     </div>
   );
 }

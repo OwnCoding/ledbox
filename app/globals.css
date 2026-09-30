@@ -1145,8 +1145,17 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-btn--primary { border-color: transparent; background: var(--a-accent); color: #04191d; }
 .admin-btn--primary:hover:not(:disabled) { background: var(--a-accent-strong); color: #04191d; }
 .admin-btn--only-icon { width: 34px; justify-content: center; padding: 0; }
-.admin-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.admin-toolbar .admin-btn { margin-left: auto; }
+/* Barra de filtros/búsqueda: todos los controles comparten la línea de base
+   (issue #89). Cada ítem se ancla abajo, el alto de los controles se normaliza
+   a 36 px y el label va arriba sin correr el control; el mensaje (hint/error)
+   queda fuera de la línea, con su espacio reservado. */
+.admin-toolbar { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.admin-toolbar .admin-btn { min-height: 36px; margin-left: auto; }
+.admin-toolbar .admin-field input, .admin-toolbar .admin-field select { min-height: 36px; }
+.admin-toolbar .admin-viewswitch { height: 36px; padding: 2px; }
+.admin-toolbar .admin-field { position: relative; }
+.admin-toolbar .admin-field-hint, .admin-toolbar .admin-field-error { position: absolute; top: calc(100% + 4px); left: 0; max-width: 18rem; }
+.admin-toolbar:has(.admin-field-hint, .admin-field-error) { padding-bottom: 18px; }
 /* Exportación (issue #7): el bloque de descarga/impresión se ancla a la derecha
    del toolbar y deja la acción primaria a su lado, sin dos `auto` compitiendo. */
 .admin-toolbar .admin-export { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -2042,7 +2051,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    como alternativa accesible. El scroll horizontal es silencioso y con
    `scroll-snap` en pantallas chicas; la página nunca desborda. */
 .admin-viewswitch { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--a-line-control); border-radius: 8px; background: var(--a-bg-2); }
-.admin-viewswitch-btn { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 700 11px var(--font-body); letter-spacing: .07em; text-transform: uppercase; cursor: pointer; transition: background .15s, color .15s; }
+.admin-viewswitch-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); cursor: pointer; transition: background .15s, color .15s; }
 .admin-viewswitch-btn:hover { color: var(--a-accent); }
 .admin-viewswitch-btn[aria-pressed="true"] { background: var(--a-accent-soft); color: var(--a-accent); }
 .admin-board-wrap { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; scrollbar-width: none; scroll-snap-type: x proximity; }
