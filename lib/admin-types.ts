@@ -1409,6 +1409,12 @@ export type AdminInventoryRow = {
   quantity: number;
   replacementCost: number;
   dailyCost: number;
+  /** Precios de venta en Gs (issue #90), 0 = sin cargar. */
+  listPrice: number;
+  wholesalePrice: number;
+  minimumPrice: number;
+  /** Días desde los que aplica el mayorista; 0 = sin regla. */
+  wholesaleFromDays: number;
   notes: string | null;
   updatedAt: string;
 };
@@ -2126,6 +2132,8 @@ export type AdminApiResponse = {
   inventory?: Array<AdminInventoryRow | AdminInventoryItemRow>;
   availability?: AdminInventoryAvailability;
   substitutes?: AdminInventorySubstitute[];
+  /** Aviso no bloqueante de los precios de venta (issue #90): mayorista o mínimo por encima de la lista. */
+  warning?: string;
   promoters?: AdminPromoterRow[];
   users?: AdminUserRow[];
   /** Invitaciones por aceptar de la empresa activa (issue #31). */
