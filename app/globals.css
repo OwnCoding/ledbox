@@ -2195,12 +2195,15 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-cards { grid-template-columns: 1fr; }
 }
 
-/* ── Imagen del inventario (issue #86) ──
-   Miniatura de lista, cuadrícula y detalle con fallback al ícono del módulo:
-   si la URL no carga, nunca queda un cuadro roto. El tamaño lo pasa el módulo
-   (valor dinámico); la caja no cambia de tamaño al caer al ícono. */
-.admin-item-thumb { display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--a-line); border-radius: 6px; background: var(--a-panel-2); color: var(--a-muted); }
-.admin-item-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* ── Imagen del inventario (issues #86 y #98) ──
+   Caja uniforme para lista, cuadrícula y detalle: misma caja (cuadrada) para
+   cualquier relación de aspecto. La imagen se ancla a la caja con `inset: 0`;
+   en un grid de fila automática el `height: 100%` no resuelve (referencia
+   circular con la fila) y la foto vertical se desbordaba y se recortaba. Con la
+   imagen anclada, `object-fit: contain` la muestra completa y el detalle no
+   cambia de alto según la foto. Si la URL falla, cae al ícono (nunca rota). */
+.admin-item-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--a-line); border-radius: 6px; background: var(--a-panel-2); color: var(--a-muted); }
+.admin-item-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
 .admin-item-identity { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; vertical-align: middle; }
 .admin-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-item-figure { display: flex; align-items: center; gap: 12px; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel-2); }
