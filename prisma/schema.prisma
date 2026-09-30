@@ -426,7 +426,14 @@ model Lead {
   internalNotes String?
   source        String     @default("website")
   consentAt     DateTime
-  status        LeadStatus @default(NEW)
+  /**
+   * Constancia de consentimiento (Ley 7593/2025, brecha B2): canal por el que
+   * se aceptó (p. ej. `sitio-web`) y versión del aviso vigente al aceptar.
+   * Nacen nulas: los leads viejos no tienen constancia completa.
+   */
+  consentChannel String?
+  consentVersion String?
+  status         LeadStatus @default(NEW)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

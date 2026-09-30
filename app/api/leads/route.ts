@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { BillingUnit, LeadStatus, type Prisma } from "@prisma/client";
+import { registroConsentimiento } from "owncoding-ui/utils";
 import { rucDocument } from "@/lib/field-rules";
+import { APP_VERSION } from "@/lib/version";
 import { db } from "@/lib/server/db";
 import { requireAdminContext, resolveDefaultOrganizationId } from "@/lib/server/tenancy";
 import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
@@ -54,6 +56,16 @@ export async function POST(request: Request) {
   const organizationId = await resolveDefaultOrganizationId();
 
   const { honeypot: _honeypot, website: _website, products, eventDate: _rawEventDate, ...leadData } = parsed.data;
+  // Constancia de consentimiento (Ley 7593/2025, brecha B2): el aviso lo dio el
+  // formulario del sitio y el servidor sella el momento. `registroConsentimiento`
+  // de la librería normaliza la constancia (canal, versión y fecha) y acá se
+  // persisten sus campos; la UI del consentimiento completo llega en la Tanda 2.
+  const consentimiento = registroConsentimiento({
+    finalidad: "consulta",
+    aceptado: true,
+    version: APP_VERSION,
+    canal: "sitio-web",
+  });
   const lead = await db.lead.create({
     data: {
       id: randomUUID(),
@@ -68,7 +80,9 @@ export async function POST(request: Request) {
       location: leadData.location || undefined,
       message: leadData.message || undefined,
       source: leadData.source || "website",
-      consentAt: new Date(),
+      consentAt: new Date(consentimiento.fecha),
+      consentChannel: consentimiento.canal,
+      consentVersion: consentimiento.version,
     },
   });
 

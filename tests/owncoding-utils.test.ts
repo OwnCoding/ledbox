@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { diasHasta, tonoVencimiento } from "owncoding-ui/utils";
+import { diasHasta, registroConsentimiento, tonoVencimiento } from "owncoding-ui/utils";
 
 /**
  * Tanda 1 del plan #100 (issue #105): los utils puros entran por el subcamino
@@ -63,4 +63,27 @@ test("el RUC del lead y del cliente se guarda con los helpers de la librería", 
   assert.match(leads, /ruc: rucDocument\(leadData\.ruc\) \|\| undefined/);
   const fields = repoFile("app/api/admin/clients/client-fields.ts");
   assert.match(fields, /data\.ruc = rucDocument\(record\.ruc\)/);
+});
+
+test("registroConsentimiento normaliza la constancia del lead", () => {
+  const constancia = registroConsentimiento({
+    finalidad: "consulta",
+    aceptado: true,
+    version: "2.1.52",
+    canal: "sitio-web",
+    fecha: new Date("2026-09-30T12:00:00.000Z"),
+  });
+  assert.deepEqual(constancia, {
+    finalidad: "consulta",
+    aceptado: true,
+    version: "2.1.52",
+    canal: "sitio-web",
+    fecha: "2026-09-30T12:00:00.000Z",
+    titular: "",
+  });
+  assert.equal(registroConsentimiento({ fecha: "no-es-fecha" }).fecha, "", "una fecha inválida no se inventa");
+  const leads = repoFile("app/api/leads/route.ts");
+  assert.match(leads, /registroConsentimiento\(/);
+  assert.match(leads, /consentChannel: consentimiento\.canal/);
+  assert.match(leads, /consentVersion: consentimiento\.version/);
 });
