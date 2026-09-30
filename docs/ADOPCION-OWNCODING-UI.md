@@ -75,9 +75,8 @@ nombres exportados, con 0 quitados** (conteo propio sobre `src/index.js`).
 La **Tanda 0 ya está hecha (issue #103)**: el pin pasó de v0.39.0 a **v0.55.0**
 sin tocar código funcional, con `typecheck`, `test:rules` (205/205) y `build`
 verdes. `v0.54.0` trajo la §12 y los objetos de privacidad; `v0.55.0` es
-docs-only (0 exports nuevos). Si en la Tanda 1 se migra al subcamino de utils,
-actualizar la aserción de fuente de `tests/bank-mark.test.ts`
-(hoy exige `from "owncoding-ui"`).
+docs-only (0 exports nuevos). La Tanda 1 (#105) migró los imports al subcamino
+de utils y actualizó la aserción de fuente de `tests/bank-mark.test.ts`.
 
 ## 3. Catálogo de candidatos a adoptar
 
@@ -111,6 +110,17 @@ versionado y registrable**.
 | `qrDataUrl`, `QR_OPCIONES` | Un solo QR con las mismas opciones | `lib/qr.ts` con `qrcode` y opciones propias |
 | `rutaDeAviso`, `payloadPush`, `enHorarioSilencioso` | Campana y notificaciones (§16) | Lógica local en `lib/server/notifications.ts` |
 | `fechaLista`, `fechaListaCorta`, `diasHasta`, `tonoVencimiento` | Columnas densas y vencimientos | `lib/admin-format.ts` propio (evaluar formatos antes de migrar) |
+
+> **Hallazgo de la Tanda 1 (#105, 30-09-2026):** publicadas en v0.55.0, pero
+> **todavía no salen por `owncoding-ui/utils`** (solo por el entry root, que
+> arrastra React y el `"use client"`): `claveTelefonoCliente`,
+> `coincideTelefonoCliente`, `digitosCliente`, `filtrarProveedores`,
+> `normalizarProveedor`, `filtrarCuentasCobro`, `ventanaDeLista` y
+> `limpiarPercent`. El código existe en el repo de la librería
+> (`src/utils/cliente.js`, `cuentaCobro.js`, `abastecimiento.js`); falta el
+> reexport en `src/utils/index.js` y la publicación. Hasta entonces se usan
+> solo del lado cliente o se conserva la implementación local anotada
+> (dedup de `/api/leads`); migrar apenas salgan por el subcamino.
 
 ### 3.3 Prioridad 2 — componentes (requieren Tailwind, ver §4)
 

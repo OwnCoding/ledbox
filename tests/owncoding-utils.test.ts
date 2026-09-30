@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { diasHasta, hayVersionNueva, partesVersion, registroConsentimiento, tonoVencimiento } from "owncoding-ui/utils";
+import {
+  diasHasta,
+  fechaLista,
+  fechaListaCorta,
+  hayVersionNueva,
+  partesVersion,
+  registroConsentimiento,
+  tonoVencimiento,
+} from "owncoding-ui/utils";
 import { APP_VERSION, nuevaVersionDisponible, partesVersion as partesVersionApp } from "../lib/version";
 
 /**
@@ -96,4 +104,14 @@ test("la versión se compara con la librería", () => {
   assert.equal(hayVersionNueva("2.1.52", "2.1.52"), false);
   assert.equal(nuevaVersionDisponible(APP_VERSION), false, "la versión de la app no es «nueva» contra sí misma");
   assert.equal(nuevaVersionDisponible(""), false);
+});
+
+test("fechaLista y fechaListaCorta de la librería quedan verificadas (formatos comparados)", () => {
+  // El panel conserva sus propios formateadores (mismo tipeo en pantalla y en
+  // los imprimibles: «16-sept.» con punto y año, «17 sept. 2026»); la
+  // comparación de formatos quedó en el handover del #105.
+  assert.equal(fechaListaCorta("2026-09-16T02:30:00.000Z", "—", { timeZone: "America/Asuncion" }), "15-sept");
+  assert.equal(fechaLista("2026-09-16T02:30:00.000Z", "—", { timeZone: "America/Asuncion" }), "15 sept 26 · 23:30");
+  const format = repoFile("lib/admin-format.ts");
+  assert.doesNotMatch(format, /fechaLista\b/, "los formateadores propios no se reemplazan: cambia el tipeo");
 });
