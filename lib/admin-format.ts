@@ -5,7 +5,7 @@
  * navegador dibujan el mismo día.
  */
 
-import { formatGs } from "owncoding-ui/utils";
+import { diasHasta, formatGs, tonoVencimiento } from "owncoding-ui/utils";
 
 import { DEFAULT_PHONE_COUNTRY, normalizePhone, parsePhone, phoneValid } from "./field-rules";
 
@@ -530,20 +530,15 @@ export function isOverdue(value: string | Date | null | undefined): boolean {
 /** Variante del texto: panel («faltan 3 días»), corta («en 3 d») o del cliente («vence en 3 días»). */
 export type CountdownVariant = "panel" | "short" | "client";
 
-const DAY_KEY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
  * Días de calendario de Asunción que faltan para una fecha: 0 = hoy, 1 = mañana,
  * negativo = vencida. Acepta un ISO, un `Date` o una clave `YYYY-MM-DD` (que se
- * toma como día puro, sin corrimiento de zona).
+ * toma como día puro, sin corrimiento de zona). Delega en `diasHasta` de la
+ * librería con la zona de la empresa (Tanda 1 del plan #100); un día de
+ * calendario inexistente (`2026-02-31`) ya no se acepta.
  */
 export function countdownDays(value: string | Date | null | undefined): number | null {
-  if (!value) return null;
-  const dayKey = typeof value === "string" && DAY_KEY_FORMAT.test(value) ? value : dayKeyOf(value);
-  const target = dayKeyToUtcDate(dayKey);
-  const today = dayKeyToUtcDate(dayKeyOf());
-  if (!target || !today) return null;
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  return diasHasta(value, { timeZone: TIME_ZONE });
 }
 
 /** Texto único de la cuenta regresiva: «hoy» · «mañana» · «faltan N días» · «venció hace N días». */
@@ -573,13 +568,15 @@ export function formatCountdown(value: string | Date | null | undefined, variant
 
 /**
  * Tono único de la cuenta regresiva: rojo si venció, ámbar si vence dentro de
- * `days` días (hoy incluido) y neutro si falta más.
+ * la ventana de aviso (hoy incluido) y neutro si falta más. Delega en
+ * `tonoVencimiento` de la librería (Tanda 1 del plan #100) y acá se traduce al
+ * vocabulario de tonos del panel. El segundo argumento se conserva por
+ * compatibilidad; la ventana de la librería es de 7 días.
  */
-export function countdownTone(value: string | Date | null | undefined, days = 7): AdminTone {
-  const distance = countdownDays(value);
-  if (distance === null) return "neutral";
-  if (distance < 0) return "danger";
-  return distance <= days ? "warn" : "neutral";
+export function countdownTone(value: string | Date | null | undefined, _days = 7): AdminTone {
+  const tone = tonoVencimiento(value);
+  if (tone === "bad") return "danger";
+  return tone === "warn" ? "warn" : "neutral";
 }
 
 // ── Cobros a plazo (issue #16) ──────────────────────────────────────────────

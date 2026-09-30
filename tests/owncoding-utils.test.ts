@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { diasHasta, tonoVencimiento } from "owncoding-ui/utils";
 
 /**
  * Tanda 1 del plan #100 (issue #105): los utils puros entran por el subcamino
@@ -34,4 +35,15 @@ test("limpiarPercent queda como la única excepción del root (pedido upstream)"
   assert.match(rules, /import \{ limpiarPercent \} from "owncoding-ui";/);
   const library = repoFile("node_modules/owncoding-ui/src/utils/index.js");
   assert.doesNotMatch(library, /limpiarPercent/, "si upstream la publica en utils, migrar y borrar la excepción");
+});
+
+test("countdownDays y countdownTone siguen el contrato de la librería", () => {
+  assert.equal(diasHasta("2026-10-03", { hoy: "2026-10-01" }), 2);
+  assert.equal(diasHasta("2026-02-31"), null, "un día inexistente ya no se corre de fecha");
+  assert.equal(tonoVencimiento("2026-09-29", { hoy: "2026-09-30" }), "bad");
+  assert.equal(tonoVencimiento("2026-10-03", { hoy: "2026-09-30" }), "warn");
+  assert.equal(tonoVencimiento("2026-11-30", { hoy: "2026-09-30" }), "");
+  const format = repoFile("lib/admin-format.ts");
+  assert.match(format, /diasHasta\(value, \{ timeZone: TIME_ZONE \}\)/);
+  assert.match(format, /tonoVencimiento\(value\)/);
 });
