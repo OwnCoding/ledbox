@@ -3,19 +3,20 @@
 Estado y plan del uso de la librería compartida de OwnCoding
 (`github.com/dariodeoli/owncoding-ui`) en esta app.
 
-> **Relevamiento del 30-09-2026 (issue #100).** Pin actual: **v0.39.0**;
-> librería publicada: **v0.54.0**. Piloto y capturas comparativas:
-> `docs/PILOTO-OWNCODING-UI.md` y `docs/piloto-owncoding-ui/`.
+> **Relevamiento del 30-09-2026 (issues #100 y #103).** Pin actual:
+> **v0.55.0** (subido en la Tanda 0, issue #103); librería publicada: **v0.55.0**.
+> Piloto y capturas comparativas: `docs/PILOTO-OWNCODING-UI.md` y
+> `docs/piloto-owncoding-ui/`.
 > Regla madre: **buscar antes de crear**. Si el objeto existe en la librería, se
 > usa; si falta y es genérico, se crea **en la librería** y se adopta acá.
 >
-> **En una línea:** subir el pin a v0.54.0 (Tanda 0, sin cambios de código) y
-> después dos frentes —utils puros y privacidad—; los objetos grandes esperan al
+> **En una línea:** la Tanda 0 ya está (pin v0.55.0, sin cambios de código) y
+> siguen dos frentes —utils puros y privacidad—; los objetos grandes esperan al
 > rediseño. El detalle y los issues propuestos están en §5.
 
 ## 1. Estado actual (relevamiento)
 
-### 1.1 Qué usa EventOS hoy (pin v0.39.0)
+### 1.1 Qué usa EventOS hoy (pin v0.55.0)
 
 Todo entra por el **root** del paquete (`dist/index.js`, marcado `use client`).
 No hay ningún objeto de interfaz adoptado todavía: solo utils y catálogos.
@@ -38,7 +39,7 @@ No hay ningún objeto de interfaz adoptado todavía: solo utils y catálogos.
 
 ### 1.2 Qué publicó la librería desde el pin
 
-Entre v0.39.0 y v0.54.0 hay **23 commits**; el índice pasó de **425 a 478
+Entre v0.39.0 y v0.55.0 hay **24 commits**; el índice pasó de **425 a 478
 nombres exportados, con 0 quitados** (conteo propio sobre `src/index.js`).
 
 | Versión | Lo relevante para EventOS |
@@ -53,8 +54,9 @@ nombres exportados, con 0 quitados** (conteo propio sobre `src/index.js`).
 | v0.51.0 | Reglas transversales §15 y notificaciones §16, con `partesVersion`/`compararVersiones`/`hayVersionNueva`, `rutaDeAviso`, `payloadPush`, `enHorarioSilencioso` |
 | v0.52.0–v0.53.1 | `REGLAS-ECOSISTEMA.md` anexado, compactación de escritorio §17 y fix de campos cortos (`PhoneField`) |
 | v0.54.0 | **§12 Protección de datos personales** + `AvisoPrivacidad`, `ConsentimientoDatos` y `registroConsentimiento` |
+| v0.55.0 | Docs (sin cambios de API): §1 «un componente por tipo de dato» y alineación de formularios (issue #10 de la librería); refuerza «biblioteca primero, sin duplicar» en §5 y §7 |
 
-## 2. Diff v0.39.0 → v0.54.0
+## 2. Diff v0.39.0 → v0.55.0
 
 ### 2.1 Compatibilidad
 
@@ -68,12 +70,13 @@ nombres exportados, con 0 quitados** (conteo propio sobre `src/index.js`).
   objeto puede cambiar de nombre; en este rango no hubo renombres ni exports
   quitados de lo que EventOS consume.
 
-### 2.2 Recomendación de pin
+### 2.2 Estado del pin
 
-Subir a **v0.54.0** en el próximo tren (Tanda 0): no requiere cambios de código
-y habilita el resto del plan. Verificación: `npm install`, `npm run typecheck`,
-`npm run test:rules`, `npm run build`. Si en la Tanda 1 se migra al subcamino de
-utils, actualizar la aserción de fuente de `tests/bank-mark.test.ts`
+La **Tanda 0 ya está hecha (issue #103)**: el pin pasó de v0.39.0 a **v0.55.0**
+sin tocar código funcional, con `typecheck`, `test:rules` (205/205) y `build`
+verdes. `v0.54.0` trajo la §12 y los objetos de privacidad; `v0.55.0` es
+docs-only (0 exports nuevos). Si en la Tanda 1 se migra al subcamino de utils,
+actualizar la aserción de fuente de `tests/bank-mark.test.ts`
 (hoy exige `from "owncoding-ui"`).
 
 ## 3. Catálogo de candidatos a adoptar
@@ -170,12 +173,16 @@ El piloto v0.14 ya validó la base (capturas byte a byte idénticas en el panel)
 
 | # | Tanda | Alcance | Aceptación | Issue propuesto |
 | --- | --- | --- | --- | --- |
-| 0 | Pin | `owncoding-ui` v0.39.0 → **v0.54.0** | `typecheck`, `test:rules` y `build` verdes sin tocar código | `chore(deps): subir owncoding-ui a v0.54.0` |
+| 0 | Pin | `owncoding-ui` → **v0.55.0** | `typecheck`, `test:rules` y `build` verdes sin tocar código | **Hecho (#103)** |
 | 1 | Utils puros | Migrar los 3 archivos a `owncoding-ui/utils` (excepto `limpiarPercent`); adoptar `registroConsentimiento`, versión, dedup de clientes, RUC y QR de §3.2 | Mismos valores en pantalla y en los imprimibles; tests de fuente actualizados | `refactor(owncoding-ui): utils por el subcamino y adopciones sin UI` |
 | 2 | Base + privacidad | Tailwind (base 0 del piloto) + `AvisoPrivacidad`/`ConsentimientoDatos` en sitio y portal + registro versionado (migración aditiva) | Capturas claro/oscuro 1440/390; casilla no pre-tildada; versión/fecha/canal guardados; brecha B2 de `docs/PRIVACIDAD.md` cerrada | `feat(privacidad): aviso y consentimiento de datos con versión (Ley 7593/2025)` |
-| 3 | Operación | `ConfirmarConPalabra`, `RangoFecha`, cuentas/pagos, proveedores y productos de §3.3 | Flujos críticos probados con rol sin privilegios; sin regresiones visuales | `feat(panel): ConfirmarConPalabra, RangoFecha y selectores de la librería` |
+| 3 | Operación | `ConfirmarConPalabra`, `RangoFecha`, cuentas/pagos, proveedores y productos de §3.3; incluye la moneda (#99), la fuente única por tipo (#101) y la alineación de formularios (#102) | Flujos críticos probados con rol sin privilegios; sin regresiones visuales | **#99**, **#101**, **#102** |
 | 4 | Objetos grandes | `TableroKanban`, `DocumentoImpresion`, `Cronologia`, `PlanPagos`, `SubidaImagen`, `ProgresoChecklist`, `ProductFooter` | Dentro del rediseño, con paridad funcional y capturas | `feat(panel): objetos de owncoding-ui en el rediseño` |
 | 5 | Librería (upstream) | Pasar `limpiarPercent` al entry de `utils`; revisar el `content` del preset | Publicado con tests y CHANGELOG | `feat(utils): exportar limpiarPercent desde utils` |
+
+> Las issues **#99** (moneda), **#101** (fuente única por tipo) y **#102**
+> (alineación de formularios) ya están abiertas y caen en las tandas 2–3; la de
+> privacidad con versión registrada (§12) queda por abrir.
 
 Cada tanda se verifica con `npm run typecheck`, `npm run test:rules` y
 `npm run build`; las que tocan UI suman capturas 1440/390 en claro y oscuro
@@ -193,7 +200,7 @@ Cada tanda se verifica con `npm run typecheck`, `npm run test:rules` y
   piloto aisló `styles.css` en una ruta de prueba; esa contención es la que la
   Tanda 2 reemplaza por la base definitiva.
 - Recorrido del pin: **v0.14.0** (piloto) → **v0.39.0** (utils y catálogos,
-  issues #46–#49) → objetivo **v0.54.0**.
+  issues #46–#49) → **v0.55.0** (Tanda 0, issue #103).
 - Veredicto completo y capturas: `docs/PILOTO-OWNCODING-UI.md`.
 
 ## 7. Requisito de deploy (Coolify)
@@ -202,8 +209,8 @@ Cada tanda se verifica con `npm run typecheck`, `npm run test:rules` y
 falta token de lectura ni `.npmrc`. Se instala directo desde el tag:
 
 ```bash
-npm install github:dariodeoli/owncoding-ui#v0.54.0
-# package.json → "owncoding-ui": "github:dariodeoli/owncoding-ui#v0.54.0"
+npm install github:dariodeoli/owncoding-ui#v0.55.0
+# package.json → "owncoding-ui": "github:dariodeoli/owncoding-ui#v0.55.0"
 ```
 
 El build de Coolify (y cualquier `npm install` en un checkout limpio) resuelve
@@ -223,9 +230,12 @@ reinstaura el token de lectura (fine-grained, solo lectura de
 
 ## 9. Verificación de este relevamiento
 
-- Exports: conteo y diff sobre `src/index.js` de `v0.39.0` y `v0.54.0`.
+- Exports: conteo y diff sobre `src/index.js` de `v0.39.0` y `v0.55.0`
+  (v0.54.0 → v0.55.0: 0 agregados, 0 quitados).
+- Tanda 0 (#103): `npm install` + `typecheck` + `test:rules` (205/205) +
+  `build` verdes, sin cambios de código funcional.
 - Estabilidad de utils: `git diff` vacío en `moneda.js`, `telefono.js`,
-  `bancos.js` y `catalog/ciudades.js` entre ambos tags.
+  `bancos.js` y `catalog/ciudades.js` entre `v0.39.0` y `v0.55.0`.
 - Imports actuales: `grep` de `from "owncoding-ui"` en `app`, `components`,
   `lib` y `tests`.
 - Subcamino: `exports["./utils"]` presente en `package.json` desde antes de
