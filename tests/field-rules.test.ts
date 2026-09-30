@@ -47,6 +47,8 @@ import {
   pinInput,
   pinValid,
   requiredError,
+  rucDocument,
+  rucValid,
   serialError,
   serialValid,
 } from "../lib/field-rules";
@@ -117,6 +119,24 @@ test("RUC / C.I.: dígitos con un guion opcional antes del verificador", () => {
   assert.equal(rucInput(""), "");
   assert.equal(rucInput("80012345678901234567890123"), "80012345678901234567"); // tope de 20
   assert.equal(rucInput("1234567890", 5), "12345");
+});
+
+test("RUC del documento (Tanda 1 #105): extrae el RUC y no pierde otros documentos", () => {
+  assert.equal(rucDocument("80012345-6"), "80012345-6");
+  assert.equal(rucDocument("RUC: 80012345-6"), "80012345-6");
+  assert.equal(rucDocument("RUC 8.001.234.567-8 proveedor"), "8.001.234.567-8");
+  assert.equal(rucDocument("  80012345-6  "), "80012345-6");
+  // Sin patrón de RUC se conserva el documento (C.I. u otro) para no perderlo.
+  assert.equal(rucDocument("1.234.567"), "1.234.567");
+  assert.equal(rucDocument(""), null);
+  assert.equal(rucDocument("   "), null);
+  assert.equal(rucDocument(null), null);
+  assert.equal(rucDocument(undefined), null);
+  assert.equal(rucDocument("80012345-6-extra", 8), "80012345"); // respeta el tope
+  assert.equal(rucValid("80012345-6"), true);
+  assert.equal(rucValid("RUC 80012345-6"), true); // el patrón se busca dentro del texto
+  assert.equal(rucValid("800123456"), false); // sin dígito verificador no hay RUC
+  assert.equal(rucValid(""), false);
 });
 
 test("serial: mayúsculas, sin espacios ni símbolos raros", () => {

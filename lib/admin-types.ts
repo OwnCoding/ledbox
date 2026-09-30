@@ -1249,6 +1249,9 @@ export type AdminLeadRow = {
   internalNotes: string | null;
   source: string;
   consentAt: string;
+  /** Canal y versión del aviso aceptado (constancia, issue #105); nulos en leads viejos. */
+  consentChannel: string | null;
+  consentVersion: string | null;
   status: string;
   createdAt: string;
   updatedAt: string;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatGs } from "owncoding-ui";
+import { formatGs } from "owncoding-ui/utils";
 import {
   clientWhatsappMessage,
   contactPhoneValid,

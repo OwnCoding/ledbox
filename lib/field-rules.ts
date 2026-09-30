@@ -5,31 +5,40 @@
  * montos PYG, porcentajes y la ayuda de ciudad. La UI dibuja el formato y el API
  * revalida siempre; el front solo ayuda. Un solo mensaje de error por regla.
  *
- * Adopción de `owncoding-ui` (issues #48, #49 y #99): el teléfono y el monto
- * PYG delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
- * `parseGsInput`, `normalizarMontoInput`) y el catálogo de ciudades sale de
- * `CIUDADES_PARAGUAY` + `departamentoDe`. El campo de monto del panel envuelve
- * el `MoneyInput` de la librería (`components/admin/AdminFields.tsx`); los
- * utils de acá quedan para el resto de los consumidores (el descuento del
- * portal). La validación de teléfono y su mensaje quedan locales a propósito:
- * la librería es solo-móvil para Paraguay y rechazaría los fijos que LedBox ya
- * acepta y guarda (owncoding-ui#4).
+ * Adopción de `owncoding-ui` (issues #48, #49, #99 y #105): el teléfono y el
+ * monto PYG delegan en la librería compartida (`parseTelefono`,
+ * `componerTelefono`, `parseGsInput`, `normalizarMontoInput`) y el catálogo de
+ * ciudades sale de `CIUDADES_PARAGUAY` + `departamentoDe`. Todo lo puro entra
+ * por el subcamino **`owncoding-ui/utils`** (JS sin `"use client"`, el destino
+ * de los route handlers y componentes de servidor; Tanda 1 del plan #100). El
+ * campo de monto del panel envuelve el `MoneyInput` de la librería
+ * (`components/admin/AdminFields.tsx`); los utils de acá quedan para el resto
+ * de los consumidores (el descuento del portal). La validación de teléfono y
+ * su mensaje quedan locales a propósito: la librería es solo-móvil para
+ * Paraguay y rechazaría los fijos que LedBox ya acepta y guarda
+ * (owncoding-ui#4).
  */
 
 import {
   CIUDADES_PARAGUAY,
+  RUC_RE,
   caretTrasDigitos,
   componerTelefono,
   departamentoDe,
+  esRuc,
   excedeMonto,
+  extraerRuc,
   formatGsInput,
   largoMaximoMonto,
-  limpiarPercent,
   limpiarTaxId,
   normalizarMontoInput,
   parseGsInput,
   parseTelefono,
-} from "owncoding-ui";
+} from "owncoding-ui/utils";
+// Excepción de la Tanda 1 (#105): `limpiarPercent` hoy vive solo en el entry
+// root (dentro de `PercentField`), no en `owncoding-ui/utils`. Queda anotado el
+// pedido upstream (Tanda 5 del plan #100).
+import { limpiarPercent } from "owncoding-ui";
 
 /**
  * El `.d.ts` de v0.14.0 publica firmas viejas del teléfono (owncoding-ui#4)
@@ -234,6 +243,33 @@ export function rucInput(value: string, maxLength = 20): string {
   // El guion recién tipeado se conserva para poder escribir el verificador.
   return verificador ? `${cuerpo}-${verificador}` : `${cuerpo}-`;
 }
+
+/**
+ * RUC del documento como se guarda (Tanda 1 del plan #100): delega en
+ * `extraerRuc` de `owncoding-ui/utils` y, si el texto no trae ningún RUC con el
+ * patrón paraguayo (`80012345-6`), devuelve el valor tal cual para no perder el
+ * dato (C.I. u otro documento). Se usa en los bordes de escritura del API, no
+ * en la máscara del campo (`rucInput`).
+ */
+export function rucDocument(value: unknown, maxLength = 30): string | null {
+  if (value === null || value === undefined) return null;
+  const texto = String(value).trim();
+  if (!texto) return null;
+  const ruc = extraerRuc(texto);
+  return (ruc || texto).slice(0, maxLength);
+}
+
+/**
+ * ¿El valor es un RUC paraguayo con dígito verificador? (`esRuc` de la
+ * librería). La validación es suave: los formularios avisan, no bloquean
+ * (issue #104, RucField).
+ */
+export function rucValid(value: string | null | undefined): boolean {
+  return esRuc(String(value ?? ""));
+}
+
+/** Patrón del RUC paraguayo (`80012345-6`) de la librería, reexportado para las reglas del panel. */
+export { RUC_RE };
 
 /** Porcentaje 0–100 con hasta 2 decimales; `null` si no es válido. */
 export function parsePercent(value: string): number | null {
