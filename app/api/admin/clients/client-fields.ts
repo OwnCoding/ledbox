@@ -15,6 +15,7 @@ import {
   normalizeEmail,
   normalizePersonName,
   personNameValid,
+  rucDocument,
 } from "@/lib/field-rules";
 
 /**
@@ -82,7 +83,9 @@ export function parseClientFields(body: unknown): ClientFieldsResult {
   }
 
   if (record.company !== undefined) data.company = optionalText(record.company, FIELD_LIMITS.company) ?? null;
-  if (record.ruc !== undefined) data.ruc = optionalText(record.ruc, 30) ?? null;
+  // RUC: si el texto trae el patrón paraguayo se guarda limpio (`80012345-6`);
+  // si no, se conserva tal cual (C.I. u otro documento). Soft: no rechaza.
+  if (record.ruc !== undefined) data.ruc = rucDocument(record.ruc);
   if (record.notes !== undefined) data.notes = optionalText(record.notes, FIELD_LIMITS.notes) ?? null;
   if (record.contactRole !== undefined) data.contactRole = optionalText(record.contactRole, FIELD_LIMITS.name) ?? null;
 

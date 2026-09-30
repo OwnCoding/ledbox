@@ -53,3 +53,14 @@ test("countdownDays y countdownTone siguen el contrato de la librería", () => {
   assert.match(format, /diasHasta\(value, \{ timeZone: TIME_ZONE \}\)/);
   assert.match(format, /tonoVencimiento\(value\)/);
 });
+
+test("el RUC del lead y del cliente se guarda con los helpers de la librería", () => {
+  const rules = repoFile("lib/field-rules.ts");
+  assert.match(rules, /export function rucDocument/, "el RUC guardado tiene una sola regla");
+  assert.match(rules, /export function rucValid/, "la validación suave vive con las reglas del panel");
+  assert.match(rules, /export \{ RUC_RE \}/, "el patrón de la librería queda disponible");
+  const leads = repoFile("app/api/leads/route.ts");
+  assert.match(leads, /ruc: rucDocument\(leadData\.ruc\) \|\| undefined/);
+  const fields = repoFile("app/api/admin/clients/client-fields.ts");
+  assert.match(fields, /data\.ruc = rucDocument\(record\.ruc\)/);
+});

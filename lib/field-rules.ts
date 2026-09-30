@@ -21,10 +21,13 @@
 
 import {
   CIUDADES_PARAGUAY,
+  RUC_RE,
   caretTrasDigitos,
   componerTelefono,
   departamentoDe,
+  esRuc,
   excedeMonto,
+  extraerRuc,
   formatGsInput,
   largoMaximoMonto,
   limpiarTaxId,
@@ -240,6 +243,33 @@ export function rucInput(value: string, maxLength = 20): string {
   // El guion recién tipeado se conserva para poder escribir el verificador.
   return verificador ? `${cuerpo}-${verificador}` : `${cuerpo}-`;
 }
+
+/**
+ * RUC del documento como se guarda (Tanda 1 del plan #100): delega en
+ * `extraerRuc` de `owncoding-ui/utils` y, si el texto no trae ningún RUC con el
+ * patrón paraguayo (`80012345-6`), devuelve el valor tal cual para no perder el
+ * dato (C.I. u otro documento). Se usa en los bordes de escritura del API, no
+ * en la máscara del campo (`rucInput`).
+ */
+export function rucDocument(value: unknown, maxLength = 30): string | null {
+  if (value === null || value === undefined) return null;
+  const texto = String(value).trim();
+  if (!texto) return null;
+  const ruc = extraerRuc(texto);
+  return (ruc || texto).slice(0, maxLength);
+}
+
+/**
+ * ¿El valor es un RUC paraguayo con dígito verificador? (`esRuc` de la
+ * librería). La validación es suave: los formularios avisan, no bloquean
+ * (issue #104, RucField).
+ */
+export function rucValid(value: string | null | undefined): boolean {
+  return esRuc(String(value ?? ""));
+}
+
+/** Patrón del RUC paraguayo (`80012345-6`) de la librería, reexportado para las reglas del panel. */
+export { RUC_RE };
 
 /** Porcentaje 0–100 con hasta 2 decimales; `null` si no es válido. */
 export function parsePercent(value: string): number | null {

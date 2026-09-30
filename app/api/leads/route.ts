@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { BillingUnit, LeadStatus, type Prisma } from "@prisma/client";
+import { rucDocument } from "@/lib/field-rules";
 import { db } from "@/lib/server/db";
 import { requireAdminContext, resolveDefaultOrganizationId } from "@/lib/server/tenancy";
 import { getClientIp, rateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
@@ -21,7 +22,16 @@ function parseDate(value?: string) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Clave de teléfono comparable: solo dígitos, sin prefijo de país ni 0 inicial. */
+/**
+ * Clave nacional del teléfono para el dedup: solo dígitos, sin prefijo de país
+ * ni 0 inicial, con la guarda de los números demasiado cortos (no identifican
+ * a nadie).
+ *
+ * Anotado del #105 (Tanda 1 del plan #100): la librería tiene
+ * `claveTelefonoCliente`/`coincideTelefonoCliente` para esto, pero todavía
+ * **no salen por `owncoding-ui/utils`** (solo por el entry root); migrar cuando
+ * upstream las publique en el subcamino, junto con `limpiarPercent`.
+ */
 function phoneKey(value: string | null | undefined): string {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length < 6) return "";
@@ -52,7 +62,7 @@ export async function POST(request: Request) {
       phone: leadData.phone,
       email: leadData.email.trim().toLowerCase(),
       company: leadData.company || undefined,
-      ruc: leadData.ruc || undefined,
+      ruc: rucDocument(leadData.ruc) || undefined,
       reason: leadData.reason || undefined,
       eventDate: eventDate || undefined,
       location: leadData.location || undefined,
@@ -142,7 +152,8 @@ export async function PATCH(request: Request) {
 
     if (convert) {
       // Sin duplicar: si ya hay un cliente de la empresa con el mismo email o
-      // teléfono (comparado por dígitos), se reutiliza y solo se marca WON.
+      // teléfono (comparado por su clave nacional), se reutiliza y solo se
+      // marca WON.
       const email = lead.email.trim().toLowerCase();
       const phone = phoneKey(lead.phone);
       const candidates = await tx.client.findMany({
@@ -168,7 +179,7 @@ export async function PATCH(request: Request) {
             company: lead.company || undefined,
             email: lead.email.trim().toLowerCase() || undefined,
             phone: lead.phone || undefined,
-            ruc: lead.ruc || undefined,
+            ruc: rucDocument(lead.ruc) || undefined,
           },
           select: { id: true, name: true, company: true },
         });
