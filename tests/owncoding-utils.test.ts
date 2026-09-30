@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { diasHasta, registroConsentimiento, tonoVencimiento } from "owncoding-ui/utils";
+import { diasHasta, hayVersionNueva, partesVersion, registroConsentimiento, tonoVencimiento } from "owncoding-ui/utils";
+import { APP_VERSION, nuevaVersionDisponible, partesVersion as partesVersionApp } from "../lib/version";
 
 /**
  * Tanda 1 del plan #100 (issue #105): los utils puros entran por el subcamino
@@ -86,4 +87,13 @@ test("registroConsentimiento normaliza la constancia del lead", () => {
   assert.match(leads, /registroConsentimiento\(/);
   assert.match(leads, /consentChannel: consentimiento\.canal/);
   assert.match(leads, /consentVersion: consentimiento\.version/);
+});
+
+test("la versión se compara con la librería", () => {
+  assert.deepEqual(partesVersion("v2.1.52+abc"), [2, 1, 52]);
+  assert.deepEqual(partesVersionApp("v2.1.52+abc"), [2, 1, 52]);
+  assert.equal(hayVersionNueva("2.1.52", "2.1.60"), true);
+  assert.equal(hayVersionNueva("2.1.52", "2.1.52"), false);
+  assert.equal(nuevaVersionDisponible(APP_VERSION), false, "la versión de la app no es «nueva» contra sí misma");
+  assert.equal(nuevaVersionDisponible(""), false);
 });

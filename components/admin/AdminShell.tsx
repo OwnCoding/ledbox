@@ -31,7 +31,6 @@ import {
 } from "@/lib/admin-format";
 import { publicConfig } from "@/lib/public-config";
 import { ADMIN_NAV_GROUP_KEY, readStoredPinDigits, storePinDigits } from "@/lib/admin-theme";
-import { APP_VERSION_LABEL } from "@/lib/version";
 import {
   adminAvatarUrl,
   organizationLogoUrl,
