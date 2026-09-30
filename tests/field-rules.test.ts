@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   amountError,
@@ -319,4 +320,31 @@ test("PIN: con largo conocido (repetir el nuevo) manda ese largo", () => {
   // Un largo fuera del rango permitido se ignora y cae al máximo.
   assert.equal(pinEntryComplete("1234", PIN_SETTLE_MS, 3), true);
   assert.equal(pinEntryComplete("1234", PIN_SETTLE_MS, 9), true);
+});
+
+/**
+ * Catálogo con búsqueda del alta de presupuestos (issue #88): el combobox vive
+ * en el kit de campos (un solo objeto, con teclado y aria) y el alta lo usa
+ * para cliente y evento, con el alta rápida disponible desde el listado.
+ */
+const repoFile = (relative: string) => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
+
+test("el catálogo del alta usa el Combobox del kit y no un select plano", () => {
+  const fields = repoFile("components/admin/AdminFields.tsx");
+  assert.match(fields, /export function Combobox\(/);
+  assert.match(fields, /role="combobox"/);
+  assert.match(fields, /aria-autocomplete="list"/);
+  assert.match(fields, /aria-activedescendant/);
+  assert.match(fields, /matchesQuery\(query/);
+
+  const module = repoFile("components/admin/modules/PresupuestosModule.tsx");
+  assert.match(module, /<Combobox\s+label="Cliente"/);
+  assert.match(module, /<Combobox\s+label="Evento"/);
+  // El alta rápida del diálogo sale de las llamadas `onCreate` del listado.
+  assert.match(module, /onCreate=\{canCreateClient/);
+  assert.match(module, /onCreate=\{canCreateEvent/);
+  // El cliente usa los campos mínimos del selector (issue #62).
+  assert.match(module, /\/api\/admin\/clients\?fields=selector/);
+  // Cliente y evento ya no se eligen con el select plano.
+  assert.doesNotMatch(module, /<SelectField/);
 });

@@ -16,6 +16,7 @@ import {
   formatDateTime,
   formatMoney,
   formatNumber,
+  formatTime,
   inventoryStatusLabel,
   paymentProofMimeLabel,
   statusTone,
@@ -25,7 +26,8 @@ import {
 import { bankMark, bankSuggestions } from "@/lib/bank-mark";
 import { internalCostOf } from "@/lib/budget-costs";
 import { BudgetPricingDialog } from "./BudgetPricingDialog";
-import { canWriteFinance, matchesQuery } from "@/lib/admin-policy";
+import { ClientQuickCreateDialog, EventQuickCreateDialog } from "./BudgetQuickCreate";
+import { canWriteClients, canWriteFinance, canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import {
   budgetApprovalState,
   collectedAmount,
@@ -35,6 +37,7 @@ import {
   type AdminBudgetRequestRow,
   type AdminBudgetReservation,
   type AdminBudgetRow,
+  type AdminClientOption,
   type AdminInventoryItemRow,
   type AdminInventoryLink,
   type AdminPaymentDetails,
@@ -66,7 +69,17 @@ import {
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
 import { SignatureDialog } from "./SignatureDialog";
-import { DateField, EmailField, MoneyField, NumberField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
+import {
+  Combobox,
+  DateField,
+  EmailField,
+  MoneyField,
+  NumberField,
+  SearchField,
+  TextAreaField,
+  TextField,
+  type ComboboxOption,
+} from "../AdminFields";
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { emailValid, FIELD_MESSAGES, normalizeEmail } from "@/lib/field-rules";
 import { currentMonthKey, monthKeyLabel, monthOf } from "@/lib/fiscal";
@@ -743,9 +756,20 @@ export function PresupuestosModule() {
   // Catálogos del alta de presupuesto (issue #59): cliente y evento solo se usan
   // en ese formulario, así que se piden al abrirlo y no en el primer render (la
   // lista ya trae cliente y evento de cada presupuesto).
-  const clients = useAdminResource("/api/admin/clients", (payload) => payload.clients ?? [], { enabled: showForm });
+  // El cliente llega con los campos mínimos del selector (issue #62). El evento
+  // se pide completo a propósito: el rango de disponibilidad del issue #18
+  // (setupAt/strikeAt/endsAt) todavía no viaja en el selector; si OPS lo agrega,
+  // el alta puede recortar la respuesta sin tocar nada más.
+  const clients = useAdminResource(
+    "/api/admin/clients?fields=selector",
+    (payload) => (payload as { clients?: AdminClientOption[] }).clients ?? [],
+    { enabled: showForm },
+  );
   const events = useAdminResource("/api/admin/events", (payload) => payload.events ?? [], { enabled: showForm });
   const [notice, setNotice] = useState("");
+  /** Altas rápidas desde el propio formulario (issue #88): nombre tipeado o null. */
+  const [newClientName, setNewClientName] = useState<string | null>(null);
+  const [newEventName, setNewEventName] = useState<string | null>(null);
   const [boardError, setBoardError] = useState("");
   const [view, setView] = useAdminModuleView("presupuestos");
   /** Precio, costos y condiciones del presupuesto (issue #65). */
@@ -788,10 +812,39 @@ export function PresupuestosModule() {
   const [templateTarget, setTemplateTarget] = useState<MessageTemplateTarget | null>(null);
 
   const writable = canWriteFinance(role);
+  // Altas rápidas del formulario (issue #88): mismas capacidades del API
+  // (`clients.write` para el cliente y `events.write` para el evento).
+  const canCreateClient = canWriteClients(role);
+  const canCreateEvent = canWriteOperations(role);
   const canManagePayments = role === "OWNER" || role === "ADMIN";
   const clientOptions = useMemo(() => clients.data ?? [], [clients.data]);
   const eventOptions = useMemo(() => events.data ?? [], [events.data]);
   const portalToken = portalBudget?.publicToken ?? null;
+
+  // Opciones del combobox (issue #88): cliente con empresa/nombre y evento con
+  // fechas + cliente, sobre los catálogos que ya carga el alta.
+  const clientChoices = useMemo<ComboboxOption[]>(
+    () =>
+      clientOptions.map((client) => {
+        const company = client.company?.trim() || "";
+        const label = company || client.name;
+        const details = [
+          company && company !== client.name ? client.name : null,
+          client.type === "RESELLER" ? "Mayorista / revendedor" : null,
+        ].filter(Boolean);
+        return { value: client.id, label, description: details.join(" · ") || undefined };
+      }),
+    [clientOptions],
+  );
+  const eventChoices = useMemo<ComboboxOption[]>(
+    () =>
+      eventOptions.map((event) => {
+        const when = event.startsAt ? `${formatDateShort(event.startsAt)} · ${formatTime(event.startsAt)}` : "Sin fecha";
+        const client = event.client.company?.trim() || event.client.name;
+        return { value: event.id, label: event.name, description: `${when} · ${client}` };
+      }),
+    [eventOptions],
+  );
 
   // Rango del evento elegido en el alta: define la disponibilidad que muestra el
   // buscador de inventario y lo que se reservará al aprobar (issue #18).
@@ -947,6 +1000,12 @@ export function PresupuestosModule() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // El combobox no tiene `required` nativo (puede llevar texto sin elegir):
+    // se valida acá y el API revalida.
+    if (!form.clientId) {
+      setFormError("Elegí el cliente del presupuesto.");
+      return;
+    }
     setBusy(true);
     setFormError("");
     setNotice("");
@@ -977,6 +1036,22 @@ export function PresupuestosModule() {
         : `Presupuesto «${form.title}» creado.`,
     );
     budgetsResource.reload();
+  }
+
+  /** Alta rápida de cliente (issue #88): lo deja elegido y refresca el catálogo. */
+  function selectCreatedClient(client: AdminClientOption) {
+    setNewClientName(null);
+    setForm((current) => ({ ...current, clientId: client.id }));
+    clients.reload();
+    setNotice(`Cliente «${client.company?.trim() || client.name}» creado y seleccionado.`);
+  }
+
+  /** Alta rápida de evento (issue #88): queda elegido y con su rango disponible. */
+  function selectCreatedEvent(event: { id: string; name: string }, clientId: string) {
+    setNewEventName(null);
+    setForm((current) => ({ ...current, eventId: event.id, clientId: current.clientId || clientId }));
+    events.reload();
+    setNotice(`Evento «${event.name}» creado y seleccionado.`);
   }
 
   function openPortal(budget: AdminBudgetRow) {
@@ -1327,28 +1402,34 @@ export function PresupuestosModule() {
           busy={busy}
           status={formError}
         >
-          <SelectField
+          <Combobox
             label="Cliente"
             required
             value={form.clientId}
             onChange={(value) => setForm({ ...form, clientId: value })}
-            options={[
-              {
-                value: "",
-                label: clients.loading ? "Cargando clientes…" : clients.error ? "No pudimos cargar los clientes" : "Elegí un cliente…",
-              },
-              ...clientOptions.map((client) => ({ value: client.id, label: client.company || client.name })),
-            ]}
+            options={clientChoices}
+            placeholder="Buscá por nombre o empresa…"
+            emptyLabel={
+              clients.loading
+                ? "Cargando clientes…"
+                : clients.error
+                  ? "No pudimos cargar los clientes."
+                  : "No hay clientes cargados."
+            }
+            hint={canCreateClient ? "Escribí para buscar; si no está, creálo desde el listado." : undefined}
+            onCreate={canCreateClient ? (name) => setNewClientName(name) : undefined}
+            createLabel={(query) => (query ? `Crear cliente «${query}»` : "Crear cliente")}
           />
-          <SelectField
+          <Combobox
             label="Evento"
-            hint="Opcional"
+            hint={canCreateEvent ? "Opcional · se puede crear desde el listado" : "Opcional"}
             value={form.eventId}
             onChange={(value) => setForm({ ...form, eventId: value })}
-            options={[
-              { value: "", label: events.loading ? "Cargando eventos…" : "Sin evento asociado" },
-              ...eventOptions.map((event) => ({ value: event.id, label: event.name })),
-            ]}
+            options={eventChoices}
+            placeholder="Buscá por nombre o dejalo vacío…"
+            emptyLabel={events.loading ? "Cargando eventos…" : "No hay eventos cargados."}
+            onCreate={canCreateEvent ? (name) => setNewEventName(name) : undefined}
+            createLabel={(query) => (query ? `Crear evento «${query}»` : "Crear evento")}
           />
           <TextField
             label="Título"
@@ -2262,6 +2343,26 @@ export function PresupuestosModule() {
       ) : null}
       {signatureBudget ? (
         <SignatureDialog budget={signatureBudget} onClose={() => setSignatureBudget(null)} />
+      ) : null}
+
+      {/* Altas rápidas del propio formulario (issue #88): al crear, la opción
+          queda elegida en el alta y el catálogo se refresca. */}
+      {newClientName !== null ? (
+        <ClientQuickCreateDialog
+          initialName={newClientName}
+          onClose={() => setNewClientName(null)}
+          onCreated={selectCreatedClient}
+        />
+      ) : null}
+      {newEventName !== null ? (
+        <EventQuickCreateDialog
+          initialName={newEventName}
+          clientId={form.clientId}
+          clients={clientOptions}
+          clientsLoading={clients.loading}
+          onClose={() => setNewEventName(null)}
+          onCreated={selectCreatedEvent}
+        />
       ) : null}
 
       {timelineBudget ? (

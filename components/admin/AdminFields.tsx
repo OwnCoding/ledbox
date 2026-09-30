@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   amountExceeds,
   amountInput,
@@ -26,6 +26,7 @@ import {
   pinValid,
 } from "@/lib/field-rules";
 import { detectPaymentProofMime } from "@/lib/admin-types";
+import { matchesQuery } from "@/lib/admin-policy";
 import { AdminIcon } from "./AdminIcons";
 
 /**
@@ -742,6 +743,296 @@ export function SelectField({
           </option>
         ))}
       </select>
+    </FieldChrome>
+  );
+}
+
+/**
+ * Catálogo con búsqueda (docs/REGLAS-GENERALES.md §1): sugiere y completa
+ * mientras se escribe, sin `<input>` suelto.
+ *
+ * - El valor de transporte es el `value` de la opción elegida, nunca el texto
+ *   tipeado: el filtro corre sobre `label`, `description` y `keywords`.
+ * - Teclado completo: ↑/↓ recorren, Enter elige, Escape cierra sin elegir;
+ *   `role="combobox"` + `aria-activedescendant` + listbox con `role="option"`.
+ * - `onCreate` agrega al pie el alta rápida («Crear cliente», «Crear evento»)
+ *   con el texto tipeado: la pantalla decide el formulario mínimo.
+ * - Con `value` elegido, el botón de limpiar devuelve el campo a vacío; borrar
+ *   todo el texto también limpia la selección.
+ * - `required` se marca con `aria-required` y la pantalla valida al enviar
+ *   (el API revalida siempre).
+ */
+export type ComboboxOption = {
+  /** Valor que se entrega al elegir la opción. */
+  value: string;
+  /** Texto principal: es lo que muestra el campo al elegir. */
+  label: string;
+  /** Detalle de la fila (empresa, fechas…): se muestra y también filtra. */
+  description?: string;
+  /** Texto extra de filtrado que no se dibuja (alias, tipos…). */
+  keywords?: string;
+};
+
+export function Combobox({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+  options,
+  placeholder,
+  hint,
+  error,
+  wide,
+  required,
+  disabled,
+  name,
+  id,
+  maxVisible = 8,
+  emptyLabel = "Sin coincidencias.",
+  onCreate,
+  createLabel,
+}: {
+  label?: string;
+  ariaLabel?: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: ComboboxOption[];
+  placeholder?: string;
+  hint?: string;
+  error?: string | null;
+  wide?: boolean;
+  required?: boolean;
+  disabled?: boolean;
+  name?: string;
+  id?: string;
+  /** Tope de coincidencias dibujadas; el resto se avisa para acotar escribiendo. */
+  maxVisible?: number;
+  /** Texto del listado sin coincidencias (y sin alta disponible). */
+  emptyLabel?: string;
+  /** Alta rápida al pie del listado; recibe el texto tipeado (sin elegir). */
+  onCreate?: (query: string) => void;
+  /** Etiqueta de la fila de alta; por defecto «Crear «texto»». */
+  createLabel?: (query: string) => string;
+}) {
+  const { fieldId, hintId, errorId } = useFieldIds(id);
+  const listId = `${fieldId}-list`;
+  const wrapperRef = useRef<HTMLSpanElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  /** El primer mouseup después de enfocar no debe perder el texto seleccionado. */
+  const keepSelection = useRef(false);
+  const [open, setOpen] = useState(false);
+  /** Texto visible mientras el listado está abierto (lo tipeado o la selección). */
+  const [text, setText] = useState("");
+  /** Texto de filtrado: al abrir con una selección arranca vacío (todas las opciones). */
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(-1);
+
+  const selected = useMemo(
+    () => options.find((option) => option.value === value) ?? null,
+    [options, value],
+  );
+  const matches = useMemo(
+    () => options.filter((option) => matchesQuery(query, [option.label, option.description, option.keywords])),
+    [options, query],
+  );
+  const visible = matches.slice(0, maxVisible);
+  const rowCount = visible.length + (onCreate ? 1 : 0);
+  const activeRow = active >= 0 && active < rowCount ? active : -1;
+  const activeId =
+    activeRow < 0 ? undefined : activeRow < visible.length ? `${listId}-option-${activeRow}` : `${listId}-create`;
+
+  /**
+   * Escape del listado, en captura sobre el propio campo: el diálogo que
+   * contiene al combobox escucha Escape en `document` (AdminDialog) y no debe
+   * cerrarse con el mismo toque que cierra las sugerencias.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      setText("");
+      setQuery("");
+      setActive(-1);
+    }
+    wrapper.addEventListener("keydown", onKeyDown, true);
+    return () => wrapper.removeEventListener("keydown", onKeyDown, true);
+  }, [open]);
+
+  function openList() {
+    setText(selected?.label ?? "");
+    setQuery("");
+    const index = selected ? options.findIndex((option) => option.value === selected.value) : -1;
+    setActive(index >= 0 && index < maxVisible ? index : -1);
+    setOpen(true);
+  }
+
+  function closeList() {
+    setOpen(false);
+    setText("");
+    setQuery("");
+    setActive(-1);
+  }
+
+  function choose(option: ComboboxOption) {
+    onChange(option.value);
+    closeList();
+    inputRef.current?.focus();
+  }
+
+  /** Alta rápida: cierra el listado y entrega el texto tipeado tal cual. */
+  function create() {
+    if (!onCreate) return;
+    const typed = query.trim();
+    closeList();
+    onCreate(typed);
+  }
+
+  function clear() {
+    // Si el campo está enfocado, el listado sigue abierto con todo el catálogo;
+    // si no, queda cerrado y el campo muestra el placeholder.
+    onChange("");
+    setText("");
+    setQuery("");
+    setActive(-1);
+  }
+
+  return (
+    <FieldChrome label={label} ariaLabel={ariaLabel} hint={hint} error={error} wide={wide} htmlFor={fieldId} hintId={hintId} errorId={errorId}>
+      <span className="admin-combobox" ref={wrapperRef}>
+        <input
+          ref={inputRef}
+          id={fieldId}
+          name={name}
+          type="text"
+          value={open ? text : selected?.label ?? ""}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={open ? activeId : undefined}
+          aria-required={required || undefined}
+          aria-label={label ? undefined : ariaLabel}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy(error, hint, hintId, errorId)}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={disabled}
+          placeholder={placeholder}
+          onFocus={(event) => {
+            if (open || disabled) return;
+            openList();
+            if (selected) {
+              event.currentTarget.select();
+              keepSelection.current = true;
+            }
+          }}
+          onMouseUp={(event) => {
+            if (!keepSelection.current) return;
+            event.preventDefault();
+            keepSelection.current = false;
+          }}
+          onChange={(event) => {
+            const next = event.target.value;
+            setText(next);
+            setQuery(next);
+            setActive(next.trim() ? 0 : -1);
+            setOpen(true);
+            // Borrar todo el texto quita la selección (el evento es opcional).
+            if (!next.trim() && value) onChange("");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              if (!open) openList();
+              else setActive((current) => (rowCount === 0 ? -1 : Math.min(current + 1, rowCount - 1)));
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              if (!open) openList();
+              else setActive((current) => (current <= 0 ? 0 : current - 1));
+              return;
+            }
+            if (event.key === "Enter" && open && activeRow >= 0) {
+              event.preventDefault();
+              if (activeRow < visible.length) choose(visible[activeRow]);
+              else create();
+              return;
+            }
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget;
+            if (next && wrapperRef.current?.contains(next as Node)) return;
+            closeList();
+          }}
+        />
+        {value && !disabled ? (
+          <button
+            type="button"
+            className="admin-combobox-clear"
+            title="Quitar la selección"
+            aria-label={label ? `Quitar la selección de ${label}` : "Quitar la selección"}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={clear}
+          >
+            <AdminIcon name="close" size={12} />
+          </button>
+        ) : null}
+        {open && !disabled ? (
+          <div className="admin-combobox-pop">
+            <ul className="admin-combobox-list" id={listId} role="listbox" aria-label={label ?? ariaLabel ?? "Opciones"}>
+              {visible.map((option, index) => (
+                <li
+                  key={option.value}
+                  id={`${listId}-option-${index}`}
+                  role="option"
+                  aria-selected={option.value === value}
+                  data-active={activeRow === index ? "true" : undefined}
+                  className="admin-combobox-option"
+                  title={option.description ? `${option.label} · ${option.description}` : option.label}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(option)}
+                >
+                  <span className="admin-combobox-option-text">
+                    <strong>{option.label}</strong>
+                    {option.description ? <small>{option.description}</small> : null}
+                  </span>
+                  {option.value === value ? <AdminIcon name="check" size={13} /> : null}
+                </li>
+              ))}
+              {onCreate ? (
+                <li
+                  id={`${listId}-create`}
+                  role="option"
+                  aria-selected={false}
+                  data-active={activeRow === visible.length ? "true" : undefined}
+                  className="admin-combobox-option admin-combobox-option--create"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={create}
+                >
+                  <span className="admin-combobox-option-text">
+                    <strong>
+                      {createLabel ? createLabel(query) : query.trim() ? `Crear «${query.trim()}»` : "Crear nuevo"}
+                    </strong>
+                  </span>
+                  <AdminIcon name="plus" size={13} />
+                </li>
+              ) : null}
+            </ul>
+            {matches.length > visible.length ? (
+              <p className="admin-combobox-note">
+                Mostrando {visible.length} de {matches.length}: seguí escribiendo para acotar.
+              </p>
+            ) : null}
+            {matches.length === 0 && !onCreate ? <p className="admin-combobox-note">{emptyLabel}</p> : null}
+          </div>
+        ) : null}
+      </span>
     </FieldChrome>
   );
 }
