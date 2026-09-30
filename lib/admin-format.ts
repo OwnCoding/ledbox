@@ -5,7 +5,7 @@
  * navegador dibujan el mismo día.
  */
 
-import { formatGs } from "owncoding-ui";
+import { formatGs } from "owncoding-ui/utils";
 
 import { DEFAULT_PHONE_COUNTRY, normalizePhone, parsePhone, phoneValid } from "./field-rules";
 

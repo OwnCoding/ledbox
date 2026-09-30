@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { colorDeBanco, inicialesDeBanco, normalizarBanco, sugerenciasDeBanco } from "owncoding-ui";
+import { colorDeBanco, inicialesDeBanco, normalizarBanco, sugerenciasDeBanco } from "owncoding-ui/utils";
 import { bankKey, bankMark, bankSuggestions } from "../lib/bank-mark";
 
 /**
@@ -80,7 +80,7 @@ test("bankKey es la normalización de la librería", () => {
 
 test("lib/bank-mark.ts no guarda listas locales de bancos", () => {
   const source = repoFile("lib/bank-mark.ts");
-  assert.match(source, /from "owncoding-ui"/);
+  assert.match(source, /from "owncoding-ui\/utils"/);
   assert.doesNotMatch(source, /BANK_REGISTRY|MONOGRAM_COLORS|STOP_WORDS/);
 });
 

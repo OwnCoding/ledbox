@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { qrDataUrl as qrDataUrlDeLibreria } from "owncoding-ui/utils";
 
 /**
  * QR del portal del cliente (issue #12). Un solo helper: el contenido siempre

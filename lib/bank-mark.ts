@@ -14,9 +14,10 @@
  * cuando existe y, sin archivo, el banco cae al monograma (nunca una imagen
  * rota).
  *
- * Ojo: los utils de la librería viven en un bundle `"use client"`, así que este
- * módulo se consume del lado cliente (los módulos del panel y la isla de
- * impresión `PrintBankData`). No llamarlo desde componentes de servidor.
+ * Estos utils entran por el subcamino `owncoding-ui/utils` (JS puro, sin
+ * `"use client"`; Tanda 1 del plan #100), así que el módulo también puede
+ * consumirse del lado servidor (los módulos del panel y la isla de impresión
+ * `PrintBankData`).
  */
 
 import {
@@ -26,7 +27,7 @@ import {
   logoDeBanco,
   normalizarBanco,
   sugerenciasDeBanco,
-} from "owncoding-ui";
+} from "owncoding-ui/utils";
 
 export type BankMark = {
   /** Clave normalizada del banco (ej.: `banco continental`). */

@@ -5,15 +5,18 @@
  * montos PYG, porcentajes y la ayuda de ciudad. La UI dibuja el formato y el API
  * revalida siempre; el front solo ayuda. Un solo mensaje de error por regla.
  *
- * Adopción de `owncoding-ui` (issues #48, #49 y #99): el teléfono y el monto
- * PYG delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
- * `parseGsInput`, `normalizarMontoInput`) y el catálogo de ciudades sale de
- * `CIUDADES_PARAGUAY` + `departamentoDe`. El campo de monto del panel envuelve
- * el `MoneyInput` de la librería (`components/admin/AdminFields.tsx`); los
- * utils de acá quedan para el resto de los consumidores (el descuento del
- * portal). La validación de teléfono y su mensaje quedan locales a propósito:
- * la librería es solo-móvil para Paraguay y rechazaría los fijos que LedBox ya
- * acepta y guarda (owncoding-ui#4).
+ * Adopción de `owncoding-ui` (issues #48, #49, #99 y #105): el teléfono y el
+ * monto PYG delegan en la librería compartida (`parseTelefono`,
+ * `componerTelefono`, `parseGsInput`, `normalizarMontoInput`) y el catálogo de
+ * ciudades sale de `CIUDADES_PARAGUAY` + `departamentoDe`. Todo lo puro entra
+ * por el subcamino **`owncoding-ui/utils`** (JS sin `"use client"`, el destino
+ * de los route handlers y componentes de servidor; Tanda 1 del plan #100). El
+ * campo de monto del panel envuelve el `MoneyInput` de la librería
+ * (`components/admin/AdminFields.tsx`); los utils de acá quedan para el resto
+ * de los consumidores (el descuento del portal). La validación de teléfono y
+ * su mensaje quedan locales a propósito: la librería es solo-móvil para
+ * Paraguay y rechazaría los fijos que LedBox ya acepta y guarda
+ * (owncoding-ui#4).
  */
 
 import {
@@ -24,12 +27,15 @@ import {
   excedeMonto,
   formatGsInput,
   largoMaximoMonto,
-  limpiarPercent,
   limpiarTaxId,
   normalizarMontoInput,
   parseGsInput,
   parseTelefono,
-} from "owncoding-ui";
+} from "owncoding-ui/utils";
+// Excepción de la Tanda 1 (#105): `limpiarPercent` hoy vive solo en el entry
+// root (dentro de `PercentField`), no en `owncoding-ui/utils`. Queda anotado el
+// pedido upstream (Tanda 5 del plan #100).
+import { limpiarPercent } from "owncoding-ui";
 
 /**
  * El `.d.ts` de v0.14.0 publica firmas viejas del teléfono (owncoding-ui#4)
