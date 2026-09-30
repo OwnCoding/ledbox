@@ -925,6 +925,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .admin-field select[aria-invalid="true"], .admin-field textarea[aria-invalid="true"] { border-color: var(--a-danger); }
 .admin-field--wide { grid-column: 1 / -1; }
 .admin-field-error { color: var(--a-danger); font-size: 11px; }
+/* ── Combobox (issue #88) ──
+   Catálogo con búsqueda del kit de campos: el input filtra y sugiere; el
+   listado flotante muestra las coincidencias (empresa/nombre del cliente,
+   evento con fechas y cliente) y, al pie, la fila de alta rápida. Un solo
+   objeto para todos los catálogos del panel. */
+.admin-combobox { position: relative; display: block; min-width: 0; }
+.admin-field .admin-combobox input { padding-right: 32px; }
+.admin-combobox-clear { position: absolute; top: 50%; right: 5px; display: grid; place-items: center; width: 26px; height: 26px; transform: translateY(-50%); border: 0; border-radius: 8px; background: transparent; color: var(--a-muted); cursor: pointer; }
+.admin-combobox-clear:hover { color: var(--a-accent); }
+.admin-combobox-pop { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 4px; max-height: 18rem; padding: 4px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius); background: var(--a-panel); box-shadow: var(--a-shadow); backdrop-filter: var(--a-blur); overflow-y: auto; }
+.admin-combobox-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.admin-combobox-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; color: var(--a-muted-2); cursor: pointer; }
+.admin-combobox-option[data-active="true"] { background: var(--a-accent-soft); }
+.admin-combobox-option[aria-selected="true"] { background: var(--a-panel-2); }
+.admin-combobox-option[data-active="true"][aria-selected="true"] { background: var(--a-accent-soft); }
+.admin-combobox-option-text { display: grid; min-width: 0; }
+.admin-combobox-option-text strong { overflow: hidden; color: var(--a-text-strong); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.admin-combobox-option-text small { overflow: hidden; color: var(--a-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-combobox-option > .admin-icon { color: var(--a-accent); }
+.admin-combobox-option--create strong { color: var(--a-accent); }
+.admin-combobox-note { padding: 2px 8px; color: var(--a-muted); font-size: 11px; }
 .admin-phone { position: relative; display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 8px; }
 .admin-phone-prefix { position: absolute; top: 50%; left: 10px; transform: translateY(-50%); color: var(--a-muted); font-size: 12.5px; pointer-events: none; }
 .admin-field .admin-phone-code { padding-left: 24px; }
