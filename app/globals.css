@@ -973,7 +973,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .admin-title span { color: var(--a-accent); }
 .admin-lede { max-width: 46ch; margin-bottom: 16px; color: var(--a-muted-2); font-size: 13px; line-height: 1.6; }
 .admin-form { display: grid; gap: 12px; }
-.admin-field { display: grid; gap: 8px; min-width: 0; }
+/* Issue #102: el campo nunca reparte la altura que sobra entre sus filas —el
+   label no crece y el control no se corre—; los mensajes van abajo del
+   control. Con eso, en una misma fila de la grilla los controles arrancan a la
+   misma altura aunque cambien label, hint o error. */
+.admin-field { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .admin-field-label, .admin-field label { color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .admin-field-hint { color: var(--a-muted); font-size: 11px; }
 .admin-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1217,17 +1221,20 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-btn--primary { border-color: transparent; background: var(--a-accent); color: #04191d; }
 .admin-btn--primary:hover:not(:disabled) { background: var(--a-accent-strong); color: #04191d; }
 .admin-btn--only-icon { width: 34px; justify-content: center; padding: 0; }
-/* Barra de filtros/búsqueda: todos los controles comparten la línea de base
-   (issue #89). Cada ítem se ancla abajo, el alto de los controles se normaliza
-   a 36 px y el label va arriba sin correr el control; el mensaje (hint/error)
-   queda fuera de la línea, con su espacio reservado. */
+/* Barras de filtros/búsqueda y formularios en línea: todos los controles
+   comparten la línea de base (issues #89 y #102). Cada ítem se ancla abajo (el
+   label va arriba sin correr el control), el alto de los controles se normaliza
+   a 36 px y el mensaje (hint/error) queda fuera de la línea, con su espacio
+   reservado. Vale igual con una o dos líneas de mensaje: el control no se mueve. */
 .admin-toolbar { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
 .admin-toolbar .admin-btn { min-height: 36px; margin-left: auto; }
 .admin-toolbar .admin-field input, .admin-toolbar .admin-field select { min-height: 36px; }
 .admin-toolbar .admin-viewswitch { height: 36px; padding: 2px; }
-.admin-toolbar .admin-field { position: relative; }
-.admin-toolbar .admin-field-hint, .admin-toolbar .admin-field-error { position: absolute; top: calc(100% + 4px); left: 0; max-width: 18rem; }
-.admin-toolbar:has(.admin-field-hint, .admin-field-error) { padding-bottom: 18px; }
+.admin-toolbar .admin-field, .admin-inline-form .admin-field { position: relative; }
+.admin-toolbar .admin-field-hint, .admin-toolbar .admin-field-error,
+.admin-inline-form .admin-field-hint, .admin-inline-form .admin-field-error { position: absolute; top: calc(100% + 4px); left: 0; max-width: 18rem; }
+.admin-toolbar:has(.admin-field-hint, .admin-field-error),
+.admin-inline-form:has(.admin-field-hint, .admin-field-error) { padding-bottom: 18px; }
 /* Exportación (issue #7): el bloque de descarga/impresión se ancla a la derecha
    del toolbar y deja la acción primaria a su lado, sin dos `auto` compitiendo. */
 .admin-toolbar .admin-export { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -1324,13 +1331,23 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-countdown[data-tone="danger"] { color: var(--a-danger); border-color: color-mix(in srgb, var(--a-danger) 42%, transparent); background: color-mix(in srgb, var(--a-danger) 14%, transparent); }
 .admin-countdown--inline { margin-left: 8px; }
 /* La cuenta regresiva del formulario va debajo de su campo de fecha. */
-.admin-countdown-field { display: grid; gap: 4px; align-content: start; }
+.admin-countdown-field { display: grid; gap: 4px; }
 
 /* ── Formularios de alta ── */
 .admin-form-panel { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius-lg); background: var(--a-panel); box-shadow: var(--a-shadow); }
 .admin-form-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .admin-form-title { color: var(--a-text-strong); font: 700 12.5px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
 .admin-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
+/* Cada campo ocupa tres filas de la grilla (label · control · mensaje) y las
+   comparte con sus vecinos de fila (`subgrid`): los controles quedan a la misma
+   altura aunque un campo tenga label de dos líneas, hint o error (issue #102).
+   El `@supports` deja intacta la grilla donde `subgrid` no existe (el
+   `align-content: start` del campo ya evita el salto por altura sobrante). */
+@supports (grid-template-rows: subgrid) {
+  .admin-form-grid > .admin-field,
+  .admin-form-group > .admin-field,
+  .admin-plan-grid > .admin-field { grid-row: span 3; grid-template-rows: subgrid; }
+}
 /* Grupos del formulario del cliente (issue #36): título de sección y sus
    campos en la misma grilla del panel; el formulario largo queda navegable. */
 .admin-form-group { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
@@ -1339,7 +1356,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-form-group--image { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
 .admin-form-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-form-actions { display: flex; gap: 8px; margin-left: auto; }
-.admin-inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 12px; border-bottom: 1px solid var(--a-line); background: var(--a-accent-soft); }
+/* Formulario en línea (pagos, gastos, filas de carga): controles anclados
+   abajo, como las barras, para que el label no los corra (issue #102). */
+.admin-inline-form { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 12px; border-bottom: 1px solid var(--a-line); background: var(--a-accent-soft); }
 .admin-inline-form select, .admin-inline-form input { height: 34px; min-width: 0; padding: 0 8px; border: 1px solid var(--a-line-control); border-radius: 8px; background: var(--a-bg-2); color: var(--a-text); font: 13px var(--font-body); }
 .admin-inline-form select { max-width: 12rem; }
 .admin-inline-form input[placeholder] { flex: 1 1 12rem; }
@@ -1380,7 +1399,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 /* Barra de subtabs fuera de un módulo con página propia (issue #56): alinea con
    el padding del área de contenido. */
 .admin-subtabs-bar { padding: 12px 16px 0; }
-.admin-image-field { align-content: start; }
 .admin-image-body { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .admin-image-preview { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border: 1px dashed var(--a-line-2); border-radius: var(--a-radius); background: var(--a-bg-2); }
 .admin-image-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1763,7 +1781,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-match-main strong { overflow: hidden; color: var(--a-text-strong); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-match-main small { color: var(--a-muted); font-size: 11px; overflow-wrap: anywhere; }
 .admin-dialog-subtitle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; letter-spacing: .02em; }
-.admin-csv-field { align-content: start; }
 .admin-csv-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-csv-name { flex: 1 1 10rem; min-width: 0; overflow: hidden; padding: 8px 12px; border: 1px dashed var(--a-line-2); border-radius: var(--a-radius); background: var(--a-bg-2); color: var(--a-muted-2); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-csv-input { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; clip-path: inset(50%); }
