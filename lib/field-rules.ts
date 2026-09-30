@@ -5,12 +5,15 @@
  * montos PYG, porcentajes y la ayuda de ciudad. La UI dibuja el formato y el API
  * revalida siempre; el front solo ayuda. Un solo mensaje de error por regla.
  *
- * Adopción de `owncoding-ui` (issues #48 y #49): el teléfono y el monto PYG
- * delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
- * `parseGsInput`) y el catálogo de ciudades sale de `CIUDADES_PARAGUAY` +
- * `departamentoDe`. La validación de teléfono y su mensaje quedan locales a
- * propósito: la librería es solo-móvil para Paraguay y rechazaría los fijos que
- * LedBox ya acepta y guarda (owncoding-ui#4).
+ * Adopción de `owncoding-ui` (issues #48, #49 y #99): el teléfono y el monto
+ * PYG delegan en la librería compartida (`parseTelefono`, `componerTelefono`,
+ * `parseGsInput`, `normalizarMontoInput`) y el catálogo de ciudades sale de
+ * `CIUDADES_PARAGUAY` + `departamentoDe`. El campo de monto del panel envuelve
+ * el `MoneyInput` de la librería (`components/admin/AdminFields.tsx`); los
+ * utils de acá quedan para el resto de los consumidores (el descuento del
+ * portal). La validación de teléfono y su mensaje quedan locales a propósito:
+ * la librería es solo-móvil para Paraguay y rechazaría los fijos que LedBox ya
+ * acepta y guarda (owncoding-ui#4).
  */
 
 import {
@@ -175,11 +178,6 @@ export function moneyInputMaxLength(limit: number = FIELD_LIMITS.amountGeneral):
 /** ¿El monto supera el tope del campo? El campo marca `aria-invalid` + `title`. */
 export function amountExceeds(value: string, limit: number = FIELD_LIMITS.amountGeneral): boolean {
   return excedeMonto(value, limit);
-}
-
-/** Título del campo cuando el monto supera el tope. */
-export function amountLimitTitle(limit: number = FIELD_LIMITS.amountGeneral): string {
-  return `${FIELD_MESSAGES.amountLimit} (Gs ${new Intl.NumberFormat("es-PY").format(limit)})`;
 }
 
 /** Posición del caret tras N dígitos: el formateo no mueve el cursor. */

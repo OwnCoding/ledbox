@@ -984,6 +984,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .admin-field input:focus, .admin-field select:focus, .admin-field textarea:focus { outline: none; border-color: var(--a-accent); box-shadow: 0 0 0 3px var(--a-accent-soft); }
 .admin-field input[aria-invalid="true"] { border-color: var(--a-danger); }
 .admin-field select[aria-invalid="true"], .admin-field textarea[aria-invalid="true"] { border-color: var(--a-danger); }
+/* MoneyInput de owncoding-ui (issue #99): el componente trae su estructura
+   (contenedor relativo + prefijo + input) con clases utilitarias de Tailwind
+   que este panel no carga, así que el kit le da el aspecto del panel: el
+   prefijo «Gs» adentro del campo y el alto/foco que ya define `.admin-field`. */
+.admin-money { position: relative; min-width: 0; }
+.admin-money span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--a-muted); font-size: 12px; font-weight: 600; }
+.admin-money input { padding-left: 34px; }
 .admin-field--wide { grid-column: 1 / -1; }
 .admin-field-error { color: var(--a-danger); font-size: 11px; }
 /* ── Combobox (issue #88) ──

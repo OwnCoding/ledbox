@@ -5,7 +5,6 @@ import {
   amountError,
   amountExceeds,
   amountInput,
-  amountLimitTitle,
   amountValid,
   caretAfterDigits,
   CITY_OPTIONS,
@@ -213,7 +212,6 @@ test("monto PYG: el campo se dibuja con separadores y avisa si supera el tope", 
   assert.equal(moneyInputDisplay(""), "");
   assert.equal(amountExceeds("10000000000", FIELD_LIMITS.amountGeneral), false);
   assert.equal(amountExceeds("10000000001", FIELD_LIMITS.amountGeneral), true);
-  assert.equal(amountLimitTitle(FIELD_LIMITS.amountGeneral), `${FIELD_MESSAGES.amountLimit} (Gs 10.000.000.000)`);
   assert.equal(moneyInputMaxLength(FIELD_LIMITS.amountGeneral), 14); // 11 dígitos + 3 separadores
   // El caret no salta al final cuando el formateo agrega separadores.
   assert.equal(caretAfterDigits("1.234", 3), 4);
