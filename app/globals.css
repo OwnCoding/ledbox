@@ -320,7 +320,10 @@ h2.sec-title .led { color: var(--led); }
     border-radius: 999px;
 }
 
+/* Issue #85: el marco acompaña la orientación del render (vertical 3:4,
+   horizontal 4:3) y la foto entra completa con `contain` — nunca se recorta. */
 .prod-art { height: auto; aspect-ratio: 4 / 3; min-height: 190px; padding: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 26px; overflow: hidden; background: radial-gradient(circle, color-mix(in srgb, var(--led) 8%, transparent), transparent 65%); }
+.prod-art[data-art="portrait"] { aspect-ratio: 3 / 4; }
 .prod-art img { width: 100%; height: 100%; object-fit: contain; filter: saturate(.9) contrast(1.05); }
 .prod-price { margin-top: 14px; font-family: var(--font-display); font-size: 20px; color: var(--text); }
 .prod-price small { font: 10px var(--font-body); color: var(--muted); letter-spacing: 1px; }
@@ -567,7 +570,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .logo-img { object-fit: contain; border-radius: 8px; }
 .stat-social .n { display:flex; align-items:center; gap:12px; font-size:26px; }
 .stat-social svg, .ft-social svg { width:24px; height:24px; flex:0 0 auto; }
-.prod-art img { object-fit: cover; }
+/* La regla heredada `.prod-art img { object-fit: cover }` se retiró en el
+   issue #85: recortaba las fotos verticales dentro del marco 4:3. */
+.prod-art img { object-fit: contain; }
 .cart-backdrop { position:fixed; inset:0; z-index:28; background:var(--scrim); opacity:0; pointer-events:none; transition:opacity .25s ease; }
 .cart-backdrop.open { opacity:1; pointer-events:auto; }
 .cart-panel { z-index:40; border-radius: var(--radius-lg); }
