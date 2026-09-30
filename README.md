@@ -106,4 +106,5 @@ Variables de entorno (los valores reales viven en Owncoding Hub, nunca en GitHub
 - [docs/SSO.md](docs/SSO.md) — SSO con Google: configuración en Google Cloud, flujo del panel e invitaciones, errores y propuesta para el portal.
 - [docs/REGLAS-GENERALES.md](docs/REGLAS-GENERALES.md) — reglas generales de la app (obligatorias).
 - [docs/OPERACION.md](docs/OPERACION.md) — respaldos, chequeo, restauración y estado del sistema.
+- [docs/PRIVACIDAD.md](docs/PRIVACIDAD.md) — registro de tratamiento de datos personales (Ley 7593/2025), retención, derechos del titular y seguridad.
 - [AGENTS.md](AGENTS.md) — reglas para agentes que trabajan en el repo.

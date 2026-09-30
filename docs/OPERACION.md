@@ -218,3 +218,11 @@ una y su corrección, para reconocerlas rápido si vuelven.
   pasó, pero es la otra falla clásica; los procesos de Coolify corren como root.
 - **Corrección**: montar el volumen escribible para el contenedor o ajustar el dueño; comprobar
   con `ls -la /data/backups` antes de dar por sano el deploy.
+
+## 8. Datos personales en los respaldos
+
+Un respaldo contiene copia de todos los datos personales de la base (§2 de
+`docs/PRIVACIDAD.md`): hereda su retención y se protege con el mismo acceso que el servidor. La
+retención de los respaldos es la de `BACKUP_RETENTION_DAYS`/`BACKUP_MIN_KEEP` (§1) y su borrado es
+automático. El registro de tratamientos, el proceso de derechos del titular y las medidas de
+seguridad vigentes viven en **`docs/PRIVACIDAD.md`**.
