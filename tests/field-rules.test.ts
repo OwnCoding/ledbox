@@ -15,8 +15,13 @@ import {
   FIELD_LIMITS,
   FIELD_MESSAGES,
   formatPercent,
+  INVENTORY_PRICE_LIMIT,
+  INVENTORY_WHOLESALE_DAYS_MAX,
   inventoryImageError,
   inventoryImageValid,
+  inventoryPriceValue,
+  inventoryPriceWarning,
+  inventoryWholesaleDaysValue,
   moneyInputDisplay,
   moneyInputMaxLength,
   normalizeEmail,
@@ -125,6 +130,51 @@ test("imagen de inventario: ruta interna o URL http(s), sin HTML ni espacios", (
   assert.equal(inventoryImageError("   "), null);
   assert.equal(inventoryImageError("/assets/products/totem-led.png"), null);
   assert.equal(inventoryImageError("no-es-una-imagen"), FIELD_MESSAGES.image);
+});
+
+test("precios de venta: enteros ≥ 0 dentro del tope; vacío no cambia, basura se rechaza", () => {
+  assert.equal(INVENTORY_PRICE_LIMIT, 10_000_000_000);
+  assert.equal(inventoryPriceValue(750_000), 750_000);
+  assert.equal(inventoryPriceValue(0), 0);
+  assert.equal(inventoryPriceValue("500000"), 500_000);
+  assert.equal(inventoryPriceValue(INVENTORY_PRICE_LIMIT), INVENTORY_PRICE_LIMIT);
+  assert.equal(inventoryPriceValue(INVENTORY_PRICE_LIMIT + 1), false);
+  assert.equal(inventoryPriceValue(-1), false);
+  assert.equal(inventoryPriceValue(1.5), false);
+  assert.equal(inventoryPriceValue("<b>750.000</b>"), false);
+  assert.equal(inventoryPriceValue("750000000000000000000"), false);
+  assert.equal(inventoryPriceValue(undefined), null);
+  assert.equal(inventoryPriceValue(null), null);
+  assert.equal(inventoryPriceValue(""), null);
+});
+
+test("días del mayorista: entero entre 0 y el tope; vacío no cambia", () => {
+  assert.equal(INVENTORY_WHOLESALE_DAYS_MAX, 3650);
+  assert.equal(inventoryWholesaleDaysValue(3), 3);
+  assert.equal(inventoryWholesaleDaysValue("0"), 0);
+  assert.equal(inventoryWholesaleDaysValue(3650), 3650);
+  assert.equal(inventoryWholesaleDaysValue(3651), false);
+  assert.equal(inventoryWholesaleDaysValue(2.5), false);
+  assert.equal(inventoryWholesaleDaysValue("<i>3</i>"), false);
+  assert.equal(inventoryWholesaleDaysValue(undefined), null);
+  assert.equal(inventoryWholesaleDaysValue(null), null);
+});
+
+test("aviso de precios: mayorista o mínimo por encima de la lista (con lista cargada)", () => {
+  assert.equal(inventoryPriceWarning({ listPrice: 750_000, wholesalePrice: 500_000, minimumPrice: 400_000 }), null);
+  assert.equal(inventoryPriceWarning({ listPrice: 0, wholesalePrice: 500_000, minimumPrice: 900_000 }), null);
+  assert.equal(
+    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 600_000, minimumPrice: 400_000 }),
+    "El precio mayorista supera al de lista.",
+  );
+  assert.equal(
+    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 500_000, minimumPrice: 600_000 }),
+    "El precio mínimo supera al de lista.",
+  );
+  assert.equal(
+    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 600_000, minimumPrice: 700_000 }),
+    "Los precios mayorista y mínimo superan al de lista.",
+  );
 });
 
 test("teléfono: default +595, se guarda normalizado y valida largo local", () => {
