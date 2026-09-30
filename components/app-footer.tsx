@@ -36,7 +36,8 @@ export function AppFooter({ variant = "app", className }: { variant?: "app" | "c
       <span className="app-footer-text">
         {variant === "company" ? (
           <>
-            © 2026 LedBox · EventOS {APP_VERSION_LABEL} · Todos los derechos reservados
+            © 2026 LedBox · EventOS {APP_VERSION_LABEL} · Todos los derechos reservados ·{" "}
+            <a href={`${publicConfig.siteUrl}/privacidad`}>Privacidad</a>
           </>
         ) : (
           <>© 2026 EventOS · Todos los derechos reservados · {APP_VERSION_LABEL}</>

@@ -341,8 +341,10 @@ h2.sec-title .led { color: var(--led); }
 .cart-remove { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; border:0; background:none; color:var(--muted); font-size: 16px; line-height: 1; cursor:pointer; border-radius: 999px; }
 .cart-total { display:flex; justify-content:space-between; margin:16px 0; color:var(--led); font-weight:600; }
 .cart-quote { display:block; text-align:center; padding:13px; background:var(--grad-action); color:var(--ink); text-decoration:none; font-weight:700; font-size:11px; letter-spacing:1px; text-transform:uppercase; border-radius: 999px; }
-.cart-trigger { position:fixed; z-index:29; right:22px; bottom:22px; border:1px solid var(--line-control); background:var(--sheet); color:var(--led); padding:13px 16px; font:600 11px var(--font-body); letter-spacing:1px; text-transform:uppercase; cursor:pointer; border-radius: 999px; }
-.cart-trigger.has-items { bottom: 88px; }
+/* «Tu pedido» vive arriba del WhatsApp en la misma columna flotante (issue #95):
+   la base la marca `--wa-bottom`/`--wa-size` de la sección FLOTANTES, así la
+   pieza sube sola cuando aparece la barra fija y nunca pisa al otro botón. */
+.cart-trigger { position:fixed; z-index:30; right:var(--float-right); bottom:calc(var(--wa-bottom) + var(--wa-size) + var(--float-gap)); display:inline-flex; align-items:center; min-height:44px; border:1px solid var(--line-control); background:var(--sheet); color:var(--led); padding:13px 16px; font:600 11px var(--font-body); letter-spacing:1px; text-transform:uppercase; cursor:pointer; border-radius: 999px; }
 
 .prod-num { font-size: 11px; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
 .prod h3 {
@@ -499,10 +501,23 @@ footer { position: relative; z-index: 1; padding: 50px 40px 60px; overflow: hidd
    no lo tomen como contenido. */
 .ft-bg::before { content: 'LEDBOX'; }
 
-/* ─── FLOTANTES ─── */
+/* ─── FLOTANTES ───
+   Los dos flotantes del sitio viven en una sola columna abajo a la derecha
+   (issue #95): WhatsApp abajo y «Tu pedido» arriba, separados por
+   `--float-gap`. Todo cuelga de `--wa-bottom`, así que cuando aparece la barra
+   fija (`body.has-sticky`) la columna sube completa y las piezas nunca se
+   tocan ni se tapan el clic. Mismo `z-index` para las dos: por debajo del panel
+   del pedido (40) y de la barra (150), por encima del contenido y del velo. */
+:root {
+    --float-right: 22px;
+    --float-gap: 10px;
+    --wa-size: 56px;
+    --wa-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+body.has-sticky { --wa-bottom: calc(84px + env(safe-area-inset-bottom)); }
 .wa-float {
-    position: fixed; bottom: 24px; right: 24px; z-index: 200;
-    width: 56px; height: 56px; background: var(--green); border-radius: 50%;
+    position: fixed; bottom: var(--wa-bottom); right: var(--float-right); z-index: 30;
+    width: var(--wa-size); height: var(--wa-size); background: var(--green); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 8px 28px rgba(37,211,102,.35);
     transition: transform .25s;
@@ -528,9 +543,6 @@ footer { position: relative; z-index: 1; padding: 50px 40px 60px; overflow: hidd
 #sticky-cta .go-btn:hover { filter: brightness(1.1); }
 #sticky-cta .x { background: none; border: none; color: var(--muted); font-size: 17px; padding: 4px 8px; cursor: pointer; font-family: var(--font-body); }
 #sticky-cta .x:hover { color: var(--text-strong); }
-body.has-sticky .wa-float { bottom: 82px; }
-body.has-sticky .cart-trigger { bottom: calc(82px + env(safe-area-inset-bottom)); }
-body.has-sticky .cart-trigger.has-items { bottom: calc(148px + env(safe-area-inset-bottom)); }
 
 /* ─── ANIM ─── */
 .rise { opacity: 1; transform: none; transition: opacity .6s ease, transform .6s ease; }
@@ -609,6 +621,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .lead-dialog .f-field em { color:var(--led); font-style:normal; }
 .lead-dialog .f-field input, .lead-dialog .f-field select, .lead-dialog .f-field textarea { border-color:var(--line-control); }
 .lead-dialog .btn-led { justify-self:start; margin-top:4px; }
+/* Aviso de finalidad del formulario (issue #92): legible, junto al botón y sin
+   casilla premarcada; el enlace va en la voz del sitio. */
+.lead-consent { font-size:11px; line-height:1.55; color:var(--muted); margin:0; max-width:440px; }
+.lead-consent a { color:var(--led); text-decoration:none; }
+.lead-consent a:hover { text-decoration:underline; }
 .honeypot { position:absolute; left:-9999px; opacity:0; }
 .form-error { color:var(--danger-text); font-size:12px; line-height:1.5; }
 .lead-success { text-align:center; padding:35px 10px 20px; }
@@ -616,8 +633,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .lead-success h2 { margin-top:20px; }
 .lead-success p { color:var(--muted-2); margin:14px auto 24px; max-width:360px; }
 #sticky-cta { padding-bottom:calc(12px + env(safe-area-inset-bottom)); }
-.wa-float { bottom:calc(24px + env(safe-area-inset-bottom)); }
 @media (max-width:768px) {
+  /* Mobile: la columna flotante se achica (mismo orden y misma separación). */
+  :root { --float-right: 16px; --wa-size: 50px; --wa-bottom: calc(20px + env(safe-area-inset-bottom)); }
   nav { height:64px; padding-inline:12px; }
   nav .logo-img { width:44px; height:44px; }
   .nav-cta { padding:10px 12px; font-size:10px; }
@@ -626,9 +644,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .stat-social .n { font-size:20px; }
   .cart-panel { right:0; bottom:0; width:100%; max-height:min(82vh,620px); padding:18px max(18px, env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); transform:translateY(110%); }
   .cart-panel.open { transform:translateY(0); }
-  .cart-trigger { right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); }
-  .cart-trigger.has-items { bottom:calc(82px + env(safe-area-inset-bottom)); }
-  .wa-float { right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); width:50px; height:50px; }
   #sticky-cta { padding-inline:14px; gap:10px; justify-content:space-between; }
   #sticky-cta .txt { font-size:11px; line-height:1.3; }
   #sticky-cta .go-btn { padding:10px 11px; font-size:10px; }
@@ -644,7 +659,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* ─── FICHAS DE PRODUCTO Y FAQ (issue #38) ───
    Misma identidad negro + cyan; todo en columnas alineadas y sin saltos. */
 .prod-page { position: relative; z-index: 1; padding: 118px 40px 80px; }
-.crumbs { margin-bottom: 34px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted-2); }
+/* El elemento es un `<nav>`: sin este `position` hereda el `fixed` del nav del
+   sitio y las migas quedan pegadas arriba, encima de la barra (issue #92). */
+.crumbs { position: static; margin-bottom: 34px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted-2); }
 .crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 10px; }
 .crumbs li { display: inline-flex; align-items: center; gap: 10px; }
 .crumbs li:not(:last-child)::after { content: '/'; color: var(--border-2); }
@@ -661,6 +678,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prod-facts > div { display: grid; grid-template-columns: 180px 1fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .prod-facts dt { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted-2); }
 .prod-facts dd { font-size: 13.5px; color: var(--text); }
+/* La página legal reusa la lista de hechos del sitio (issue #92), sin el margen de ficha. */
+.legal-facts { margin: 0; }
 .prod-price-lg { font-family: var(--font-display); font-size: 26px; color: var(--led); white-space: nowrap; }
 .prod-price-lg small { display: inline-block; margin-left: 8px; font: 11px var(--font-body); color: var(--muted-2); letter-spacing: 1px; }
 .prod-order { display: flex; flex-wrap: wrap; gap: 14px; margin: 26px 0 20px; }
@@ -693,6 +712,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prod h3 a:hover { color: var(--led); }
 .prod-art { text-decoration: none; }
 
+/* ─── PÁGINA LEGAL · PRIVACIDAD (issue #92) ───
+   Documento de lectura: una columna con ancho de línea acotado, títulos en la
+   tipografía display y listas con el filete del sitio. Reusa `.crumbs`,
+   `.sec-kicker`, `.prod-name`, `.prod-lede`, `.catalog-note` y `.prod-facts`. */
+.legal-page { position: relative; z-index: 1; padding: 118px 40px 80px; }
+.legal-head { border-top: 1px solid var(--border); padding-top: 44px; margin-bottom: 44px; }
+.legal-note { margin: 22px 0 0; max-width: 680px; }
+.legal-doc { max-width: 760px; display: grid; gap: 40px; }
+.legal-doc section { display: grid; gap: 12px; }
+.legal-doc h2 { font-family: var(--font-display); font-size: clamp(20px, 2.4vw, 28px); line-height: 1.1; text-transform: uppercase; color: var(--text-strong); }
+.legal-doc h2 .led { color: var(--led); }
+.legal-doc p { font-size: 13.5px; line-height: 1.75; color: var(--muted-2); }
+.legal-doc ul { list-style: none; display: grid; gap: 9px; }
+.legal-doc li { display: flex; gap: 10px; font-size: 13.5px; line-height: 1.7; color: var(--muted-2); }
+.legal-doc li::before { content: '▸'; color: var(--led); }
+.legal-doc strong { color: var(--text); font-weight: 600; }
+.legal-doc a { color: var(--led); text-decoration: none; }
+.legal-doc a:hover { text-decoration: underline; }
+
 #faq { border-bottom: 1px solid var(--border); }
 .faq-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); }
 .faq-item { padding: 30px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -707,7 +745,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .faq-item:nth-child(2n) { border-right: none; }
 }
 @media (max-width: 768px) {
-  .prod-page { padding: 100px 20px 60px; }
+  .prod-page, .legal-page { padding: 100px 20px 60px; }
   .faq-grid { grid-template-columns: 1fr; }
   .faq-item { border-right: none; }
   .prod-facts > div { grid-template-columns: 1fr; gap: 6px; }
