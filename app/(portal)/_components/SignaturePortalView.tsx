@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AdminIcon } from "@/components/admin/AdminIcons";
 import { formatDateTime } from "@/lib/admin-format";
-import { publicConfig, whatsappUrl } from "@/lib/public-config";
+import { privacyPolicyUrl, publicConfig, whatsappUrl } from "@/lib/public-config";
 import type { PortalSignatureRequest } from "@/lib/server/signature/portal";
 import { PortalCardTitle } from "./PortalCardTitle";
 import { SignatureCanvas } from "./SignatureCanvas";
@@ -289,9 +289,24 @@ export function SignaturePortalView({ request }: { request: PortalSignatureReque
 
               <form className="portal-form" onSubmit={(event) => void submitSignature(event)}>
                 <label className="portal-consent">
-                  <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(event) => setConsent(event.target.checked)}
+                    aria-describedby="firma-consent-purpose"
+                  />
                   <span>Confirmo que revisé el documento y deseo firmarlo electrónicamente.</span>
                 </label>
+                {/* Finalidad en texto claro + política (issue #93): la firma y su
+                    evidencia ya quedan auditadas; acá solo se informa. */}
+                <p className="portal-consent-purpose" id="firma-consent-purpose">
+                  Finalidad: registrar tu firma electrónica y la evidencia de la auditoría (fecha y hora, sello de tiempo y
+                  dispositivo). Consultá la{" "}
+                  <a href={privacyPolicyUrl()} target="_blank" rel="noreferrer">
+                    política de privacidad
+                  </a>
+                  .
+                </p>
                 <details className="portal-signature-terms">
                   <summary>Qué queda registrado al firmar</summary>
                   <ul className="portal-help-list">

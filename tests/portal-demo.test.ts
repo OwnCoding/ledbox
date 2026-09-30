@@ -11,6 +11,7 @@ import {
   type PortalDemoStorage,
 } from "../lib/portal-demo";
 import type { PortalBudget } from "../lib/server/budget-portal";
+import { privacyPolicyUrl, publicConfig } from "../lib/public-config";
 
 /**
  * Portal en modo demo (issue #52): las acciones del visitante se simulan en el
@@ -267,4 +268,33 @@ test("el presupuesto de la entrada de la demo se puede aprobar (issue #74)", () 
 
   // 3) El pedido pendiente de ejemplo sigue existiendo, en el presupuesto «en cambios».
   assert.match(data, /budgetId: "demo_budget_cambios",\s*\n\s*kind: "items",\s*\n\s*status: "pending"/);
+});
+
+/**
+ * Aviso de privacidad en los consentimientos del portal (issue #93, Ley
+ * 7593/2025): junto al checkbox se lee la finalidad y hay enlace a la política
+ * del sitio (`/privacidad`, PANEL #92). La aceptación sigue auditándose en el
+ * API (consentimiento explícito, fecha/hora e IP): acá solo se fija el texto.
+ */
+test("los consentimientos del portal informan la finalidad y enlazan la política (issue #93)", () => {
+  // URL única del sitio desde public-config, sin depender de que la página exista.
+  assert.equal(privacyPolicyUrl(), `${publicConfig.siteUrl}/privacidad`);
+  assert.match(privacyPolicyUrl(), /\/privacidad$/);
+
+  for (const file of [
+    "app/(portal)/_components/PortalBudgetView.tsx",
+    "app/(portal)/_components/SignaturePortalView.tsx",
+  ]) {
+    const source = repoFile(file);
+    assert.match(source, /privacyPolicyUrl\(\)/, `${file}: sin enlace a la política`);
+    assert.match(source, /política de privacidad/, `${file}: sin el texto del enlace`);
+    assert.match(source, /portal-consent-purpose/, `${file}: falta la finalidad junto al consentimiento`);
+    assert.match(source, /Finalidad:/, `${file}: la finalidad no está en texto claro`);
+  }
+
+  // El registro de la aceptación no cambia: consentimiento explícito auditado.
+  const approve = repoFile("app/api/portal/budget/[token]/approve/route.ts");
+  assert.match(approve, /body\.consent !== true/);
+  const signature = repoFile("lib/server/signature/portal.ts");
+  assert.match(signature, /consentedAt: now/);
 });

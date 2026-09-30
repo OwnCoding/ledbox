@@ -40,6 +40,7 @@ import {
   percentInput,
 } from "@/lib/field-rules";
 import type { PortalBudget, PortalBudgetProof, PortalBudgetRequest, PortalExpectedPayment } from "@/lib/server/budget-portal";
+import { privacyPolicyUrl } from "@/lib/public-config";
 import { PortalCardTitle } from "./PortalCardTitle";
 import { PortalPending, type PortalPendingItem } from "./PortalPending";
 
@@ -1295,20 +1296,32 @@ export function PortalBudgetView({
                 </label>
 
                 {actionMode === "authorize" ? (
-                  <label className="portal-consent" htmlFor="portal-consent">
-                    <input
-                      id="portal-consent"
-                      type="checkbox"
-                      checked={consent}
-                      onChange={(event) => setConsent(event.target.checked)}
-                      aria-describedby="portal-consent-hint"
-                      required
-                    />
-                    <span id="portal-consent-hint">
-                      Confirmo que revisé el detalle, los montos y las condiciones, y autorizo este presupuesto por{" "}
-                      <strong className="portal-num">{formatMoney(actionTotal)}</strong> en nombre de {clientLabel}.
-                    </span>
-                  </label>
+                  <>
+                    <label className="portal-consent" htmlFor="portal-consent">
+                      <input
+                        id="portal-consent"
+                        type="checkbox"
+                        checked={consent}
+                        onChange={(event) => setConsent(event.target.checked)}
+                        aria-describedby="portal-consent-hint portal-consent-purpose"
+                        required
+                      />
+                      <span id="portal-consent-hint">
+                        Confirmo que revisé el detalle, los montos y las condiciones, y autorizo este presupuesto por{" "}
+                        <strong className="portal-num">{formatMoney(actionTotal)}</strong> en nombre de {clientLabel}.
+                      </span>
+                    </label>
+                    {/* Finalidad en texto claro + política (issue #93): el consentimiento
+                        ya queda auditado con nombre, fecha/hora e IP; acá solo se informa. */}
+                    <p className="portal-consent-purpose" id="portal-consent-purpose">
+                      Finalidad: registrar tu autorización del presupuesto y su evidencia (nombre, la fecha y hora, y la IP).{" "}
+                      Consultá la{" "}
+                      <a href={privacyPolicyUrl()} target="_blank" rel="noreferrer">
+                        política de privacidad
+                      </a>
+                      .
+                    </p>
+                  </>
                 ) : (
                   <p className="portal-help">
                     Nada se aplica solo: el equipo revisa tu pedido y te responde con una versión nueva o una contra-oferta por
