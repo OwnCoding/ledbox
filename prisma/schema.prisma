@@ -1571,6 +1571,9 @@ model InventoryItem {
   name            String
   category        String
   sku             String?
+  /// Imagen del ítem (issue #86): ruta interna `/assets/…` o URL http(s).
+  /// La miniatura del panel la dibuja con fallback al ícono (nunca rota).
+  imageUrl        String?
   kind            InventoryKind    @default(REUSABLE)
   status          InventoryStatus  @default(AVAILABLE)
   quantity        Int              @default(1)
