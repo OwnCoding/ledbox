@@ -21,6 +21,7 @@ export function PublicFooter() {
           <Link href="/#faq">FAQ</Link>
           <Link href="/#proceso">Proceso</Link>
           <Link href="/#contacto">Contacto</Link>
+          <Link href="/privacidad">Privacidad</Link>
           <a href="https://www.instagram.com/ledboxpy/" target="_blank" rel="noopener noreferrer">Instagram</a>
         </div>
       </div>
