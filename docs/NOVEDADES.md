@@ -193,3 +193,12 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - logos de las marcas en la franja «Marcas que confiaron» (issue #87)
 - las fotos del catálogo se muestran completas (marco según orientación)
 
+## v2.1.55 — 2026-10-01
+
+- precios por frente, umbrales y avisos
+- bloque de precios por frente y resumen legible
+- precios por frente (normal + «desde X días»)
+- foto subida, URL efectiva y alta con categoría
+- categoría buscable, campos finos y subir foto en el alta
+- foto del ítem subida, en la base y pública por UUID
+
