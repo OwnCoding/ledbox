@@ -1137,7 +1137,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    contenido: «Finanzas no funciona» (bug del 22-09-2026). */
 .admin-topbar .admin-menu-btn, .admin-sidebar-head .admin-sidebar-close { display: none; }
 .admin-main { display: flex; flex-direction: column; min-width: 0; }
-.admin-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; height: var(--a-topbar); padding: 0 16px; border-bottom: 1px solid var(--a-line); background: color-mix(in srgb, var(--a-bg) 88%, transparent); backdrop-filter: blur(12px); }
+.admin-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; height: var(--a-topbar); padding: 0 26px; border-bottom: 1px solid var(--a-line); background: color-mix(in srgb, var(--a-bg) 88%, transparent); backdrop-filter: blur(12px); }
 .admin-topbar-title { display: grid; min-width: 0; }
 .admin-topbar-eyebrow { color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .admin-topbar-heading { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--a-text-strong); font: 700 16px/1.2 var(--font-body); letter-spacing: .02em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
@@ -1173,8 +1173,8 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-user-info strong { max-width: 12rem; overflow: hidden; color: var(--a-text-strong); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-user-info small { color: var(--a-muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .admin-session-error { padding: 12px 16px 0; }
-.admin-main-body { flex: 1; min-width: 0; padding: 12px 16px 32px; }
-.admin-main-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--a-line); color: var(--a-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.admin-main-body { flex: 1; min-width: 0; padding: 22px 26px 40px; }
+.admin-main-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 26px; border-top: 1px solid var(--a-line); color: var(--a-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .admin-main-foot strong { color: var(--a-muted-2); font-weight: 700; text-transform: none; }
 .admin-sidebar-backdrop { position: fixed; inset: 0; z-index: 25; border: 0; background: rgba(2, 6, 8, .6); backdrop-filter: blur(2px); cursor: pointer; }
 
@@ -1467,8 +1467,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    Ajustes de la cuenta y de la marca de la empresa: formularios a dos columnas
    con el mismo campo canónico del panel, subida de imagen por canvas (avatar y
    logos) y la vista previa sobre el fondo real de cada variante. */
-.admin-profile-grid { display: grid; gap: 12px; padding: 12px; }
-.admin-settings { display: grid; gap: 12px; padding: 12px; }
+/* El padding de página lo pone `.admin-main-body` (issue #115): estos bloques
+   no agregan el suyo (dentro de un diálogo, el diálogo ya lo aporta). */
+.admin-profile-grid { display: grid; gap: 12px; padding: 0; }
+.admin-settings { display: grid; gap: 12px; padding: 0; }
 .admin-settings-form { display: grid; gap: 8px; min-width: 0; }
 .admin-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 8px 12px; }
 .admin-settings-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -1649,7 +1651,11 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    ajusta su padding, para que las plantillas de lista entren sin deslizarse. */
 @media (min-width: 981px) and (max-width: 1399px) {
   .admin-root { --a-sidebar: 190px; }
-  .admin-main-body { padding: 12px 12px 32px; }
+  /* Escritorio compacto: 20 px de lateral (las listas entran igual) y el
+     topbar acompaña el mismo borde (issue #115). */
+  .admin-main-body { padding: 20px 20px 40px; }
+  .admin-topbar, .admin-main-foot { padding: 0 20px; }
+  .admin-main-foot { padding-block: 12px; }
   .admin-panel-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -2397,8 +2403,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-topbar .admin-menu-btn, .admin-sidebar-head .admin-sidebar-close { display: inline-grid; }
   /* En drawer (≤980 px) no hay modo colapsado: el toggle es solo de escritorio. */
   .admin-sidebar-head .admin-sidebar-collapse { display: none; }
-  .admin-topbar { gap: 8px; padding: 0 12px; }
-  .admin-main-body { padding: 12px 12px 24px; }
+  .admin-topbar { gap: 8px; padding: 0 16px; }
+  .admin-main-body { padding: 16px 16px 24px; }
+  .admin-main-foot { padding: 12px 16px; }
   .admin-user { padding: 4px; }
   .admin-user > .admin-icon { display: none; }
   .admin-user-info { display: none; }
@@ -2423,7 +2430,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 @media (max-width: 420px) {
   .admin-page { padding: 12px 16px 32px; }
   .admin-brand-note { display: none; }
-  .admin-main-body { padding: 12px 12px 24px; }
+  .admin-main-body { padding: 16px 16px 24px; }
   .admin-topbar-eyebrow { display: none; }
   /* Mobile angosto: el ícono del título cede para que el nombre entre completo. */
   .admin-topbar-icon { display: none; }
