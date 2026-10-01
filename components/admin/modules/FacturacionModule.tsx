@@ -180,7 +180,7 @@ export function FacturacionModule() {
   const [query, setQuery] = useState("");
 
   const fiscal = useAdminResource<AdminFiscalPayload>(`/api/admin/fiscal?month=${month}`, (payload) => ({
-    profile: payload.fiscalProfile ?? { ruc: null, razonSocial: null, timbrado: null, establecimiento: null, direccion: null },
+    profile: payload.fiscalProfile ?? { ruc: null, razonSocial: null, nombreFantasia: null, timbrado: null, establecimiento: null, direccion: null },
     month: payload.month ?? month,
     period: payload.fiscalPeriod ?? null,
     summary: payload.fiscalSummary ?? EMPTY_SUMMARY,
@@ -216,8 +216,17 @@ export function FacturacionModule() {
   const [confirmClose, setConfirmClose] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
-  // Datos fiscales.
-  const [profileForm, setProfileForm] = useState({ ruc: "", razonSocial: "", timbrado: "", establecimiento: "", direccion: "" });
+  // Datos fiscales. `timbrado` queda en el estado aunque el formulario ya no lo
+  // pida (issue #114): el valor cargado viaja intacto al guardar —no se pierde
+  // nada— y el campo puede volver cuando haya un timbrado autorizado por la DNIT.
+  const [profileForm, setProfileForm] = useState({
+    ruc: "",
+    razonSocial: "",
+    nombreFantasia: "",
+    timbrado: "",
+    establecimiento: "",
+    direccion: "",
+  });
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState("");
 
@@ -228,8 +237,12 @@ export function FacturacionModule() {
   const data = fiscal.data;
   const summary = data?.summary ?? EMPTY_SUMMARY;
   const profile = data?.profile ?? null;
-  /** Sin RUC, razón social o timbrado el imprimible sale incompleto: se avisa. */
-  const profileIncomplete = profile ? !profile.ruc || !profile.razonSocial || !profile.timbrado : false;
+  /**
+   * Sin RUC ni razón social el imprimible sale incompleto: se avisa. El
+   * timbrado no entra en la completitud (issue #114): no se pide mientras no
+   * haya uno autorizado por la DNIT y puede volver con ese dato.
+   */
+  const profileIncomplete = profile ? !profile.ruc || !profile.razonSocial : false;
   const period = data?.period ?? null;
   const months = useMemo(() => monthOptions(month), [month]);
   const thisMonth = monthOf(new Date());
@@ -240,6 +253,7 @@ export function FacturacionModule() {
     setProfileForm({
       ruc: profile.ruc ?? "",
       razonSocial: profile.razonSocial ?? "",
+      nombreFantasia: profile.nombreFantasia ?? "",
       timbrado: profile.timbrado ?? "",
       establecimiento: profile.establecimiento ?? "",
       direccion: profile.direccion ?? "",
@@ -578,7 +592,7 @@ export function FacturacionModule() {
 
       {canProfile && tab !== "profile" && profileIncomplete ? (
         <AdminNote tone="warn">
-          <strong>Faltan datos fiscales de la empresa</strong> (RUC, razón social y timbrado): son el encabezado del
+          <strong>Faltan datos fiscales de la empresa</strong> (RUC y razón social): son el encabezado del
           comprobante imprimible.{" "}
           <button
             type="button"
@@ -1140,14 +1154,17 @@ export function FacturacionModule() {
               placeholder="LedBox S.A."
             />
             <TextField
-              label="Timbrado"
-              value={profileForm.timbrado}
-              onChange={(value) => setProfileForm({ ...profileForm, timbrado: value })}
-              maxLength={30}
+              label="Nombre fantasía"
+              value={profileForm.nombreFantasia}
+              onChange={(value) => setProfileForm({ ...profileForm, nombreFantasia: value })}
+              maxLength={120}
               disabled={!canProfile}
-              placeholder="Nº de timbrado"
-              hint="El del registro fiscal interno (no es un timbrado autorizado por la DNIT)"
+              placeholder="LedBox"
+              hint="El nombre comercial que ven tus clientes; la razón social es la legal."
             />
+            {/* Timbrado (issue #114): fuera del formulario mientras no haya un
+                timbrado autorizado por la DNIT. Sigue en el perfil y el payload
+                lo conserva; el campo puede volver cuando ese dato exista. */}
             <TextField
               label="Establecimiento"
               value={profileForm.establecimiento}

@@ -39,7 +39,7 @@ function memoryStorage(initial: Record<string, string> = {}): PortalDemoStorage 
 
 /** Vista canónica mínima del presupuesto de ejemplo (sin persistencia). */
 function budgetFixture(overrides: Partial<PortalBudget> = {}): PortalBudget {
-  const item = { id: "it_1", name: "Pantalla LED", quantity: 6, days: 2, unitPrice: 800_000, subtotal: 9_600_000, notes: null };
+  const item = { id: "it_1", name: "Pantalla LED", quantity: 6, days: 2, unitPrice: 800_000, subtotal: 9_600_000, notes: null, imageUrl: null };
   return {
     reference: "P-0001",
     title: "Alquiler de pantallas",
@@ -297,4 +297,39 @@ test("los consentimientos del portal informan la finalidad y enlazan la polític
   assert.match(approve, /body\.consent !== true/);
   const signature = repoFile("lib/server/signature/portal.ts");
   assert.match(signature, /consentedAt: now/);
+});
+
+/**
+ * Portal aprobado (issue #107): al autorizar, la vista pone primero lo que
+ * importa —datos para transferir, plan real y comprobante—, el scroll apunta
+ * ahí, y los ítems muestran la imagen del inventario en la caja uniforme del
+ * criterio #98 (con fallback, nunca un cuadro roto).
+ */
+test("el portal aprobado pone el pago primero y los ítems usan la caja del #98 (issue #107)", () => {
+  const view = repoFile("app/(portal)/_components/PortalBudgetView.tsx");
+  // Bloque de pago arriba del detalle, solo con el presupuesto aprobado.
+  assert.match(view, /<div className="portal-pay-first" ref=\{payFirstRef\}>/);
+  assert.match(view, /\{payCard\}\s*\n\s*\{paymentsCard\}/);
+  // Sin aprobar, el plan conserva su lugar en el recorrido de la decisión.
+  assert.match(view, /\{approved \? null : paymentsCard\}/);
+  // El scroll post-aprobación queda en el bloque de pago.
+  assert.match(view, /payFirstRef\.current\?\.scrollIntoView\(\{ behavior: "smooth", block: "start" \}\)/);
+  // La cuenta de vigencia deja de correr con el presupuesto aprobado.
+  assert.match(view, /\{!approved && budget\.validUntil \? \(/);
+
+  // Miniatura del ítem: caja fija con `contain` y fallback al ícono.
+  assert.match(view, /<PortalItemThumb imageUrl=\{item\.imageUrl\} \/>/);
+  assert.match(view, /onError=\{\(\) => setFailed\(true\)\}/);
+  const css = repoFile("app/globals.css");
+  assert.match(
+    css,
+    /\.portal-item-thumb \{[^}]*position:\s*relative;[^}]*overflow:\s*hidden;/,
+    "la caja de la miniatura necesita position: relative y overflow: hidden",
+  );
+  assert.match(
+    css,
+    /\.portal-item-thumb img \{[^}]*position:\s*absolute;[^}]*inset:\s*0;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/,
+    "la foto va anclada a la caja (inset: 0) y entra completa con contain",
+  );
+  assert.equal(/\.portal-item-thumb img \{[^}]*height:\s*auto/.test(css), false, "la imagen no puede quedar con alto automático");
 });

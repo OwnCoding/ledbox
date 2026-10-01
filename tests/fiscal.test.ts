@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   fiscalSummaryOf,
@@ -11,6 +12,7 @@ import {
   shiftMonthKey,
   taxTotalsOf,
 } from "../lib/fiscal";
+import { FISCAL_FIELDS, parseFiscalDetails } from "../lib/server/fiscal";
 
 /**
  * Reglas del registro fiscal (issue #41): IVA incluido desagregado sobre
@@ -127,4 +129,67 @@ test("mes fiscal: validación, corrimiento y etiqueta", () => {
   assert.equal(shiftMonthKey("2026-01", -1), "2025-12");
   assert.match(monthKeyLabel("2026-09"), /septiembre/i);
   assert.equal(monthKeyLabel("nada"), "—");
+});
+
+const repoFile = (relative: string) => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
+
+/**
+ * Datos fiscales de la empresa (issue #114): el formulario ya no pide timbrado
+ * mientras no haya uno autorizado por la DNIT; la completitud mira RUC + razón
+ * social, el payload conserva el timbrado guardado (no destructivo) y el
+ * timbrado de las compras del proveedor sigue igual.
+ */
+test("el registro fiscal de la empresa no pide timbrado y los avisos miran RUC + razón social (issue #114)", () => {
+  const module = repoFile("components/admin/modules/FacturacionModule.tsx");
+  const profileForm = module.match(/title="Datos fiscales de la empresa"[\s\S]*?<\/form>/)?.[0] ?? "";
+  assert.ok(profileForm, "el formulario de datos fiscales existe");
+  assert.doesNotMatch(profileForm, /label="Timbrado"/, "el formulario no puede pedir timbrado");
+  assert.doesNotMatch(profileForm, /profileForm\.timbrado/, "el formulario no puede tocar el timbrado");
+  assert.match(module, /const profileIncomplete = profile \? !profile\.ruc \|\| !profile\.razonSocial : false;/);
+  assert.match(module, /\(RUC y razón social\): son el encabezado/);
+  assert.doesNotMatch(module, /RUC, razón social y timbrado/, "el aviso no puede seguir pidiendo timbrado");
+  // No destructivo: el valor cargado sigue en el estado y viaja en el payload.
+  assert.match(module, /timbrado: profile\.timbrado \?\? ""/);
+  assert.match(module, /kind: "profile", \.\.\.profileForm/);
+  // El timbrado de las compras (del proveedor) no se toca.
+  assert.match(module, /<TextField label="Timbrado" value=\{purchaseForm\.timbrado\}/);
+  // Queda anotado que el campo puede volver con un timbrado autorizado.
+  assert.match(repoFile("docs/FISCAL-SIFEN.md"), /timbrado\*\* quedó fuera del formulario/);
+});
+
+/**
+ * Nombre fantasía (issue #116): aditivo en el JSON del perfil (perfiles viejos
+ * en `null`), campo en Datos fiscales con la razón social como nombre legal y,
+ * en el imprimible, la fantasía grande con la razón social/RUC como línea legal
+ * y fallback a la razón social o al nombre de la organización.
+ */
+test("el perfil fiscal suma nombre fantasía y el imprimible lo usa con fallback (issue #116)", () => {
+  // Aditivo y normalizado por el mismo parser del perfil.
+  assert.equal(parseFiscalDetails(undefined).nombreFantasia, null);
+  assert.equal(parseFiscalDetails({ ruc: "80012345-6", razonSocial: "LedBox S.A." }).nombreFantasia, null);
+  assert.equal(parseFiscalDetails({ nombreFantasia: "  LedBox  " }).nombreFantasia, "LedBox");
+  assert.equal(FISCAL_FIELDS.find((field) => field.key === "nombreFantasia")?.max, 120);
+
+  // Formulario: el campo nuevo con su hint; la completitud sigue en RUC + razón social (#114).
+  const module = repoFile("components/admin/modules/FacturacionModule.tsx");
+  const profileForm = module.match(/title="Datos fiscales de la empresa"[\s\S]*?<\/form>/)?.[0] ?? "";
+  assert.match(profileForm, /label="Nombre fantasía"/, "falta el campo en Datos fiscales");
+  assert.match(profileForm, /la razón social es la legal/, "el hint tiene que aclarar cuál es el nombre legal");
+  assert.match(module, /const profileIncomplete = profile \? !profile\.ruc \|\| !profile\.razonSocial : false;/);
+  assert.doesNotMatch(profileForm, /nombreFantasia \|\|/, "la fantasía no completa el perfil");
+
+  // Imprimible: fantasía grande en el encabezado + línea legal, con fallback.
+  const parts = repoFile("app/(admin)/(print)/_components/PrintParts.tsx");
+  assert.match(parts, /companyName\?: string \| null;/, "PrintHeader necesita el nombre fantasía");
+  assert.match(parts, /lbprint-company-name/);
+  assert.match(parts, /lbprint-company-legal/);
+  const css = repoFile("app/globals.css");
+  assert.match(css, /\.lbprint-company-name \{ font: 800 17px/, "la fantasía va grande");
+  const factura = repoFile("app/(admin)/(print)/imprimir/factura/[id]/page.tsx");
+  assert.match(factura, /fiscal\.nombreFantasia \|\| fiscal\.razonSocial \|\| auth\.context\.organization\.name/);
+  assert.match(factura, /companyLegal=\{fiscalLegal \|\| null\}/);
+  // El presupuesto imprimible también se presenta con la fantasía (issue #116).
+  const presupuesto = repoFile("app/(admin)/(print)/imprimir/presupuesto/[id]/page.tsx");
+  assert.match(presupuesto, /fiscal\.nombreFantasia \|\| fiscal\.razonSocial \|\| null/);
+  assert.match(presupuesto, /companyName=\{companyName\}/);
 });

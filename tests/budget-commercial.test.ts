@@ -122,3 +122,18 @@ test("el endpoint usa la comparación completa y la guarda del módulo", () => {
   assert.doesNotMatch(route, /if \(discount !== budget\.discount\) changes\.discount/);
   assert.doesNotMatch(route, /Object\.keys\(data\)\.length === 0 \|\| Object\.keys\(changes\)\.length === 0/);
 });
+
+/**
+ * Editar los ítems (issue #65) no puede desvincular el inventario: el diálogo
+ * de precios no manda `inventoryId`, y el PATCH lo guardaba como `null`. Eso
+ * rompía la reserva del #18 y, ahora, la imagen del portal (#107).
+ */
+test("el PATCH de ítems conserva el vínculo con el inventario (issue #107)", () => {
+  const route = repoFile("app/api/admin/budgets/route.ts");
+  assert.match(route, /items: \{ select: \{ id: true, name: true, inventoryId: true \} \}/, "el PATCH lee el vínculo vigente");
+  assert.match(
+    route,
+    /const inventoryId = item\.inventoryId \?\? \(item\.id \? linksById\.get\(item\.id\) \?\? null : null\);/,
+    "el vínculo se conserva cuando el payload no lo manda",
+  );
+});

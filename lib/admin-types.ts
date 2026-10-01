@@ -1645,6 +1645,8 @@ export type AdminFiscalPeriodStatus = "OPEN" | "CLOSED";
 export type AdminFiscalProfile = {
   ruc: string | null;
   razonSocial: string | null;
+  /** Nombre comercial (issue #116): el que va grande en el imprimible. */
+  nombreFantasia: string | null;
   timbrado: string | null;
   establecimiento: string | null;
   direccion: string | null;
