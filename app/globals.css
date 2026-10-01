@@ -3563,3 +3563,5 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-ia-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
 .admin-ia-match { margin: 0; color: var(--a-muted-2); font-size: 12.5px; line-height: 1.5; }
 .admin-ia-match strong { color: var(--a-text-strong); }
+.admin-ia-contexto { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.admin-ia-contexto .admin-avatar, .admin-ia-contexto .admin-item-thumb { flex: 0 0 auto; }

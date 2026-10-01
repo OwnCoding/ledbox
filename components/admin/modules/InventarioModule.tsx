@@ -60,6 +60,7 @@ import { adminApiGet, adminApiUpload, adminSend, useAdminResource } from "@/lib/
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { AdminIcon } from "../AdminIcons";
+import { AdminImageBox } from "../AdminImageBox";
 
 const KIND_OPTIONS = [
   { value: "ALL", label: "Todos los tipos" },
@@ -382,29 +383,7 @@ function PhotoFields({
  * (misma mecánica que el avatar único del panel).
  */
 function InventoryThumb({ item, size = 26 }: { item: Pick<AdminInventoryRow, "imageUrl">; size?: number }) {
-  const [failed, setFailed] = useState(false);
-
-  // Una imagen nueva (otro ítem u otra URL) vuelve a intentar cargarla.
-  useEffect(() => setFailed(false), [item.imageUrl]);
-
-  return (
-    <span className="admin-item-thumb" style={{ width: size, height: size }} aria-hidden="true">
-      {item.imageUrl && !failed ? (
-        <img
-          src={item.imageUrl}
-          alt=""
-          width={size}
-          height={size}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <AdminIcon name="inventory" size={Math.max(12, Math.round(size * 0.5))} />
-      )}
-    </span>
-  );
+  return <AdminImageBox imageUrl={item.imageUrl} size={size} />;
 }
 
 /** Horas de salida/devolución en formato de tabla (es-PY, 24 h). */

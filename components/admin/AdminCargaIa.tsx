@@ -13,11 +13,13 @@ import {
   IA_TEXTO_MAX,
   IA_TIPOS,
   IA_TIPO_LABEL,
+  esAccionPendiente,
   type IaAnalisis,
   type IaCandidato,
   type IaTipo,
 } from "@/lib/ia-carga";
 import type { AdminRole } from "@/lib/admin-types";
+import type { IaAccionExistente } from "@/lib/ia-carga";
 import {
   DateField,
   EmailField,
@@ -31,6 +33,8 @@ import {
   TextField,
 } from "./AdminFields";
 import { AdminButton, AdminDialog, AdminEmpty, AdminNote } from "./AdminUI";
+import { AdminAvatar } from "./AdminAvatar";
+import { AdminImageBox } from "./AdminImageBox";
 
 /**
  * «Carga con IA» (issues #120 y #122): el diálogo de pegado, revisión y
@@ -51,7 +55,7 @@ type ConfigIa = { configurada: boolean; modelo: string | null; tipos: IaTipo[] }
 type ClienteEdit = {
   clave: string;
   incluir: boolean;
-  accion: "crear" | "vincular";
+  accion: IaAccionExistente;
   existenteId: string;
   existenteNombre: string | null;
   confianza: number | null;
@@ -82,7 +86,7 @@ type EventoEdit = {
 type ProductoEdit = {
   clave: string;
   incluir: boolean;
-  accion: "crear" | "vincular";
+  accion: IaAccionExistente;
   existenteId: string;
   existenteNombre: string | null;
   confianza: number | null;
@@ -139,25 +143,36 @@ const aNumero = (valor: string): number => {
 
 const listar = (cantidad: number, singular: string, plural: string) => `${cantidad} ${cantidad === 1 ? singular : plural}`;
 
-/** Opciones de acción+existente en un solo select: `crear` o `vincular:<id>`. */
-function opcionesDeAccion(candidatos: IaCandidato[], opcionesCliente: ClienteOpcion[]): ClienteOpcion[] {
-  const opciones: ClienteOpcion[] = [{ value: "crear", label: "Crear nuevo" }];
+/** Opciones de acción+existente en un solo select: `crear`, `vincular:<id>` o la sugerencia. */
+function opcionesDeAccion(candidatos: IaCandidato[], sugerencia = false): ClienteOpcion[] {
+  const opciones: ClienteOpcion[] = [];
+  const [top] = candidatos;
+  if (sugerencia && top) {
+    opciones.push({ value: "", label: `— Elegí: «${top.nombre}» (${top.confianza} %) —` });
+  }
+  opciones.push({ value: "crear", label: "Crear nuevo" });
   const vistos = new Set<string>();
   for (const candidato of candidatos) {
     if (vistos.has(candidato.id)) continue;
     vistos.add(candidato.id);
     opciones.push({ value: `vincular:${candidato.id}`, label: `Vincular a «${candidato.nombre}» (${candidato.confianza} %)` });
   }
-  for (const opcion of opcionesCliente) {
-    if (!opcion.value || vistos.has(opcion.value)) continue;
-    vistos.add(opcion.value);
-    opciones.push({ value: `vincular:${opcion.value}`, label: `Vincular a «${opcion.label}»` });
-  }
   return opciones;
 }
 
-const seleccionDeAccion = (fila: { accion: "crear" | "vincular"; existenteId: string }) =>
-  fila.accion === "vincular" && fila.existenteId ? `vincular:${fila.existenteId}` : "crear";
+const seleccionDeAccion = (fila: { accion: IaAccionExistente; existenteId: string }) => {
+  if (fila.accion === "vincular" && fila.existenteId) return `vincular:${fila.existenteId}`;
+  if (fila.accion === "elegir") return "";
+  return "crear";
+};
+
+/** Imagen del candidato elegido (o del sugerido cuando hay que elegir). */
+function imagenDeCandidato(
+  fila: { accion: IaAccionExistente; existenteId: string; candidatos: IaCandidato[] },
+): string | null {
+  const id = fila.accion === "vincular" ? fila.existenteId : fila.candidatos[0]?.id ?? "";
+  return fila.candidatos.find((candidato) => candidato.id === id)?.imagenUrl ?? null;
+}
 
 /** Diálogo del asistente: entrada, revisión editable y aplicación con confirmación. */
 export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol: AdminRole | null }) {
@@ -215,6 +230,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     [clientes, eventos, productos, cobros],
   );
   const totalIncluidos = incluidos.clientes + incluidos.eventos + incluidos.productos + incluidos.cobros;
+  /** Registros incluidos con confianza media sin resolver: bloquean «Aplicar todo». */
+  const pendientes = [...clientes, ...productos].filter((fila) => fila.incluir && esAccionPendiente(fila.accion)).length;
 
   const actualizarCliente = (clave: string, patch: Partial<ClienteEdit>) =>
     setClientes((actuales) => actuales.map((fila) => (fila.clave === clave ? { ...fila, ...patch } : fila)));
@@ -225,8 +242,39 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
   const actualizarCobro = (clave: string, patch: Partial<CobroEdit>) =>
     setCobros((actuales) => actuales.map((fila) => (fila.clave === clave ? { ...fila, ...patch } : fila)));
 
-  /** Aplica la selección `crear` / `vincular:<id>` de un cliente. */
+  /**
+   * El cobro (y el evento) acompañan al cliente elegido en el preview (issue
+   * #125): al vincular un cliente se encadena su id por nombre; al pasar a
+   * «crear», se limpia para que lo resuelva el alta del lote.
+   */
+  function encadenarCliente(nombre: string, clienteId: string | null) {
+    const clave = normalizarBusqueda(nombre);
+    setEventos((actuales) =>
+      actuales.map((fila) =>
+        fila.clienteId === "" && normalizarBusqueda(fila.clienteNombre ?? "") === clave
+          ? { ...fila, clienteId: clienteId ?? "", incluir: Boolean(clienteId) }
+          : fila,
+      ),
+    );
+    setCobros((actuales) =>
+      actuales.map((fila) =>
+        fila.clienteId === "" && normalizarBusqueda(fila.clienteNombre ?? "") === clave
+          ? {
+              ...fila,
+              clienteId: clienteId ?? "",
+              incluir: Boolean(clienteId) && puedeCobrar && aNumero(fila.monto) > 0,
+            }
+          : fila,
+      ),
+    );
+  }
+
+  /** Aplica la selección `elegir` / `crear` / `vincular:<id>` de un cliente. */
   function elegirAccionCliente(cliente: ClienteEdit, valor: string) {
+    if (!valor) {
+      actualizarCliente(cliente.clave, { accion: "elegir", existenteId: "" });
+      return;
+    }
     if (valor.startsWith("vincular:")) {
       const id = valor.slice("vincular:".length);
       const candidato = cliente.candidatos.find((fila) => fila.id === id);
@@ -236,13 +284,19 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         existenteNombre: candidato?.nombre ?? cliente.existenteNombre,
         confianza: candidato?.confianza ?? cliente.confianza,
       });
+      encadenarCliente(cliente.nombre, id);
       return;
     }
     actualizarCliente(cliente.clave, { accion: "crear", existenteId: "" });
+    encadenarCliente(cliente.nombre, null);
   }
 
-  /** Aplica la selección `crear` / `vincular:<id>` de un producto. */
+  /** Aplica la selección `elegir` / `crear` / `vincular:<id>` de un producto. */
   function elegirAccionProducto(producto: ProductoEdit, valor: string) {
+    if (!valor) {
+      actualizarProducto(producto.clave, { accion: "elegir", existenteId: "" });
+      return;
+    }
     if (valor.startsWith("vincular:")) {
       const id = valor.slice("vincular:".length);
       const candidato = producto.candidatos.find((fila) => fila.id === id);
@@ -293,7 +347,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       registros.clientes.map((cliente) => ({
         clave: siguienteClave("cliente"),
         incluir: true,
-        accion: cliente.accion === "vincular" ? "vincular" : "crear",
+        accion: cliente.accion,
         existenteId: cliente.existenteId ?? "",
         existenteNombre: cliente.existenteNombre,
         confianza: cliente.confianza,
@@ -326,7 +380,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       registros.productos.map((producto) => ({
         clave: siguienteClave("producto"),
         incluir: true,
-        accion: producto.accion === "vincular" ? "vincular" : "crear",
+        accion: producto.accion,
         existenteId: producto.existenteId ?? "",
         existenteNombre: producto.existenteNombre,
         confianza: producto.confianza,
@@ -372,6 +426,10 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     const indice = new Map<string, string>();
 
     for (const cliente of clientes.filter((fila) => fila.incluir)) {
+      if (cliente.accion === "elegir") {
+        errores.push(`Cliente «${cliente.nombre}»: quedó sin elegir (vincular o crear).`);
+        continue;
+      }
       if (cliente.accion === "vincular") {
         vinculados.clientes += 1;
         continue;
@@ -422,6 +480,10 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     }
 
     for (const producto of productos.filter((fila) => fila.incluir)) {
+      if (producto.accion === "elegir") {
+        errores.push(`Producto «${producto.nombre}»: quedó sin elegir (vincular o crear).`);
+        continue;
+      }
       if (producto.accion === "vincular") {
         vinculados.productos += 1;
         continue;
@@ -626,7 +688,15 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               {clientes.map((cliente) => (
                 <article key={cliente.clave} className="admin-ia-card" data-off={!cliente.incluir}>
                   <header className="admin-ia-card-head">
-                    <span className="admin-ia-card-title">{cliente.nombre}</span>
+                    <span className="admin-ia-contexto">
+                      <AdminAvatar
+                        name={cliente.nombre}
+                        src={imagenDeCandidato(cliente)}
+                        size={40}
+                        title={imagenDeCandidato(cliente) ? `Logo de ${cliente.existenteNombre ?? cliente.nombre}` : `Monograma de ${cliente.nombre}`}
+                      />
+                      <span className="admin-ia-card-title">{cliente.nombre}</span>
+                    </span>
                     <SwitchField
                       label="Incluir"
                       checked={cliente.incluir}
@@ -637,7 +707,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
-                      options={opcionesDeAccion(cliente.candidatos, [])}
+                      options={opcionesDeAccion(cliente.candidatos, cliente.accion === "elegir")}
                       value={seleccionDeAccion(cliente)}
                       onChange={(valor) => elegirAccionCliente(cliente, valor)}
                       hint={
@@ -645,6 +715,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                           ? `Candidatos: ${cliente.candidatos.map((fila) => `${fila.nombre} (${fila.confianza} %)`).join(" · ")}`
                           : undefined
                       }
+                      error={cliente.accion === "elegir" ? "Elegí si es un existente o creá uno nuevo." : null}
                       disabled={!cliente.incluir}
                     />
                   </div>
@@ -771,7 +842,14 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               {productos.map((producto) => (
                 <article key={producto.clave} className="admin-ia-card" data-off={!producto.incluir}>
                   <header className="admin-ia-card-head">
-                    <span className="admin-ia-card-title">{producto.nombre}</span>
+                    <span className="admin-ia-contexto">
+                      <AdminImageBox
+                        imageUrl={imagenDeCandidato(producto)}
+                        size={40}
+                        title={imagenDeCandidato(producto) ? `Foto de ${producto.existenteNombre ?? producto.nombre}` : `Sin foto: ${producto.nombre}`}
+                      />
+                      <span className="admin-ia-card-title">{producto.nombre}</span>
+                    </span>
                     <SwitchField
                       label="Incluir"
                       checked={producto.incluir}
@@ -782,7 +860,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
-                      options={opcionesDeAccion(producto.candidatos, [])}
+                      options={opcionesDeAccion(producto.candidatos, producto.accion === "elegir")}
                       value={seleccionDeAccion(producto)}
                       onChange={(valor) => elegirAccionProducto(producto, valor)}
                       hint={
@@ -790,6 +868,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                           ? `Candidatos: ${producto.candidatos.map((fila) => `${fila.nombre} (${fila.confianza} %)`).join(" · ")}`
                           : undefined
                       }
+                      error={producto.accion === "elegir" ? "Elegí si es un ítem existente o creá uno nuevo." : null}
                       disabled={!producto.incluir}
                     />
                   </div>
@@ -907,6 +986,11 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
             </section>
           ) : null}
 
+          {pendientes > 0 ? (
+            <AdminNote tone="warn">
+              {`Resolvé ${listar(pendientes, "registro", "registros")}: elegí si refieren a un existente o marcalos como «Crear nuevo».`}
+            </AdminNote>
+          ) : null}
           <div className="admin-dialog-foot">
             <span className="admin-dialog-spacer" />
             <AdminButton icon="arrow-left" onClick={() => setFase("entrada")} disabled={creando}>
@@ -916,7 +1000,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               variant="primary"
               icon="check"
               busy={creando}
-              disabled={creando || totalIncluidos === 0}
+              disabled={creando || totalIncluidos === 0 || pendientes > 0}
               onClick={() => void aplicarTodo()}
             >
               {`Aplicar todo (${totalIncluidos})`}
