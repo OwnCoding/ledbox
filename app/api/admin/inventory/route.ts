@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { InventoryKind, InventoryStatus } from "@prisma/client";
+import type { InventoryKind, InventoryStatus, Prisma } from "@prisma/client";
 import { damageSummary, inventoryStatusLabel } from "@/lib/admin-format";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
@@ -7,21 +7,33 @@ import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { inventoryImageUrl, readInventoryImageUrl } from "@/lib/server/inventory-images";
 import {
+  MAX_UNIT_NOTES,
+  createInventoryUnits,
+  isUniqueConstraintError,
+  nextInventoryUnitCode,
+  readInventoryUnitCode,
+  readInventoryUnitStatus,
+  syncInventoryQuantity,
+} from "@/lib/server/inventory-units";
+import {
   FIELD_LIMITS,
   FIELD_MESSAGES,
   inventoryPriceValue,
   inventoryPriceWarning,
+  inventoryUnitCodeValid,
   readInventoryPriceValues,
 } from "@/lib/field-rules";
 import {
   BLOCKED_INVENTORY_STATUSES,
   EVENT_RANGE_SELECT,
+  MAINTENANCE_UNITS_SELECT,
   assignmentIsActiveNow,
   assignmentRange,
   availabilityForRange,
   buildAvailability,
   findSubstitutes,
   loadAssignments,
+  maintenanceUnits,
   parseDate,
   rangeLabel,
 } from "@/lib/server/inventory-availability";
@@ -145,14 +157,25 @@ export async function GET(request: Request) {
 
   if (inventoryId) {
     // Sin el binario de la foto (issue #109): la disponibilidad no lo necesita.
-    const item = await db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId }, omit: { imageData: true } });
+    // Con las unidades en mantenimiento contadas (issue #112).
+    const item = await db.inventoryItem.findFirst({
+      where: { id: inventoryId, organizationId },
+      omit: { imageData: true },
+      include: { _count: { select: MAINTENANCE_UNITS_SELECT } },
+    });
     if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
     const startsAt = parseDate(url.searchParams.get("startsAt"));
     const endsAt = parseDate(url.searchParams.get("endsAt"));
     if (!startsAt || !endsAt) return jsonError("Indicá el rango de fechas para calcular la disponibilidad.", 400);
     if (endsAt.getTime() < startsAt.getTime()) return jsonError("El fin del rango no puede ser anterior al inicio.", 400);
     const excludeId = url.searchParams.get("excludeId");
-    const availability = await availabilityForRange({ organizationId, item, startsAt, endsAt, excludeId });
+    const availability = await availabilityForRange({
+      organizationId,
+      item: { ...item, maintenance: maintenanceUnits(item) },
+      startsAt,
+      endsAt,
+      excludeId,
+    });
     const substitutes = await findSubstitutes({
       organizationId,
       item: { id: item.id, category: item.category, status: item.status },
@@ -167,7 +190,16 @@ export async function GET(request: Request) {
       where: { organizationId },
       orderBy: { name: "asc" },
       take: 300,
-      select: { id: true, name: true, sku: true, category: true, kind: true, status: true, quantity: true },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        category: true,
+        kind: true,
+        status: true,
+        quantity: true,
+        _count: { select: MAINTENANCE_UNITS_SELECT },
+      },
     });
     const rows = items.length
       ? await db.eventInventory.findMany({
@@ -189,24 +221,32 @@ export async function GET(request: Request) {
         .filter((row) => row.inventoryId === item.id && assignmentIsActiveNow(row, now))
         .reduce((sum, row) => sum + row.quantity, 0);
       const blocked = BLOCKED_INVENTORY_STATUSES.includes(item.status);
+      const maintenanceNow = maintenanceUnits(item);
+      const usable = Math.max(0, item.quantity - maintenanceNow);
       return {
         ...item,
         availability: {
           committedNow,
-          availableNow: blocked ? 0 : Math.max(0, item.quantity - committedNow),
-          overcommittedNow: committedNow > item.quantity,
+          availableNow: blocked ? 0 : Math.max(0, usable - committedNow),
+          overcommittedNow: committedNow > usable,
+          maintenanceNow,
         },
       };
     });
     return Response.json({ inventory });
   }
 
-  // Sin el binario de la foto (issue #109): la lista solo necesita la URL efectiva.
+  // Sin el binario de la foto (issue #109): la lista solo necesita la URL
+  // efectiva. Con las unidades (issue #112) y el conteo de mantenimiento.
   const items = await db.inventoryItem.findMany({
     where: { organizationId },
     orderBy: { name: "asc" },
     take: 300,
     omit: { imageData: true },
+    include: {
+      units: { orderBy: { code: "asc" } },
+      _count: { select: MAINTENANCE_UNITS_SELECT },
+    },
   });
   const assignments = items.length
     ? await db.eventInventory.findMany({
@@ -226,12 +266,16 @@ export async function GET(request: Request) {
   const now = new Date();
   const inventory = items.map((item) => {
     // La URL efectiva (issue #109): la manual manda; si no, la foto subida.
-    const { imageMime: _imageMime, ...row } = item;
+    const { imageMime: _imageMime, _count, ...row } = item;
     const rows = assignments.filter((assignment) => assignment.inventoryId === item.id);
     const activeNow = rows.filter((row) => assignmentIsActiveNow(row, now));
     const committedNow = activeNow.reduce((sum, row) => sum + row.quantity, 0);
     const blocked = BLOCKED_INVENTORY_STATUSES.includes(item.status);
-    const rangeAvailability = range ? buildAvailability(item, rows, range.start, range.end) : null;
+    const maintenanceNow = maintenanceUnits(item);
+    const usable = Math.max(0, item.quantity - maintenanceNow);
+    const rangeAvailability = range
+      ? buildAvailability({ ...item, maintenance: maintenanceNow }, rows, range.start, range.end)
+      : null;
     return {
       ...row,
       imageUrl: inventoryImageUrl(item),
@@ -239,15 +283,17 @@ export async function GET(request: Request) {
       assignments: rows,
       availability: {
         committedNow,
-        availableNow: blocked ? 0 : Math.max(0, item.quantity - committedNow),
-        overcommittedNow: committedNow > item.quantity,
+        availableNow: blocked ? 0 : Math.max(0, usable - committedNow),
+        overcommittedNow: committedNow > usable,
+        maintenanceNow,
         range: rangeAvailability
           ? {
               startsAt: rangeAvailability.startsAt,
               endsAt: rangeAvailability.endsAt,
               committed: rangeAvailability.committed,
+              maintenance: rangeAvailability.maintenance,
               available: rangeAvailability.available,
-              overcommitted: rangeAvailability.committed > item.quantity,
+              overcommitted: rangeAvailability.committed > usable,
               conflicts: rangeAvailability.conflicts,
             }
           : null,
@@ -329,6 +375,130 @@ export async function POST(request: Request) {
     });
   }
 
+  if (kind === "unit") {
+    const inventoryId = typeof body.inventoryId === "string" ? body.inventoryId : "";
+    if (!inventoryId) return jsonError("Falta el ítem de inventario.", 400);
+    const item = await db.inventoryItem.findFirst({
+      where: { id: inventoryId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
+
+    // Código: el que mandan (validado) o autogenerado con el prefijo del ítem.
+    const requestedCode = readInventoryUnitCode(body.code);
+    if (body.code !== undefined && !requestedCode) return jsonError(FIELD_MESSAGES.unitCode, 400);
+    const status = body.status === undefined ? "AVAILABLE" : readInventoryUnitStatus(body.status);
+    if (!status) return jsonError("Estado de unidad inválido.", 400);
+    const purchaseCost = inventoryPriceValue(body.purchaseCost);
+    if (purchaseCost === false) return jsonError("Ingresá un costo válido en guaraníes.", 400);
+    const notes = typeof body.notes === "string" ? body.notes.trim() : "";
+    if (notes.length > MAX_UNIT_NOTES) {
+      return jsonError(`Las notas de la unidad no pueden superar los ${MAX_UNIT_NOTES} caracteres.`, 400);
+    }
+
+    let unit;
+    try {
+      unit = await db.$transaction(async (tx) => {
+        const code = requestedCode || (await nextInventoryUnitCode(tx, organizationId, item.name));
+        const created = await tx.inventoryUnit.create({
+          data: {
+            id: randomUUID(),
+            organizationId,
+            inventoryId: item.id,
+            code,
+            status,
+            purchaseCost: purchaseCost ?? 0,
+            notes: notes || null,
+          },
+        });
+        await syncInventoryQuantity(tx, item.id);
+        return created;
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return jsonError(`El código «${requestedCode}» ya está en uso; probá con otro.`, 409);
+      }
+      throw error;
+    }
+    await recordAudit({
+      context: auth.context,
+      action: "create",
+      entity: "InventoryUnit",
+      entityId: unit.id,
+      summary: `Agregó la unidad «${unit.code}» a «${item.name}»`,
+      detail: { fields: auditPick(unit, ["code", "status", "purchaseCost", "notes"]) },
+    });
+    return Response.json({ unit }, { status: 201 });
+  }
+
+  if (kind === "unit-update") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return jsonError("Falta la unidad.", 400);
+    const existing = await db.inventoryUnit.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true,
+        inventoryId: true,
+        code: true,
+        status: true,
+        purchaseCost: true,
+        notes: true,
+        inventory: { select: { name: true } },
+      },
+    });
+    if (!existing) return jsonError("La unidad no existe en esta empresa.", 404);
+
+    const data: Prisma.InventoryUnitUpdateInput = {};
+    if (body.code !== undefined) {
+      const code = readInventoryUnitCode(body.code);
+      if (!inventoryUnitCodeValid(code)) return jsonError(FIELD_MESSAGES.unitCode, 400);
+      data.code = code;
+    }
+    if (body.status !== undefined) {
+      const status = readInventoryUnitStatus(body.status);
+      if (!status) return jsonError("Estado de unidad inválido.", 400);
+      data.status = status;
+    }
+    if (body.purchaseCost !== undefined) {
+      const cost = inventoryPriceValue(body.purchaseCost);
+      if (cost === false) return jsonError("Ingresá un costo válido en guaraníes.", 400);
+      if (cost !== null) data.purchaseCost = cost;
+    }
+    if (body.notes !== undefined) {
+      if (typeof body.notes !== "string") return jsonError("Las notas de la unidad no son válidas.", 400);
+      const notes = body.notes.trim();
+      if (notes.length > MAX_UNIT_NOTES) {
+        return jsonError(`Las notas de la unidad no pueden superar los ${MAX_UNIT_NOTES} caracteres.`, 400);
+      }
+      data.notes = notes || null;
+    }
+
+    let unit;
+    try {
+      unit = await db.$transaction(async (tx) => {
+        const updated = await tx.inventoryUnit.update({ where: { id: existing.id }, data });
+        // Cambiar el estado cambia la cantidad activa del ítem (issue #112).
+        if (data.status !== undefined) await syncInventoryQuantity(tx, existing.inventoryId);
+        return updated;
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return jsonError("Ese código ya está en uso; probá con otro.", 409);
+      throw error;
+    }
+    const changes = auditChanges(existing, unit, ["code", "status", "purchaseCost", "notes"]);
+    if (changes) {
+      await recordAudit({
+        context: auth.context,
+        action: "update",
+        entity: "InventoryUnit",
+        entityId: unit.id,
+        summary: `Actualizó la unidad «${unit.code}» de «${existing.inventory.name}»`,
+        detail: { changes },
+      });
+    }
+    return Response.json({ unit });
+  }
+
   if (kind === "prices") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return jsonError("Falta el ítem de inventario.", 400);
@@ -392,7 +562,11 @@ export async function POST(request: Request) {
     if (!eventId || !inventoryId) return jsonError("Elegí el evento y el ítem de inventario.", 400);
     const [event, item] = await Promise.all([
       db.event.findFirst({ where: { id: eventId, organizationId }, select: EVENT_RANGE_SELECT }),
-      db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId }, omit: { imageData: true } }),
+      db.inventoryItem.findFirst({
+        where: { id: inventoryId, organizationId },
+        omit: { imageData: true },
+        include: { _count: { select: MAINTENANCE_UNITS_SELECT } },
+      }),
     ]);
     if (!event) return jsonError("El evento no existe en esta empresa.", 404);
     if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
@@ -414,7 +588,7 @@ export async function POST(request: Request) {
       select: { id: true, quantity: true, startsAt: true, endsAt: true },
     });
     const rows = await loadAssignments(item.id, organizationId, existing?.id);
-    const availability = buildAvailability(item, rows, startsAt, endsAt);
+    const availability = buildAvailability({ ...item, maintenance: maintenanceUnits(item) }, rows, startsAt, endsAt);
     if (quantity > availability.available) {
       const detail = availability.conflicts.length
         ? ` En el rango: ${availability.conflicts.map((conflict) => `${conflict.eventName} (${conflict.quantity})`).join(", ")}.`

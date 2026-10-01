@@ -72,6 +72,8 @@ export const FIELD_LIMITS = {
   serial: 40,
   /** Imagen de un ítem de inventario: ruta interna o URL http(s). */
   image: 400,
+  /** Código de unidad de inventario (issue #112). */
+  unitCode: 20,
   /** Monto general (compras, anticipos, cobros). */
   amountGeneral: 10_000_000_000,
   /** Monto de ventas: presupuestos y precios unitarios. */
@@ -89,6 +91,7 @@ export const FIELD_MESSAGES = {
   image: "Usá una ruta interna (/assets/…) o una URL http(s) válida.",
   price: "Ingresá un precio válido en guaraníes (hasta Gs 10.000.000.000).",
   priceDays: "Ingresá los días de la regla (0 a 3.650).",
+  unitCode: "El código solo admite letras, números, guiones y guiones bajos (2 a 20).",
   amount: "Ingresá un monto válido en guaraníes.",
   amountLimit: "El monto supera el máximo permitido.",
   percent: "Ingresá un porcentaje entre 0 y 100.",
@@ -362,6 +365,36 @@ export const INVENTORY_PRICE_LIMIT = FIELD_LIMITS.amountGeneral;
 
 /** Tope de los días de las reglas «desde X días» (10 años alcanza y evita desbordar el Int). */
 export const INVENTORY_PRICE_DAYS_MAX = 3650;
+
+/**
+ * Unidades físicas del inventario (issue #112): el código es legible, único por
+ * empresa y editable. El prefijo sale del nombre del ítem (`KIO-01`); mismo
+ * criterio que el backfill de la migración `202610010004_inventory_units`.
+ */
+export function inventoryUnitPrefix(name: string | null | undefined): string {
+  const letters = (name ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]/g, "");
+  return letters.slice(0, 3).toUpperCase() || "UNI";
+}
+
+/** Código de unidad como se guarda: mayúsculas, sin espacios ni símbolos raros. */
+export function normalizeInventoryUnitCode(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "")
+    .slice(0, FIELD_LIMITS.unitCode);
+}
+
+export function inventoryUnitCodeValid(value: string | null | undefined): boolean {
+  return /^[A-Z0-9][A-Z0-9_-]{1,19}$/.test((value ?? "").trim().toUpperCase());
+}
+
+export function inventoryUnitCodeError(value: string | null | undefined): string | null {
+  return inventoryUnitCodeValid(value) ? null : FIELD_MESSAGES.unitCode;
+}
 
 /**
  * Precio de venta validado: entero ≥ 0 dentro del tope. `null` cuando no viene

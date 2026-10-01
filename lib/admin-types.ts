@@ -1498,6 +1498,8 @@ export type AdminInventoryRangeAvailability = {
   startsAt: string;
   endsAt: string;
   committed: number;
+  /** Unidades en mantenimiento (issue #112): se descuentan del stock libre. */
+  maintenance: number;
   available: number;
   overcommitted: boolean;
   /** Rangos comprometidos por equipo que se solapan con el rango pedido. */
@@ -1517,13 +1519,32 @@ export type AdminInventorySubstitute = {
   conflicts: number;
 };
 
-/** Ítem de `/api/admin/inventory`: incluye asignaciones y disponibilidad de hoy. */
+/** Estados de una unidad física (issue #112). */
+export const INVENTORY_UNIT_STATUSES = ["AVAILABLE", "MAINTENANCE", "RETIRED"] as const;
+export type InventoryUnitStatusValue = (typeof INVENTORY_UNIT_STATUSES)[number];
+
+/** Unidad física del ítem, tal como la sirve `/api/admin/inventory` (issue #112). */
+export type AdminInventoryUnitRow = {
+  id: string;
+  /** Código de inventario único por empresa (`KIO-01`), editable. */
+  code: string;
+  status: string;
+  /** Costo que tuvo la unidad (interno), en Gs. */
+  purchaseCost: number;
+  notes: string | null;
+  updatedAt: string;
+};
+
+/** Ítem de `/api/admin/inventory`: incluye asignaciones, unidades y disponibilidad de hoy. */
 export type AdminInventoryItemRow = AdminInventoryRow & {
   assignments: AdminInventoryAssignmentRow[];
+  units: AdminInventoryUnitRow[];
   availability: {
     committedNow: number;
     availableNow: number;
     overcommittedNow: boolean;
+    /** Unidades en mantenimiento (issue #112): no cuentan como libres. */
+    maintenanceNow: number;
     /** Disponibilidad del rango pedido; `null` cuando la lista va sin rango. */
     range?: AdminInventoryRangeAvailability | null;
   };
@@ -1538,7 +1559,7 @@ export type AdminInventoryOption = Pick<
   AdminInventoryRow,
   "id" | "name" | "sku" | "category" | "kind" | "status" | "quantity"
 > & {
-  availability: { committedNow: number; availableNow: number; overcommittedNow: boolean };
+  availability: { committedNow: number; availableNow: number; overcommittedNow: boolean; maintenanceNow: number };
 };
 
 export type AdminPromoterRow = {
@@ -1854,6 +1875,8 @@ export const AUDIT_ENTITIES = [
   "Supplier",
   "SupplierJob",
   "InventoryItem",
+  // Unidad física del ítem (issue #112): alta, edición y retiro.
+  "InventoryUnit",
   "EventInventory",
   "EventTask",
   "Promoter",

@@ -5,6 +5,7 @@ import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
 import { inventoryImageUrl, readInventoryImageUrl } from "@/lib/server/inventory-images";
+import { createInventoryUnits } from "@/lib/server/inventory-units";
 import {
   FIELD_MESSAGES,
   inventoryPriceWarning,
@@ -184,28 +185,40 @@ export async function POST(request: Request) {
     const auth = await requireAdminContext("inventory.write");
     if (!auth.ok) return auth.response;
     if (typeof body.name !== "string") return jsonError("Name is required.", 400);
+    const itemName = body.name.trim();
     const imageUrl = readInventoryImageUrl(body.imageUrl);
     if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
     const prices = readInventoryPriceValues(body);
     if (!prices.ok) return jsonError(prices.error, 400);
-    const inventory = await db.inventoryItem.create({
-      data: {
-        id: randomUUID(),
+    const quantity = typeof body.quantity === "number" && Number.isInteger(body.quantity) && body.quantity > 0 ? body.quantity : 1;
+    // El ítem y sus unidades nacen juntos (issue #112): `quantity` = unidades reales.
+    const inventory = await db.$transaction(async (tx) => {
+      const created = await tx.inventoryItem.create({
+        data: {
+          id: randomUUID(),
+          organizationId: auth.context.organizationId,
+          name: itemName,
+          category: typeof body.category === "string" ? body.category.trim() : "General",
+          imageUrl,
+          kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
+          quantity,
+          visibleOnWeb: body.visibleOnWeb === true,
+          listPrice: prices.values.listPrice ?? 0,
+          listFromDays: prices.values.listFromDays ?? 0,
+          listFromPrice: prices.values.listFromPrice ?? 0,
+          wholesalePrice: prices.values.wholesalePrice ?? 0,
+          wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+          wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+          minimumPrice: prices.values.minimumPrice ?? 0,
+        },
+      });
+      await createInventoryUnits(tx, {
         organizationId: auth.context.organizationId,
-        name: body.name.trim(),
-        category: typeof body.category === "string" ? body.category.trim() : "General",
-        imageUrl,
-        kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
-        quantity: typeof body.quantity === "number" ? body.quantity : 1,
-        visibleOnWeb: body.visibleOnWeb === true,
-        listPrice: prices.values.listPrice ?? 0,
-        listFromDays: prices.values.listFromDays ?? 0,
-        listFromPrice: prices.values.listFromPrice ?? 0,
-        wholesalePrice: prices.values.wholesalePrice ?? 0,
-        wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
-        wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
-        minimumPrice: prices.values.minimumPrice ?? 0,
-      },
+        inventoryId: created.id,
+        name: created.name,
+        quantity,
+      });
+      return created;
     });
     await recordAudit({
       context: auth.context,
