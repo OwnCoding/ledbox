@@ -31,6 +31,7 @@ import type {
   AdminInventoryRow,
   AdminInventorySubstitute,
 } from "@/lib/admin-types";
+import type { PreparedInventoryPhoto } from "@/lib/inventory-image";
 import { useAdminSession } from "../AdminShell";
 import {
   AdminBadge,
@@ -48,8 +49,8 @@ import {
   AdminTable,
   AdminToolbar,
 } from "../AdminUI";
-import { DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
-import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
+import { AttachmentInput, Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
+import { adminApiGet, adminApiUpload, adminSend, useAdminResource } from "@/lib/admin-api";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { AdminIcon } from "../AdminIcons";
@@ -190,6 +191,14 @@ export function InventarioModule() {
   const [selectedId, setSelectedId] = useState("");
   const [view, setView] = useAdminModuleView("inventario", INVENTARIO_VIEWS);
 
+  // Foto del alta (issue #109): archivo ya comprimido en el navegador, listo
+  // para subir después de crear el ítem (necesita su id).
+  const [pendingPhoto, setPendingPhoto] = useState<PreparedInventoryPhoto | null>(null);
+  const [photoError, setPhotoError] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  /** Categorías creadas en esta sesión del formulario (se suman a las existentes). */
+  const [categoryExtras, setCategoryExtras] = useState<string[]>([]);
+
   // Edición de precios de venta del ítem abierto (issue #90).
   const [priceItem, setPriceItem] = useState<AdminInventoryItemRow | null>(null);
   const [priceForm, setPriceForm] = useState(EMPTY_PRICES);
@@ -270,6 +279,23 @@ export function InventarioModule() {
 
   const selectedPriceWarning = selected ? inventoryPriceWarning(selected) : null;
 
+  // Categorías de la empresa (issue #109): el alta las busca y permite crear
+  // una nueva en línea; las creadas en la sesión se suman a las opciones.
+  const categoryChoices = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of inventory) {
+      const category = item.category?.trim();
+      if (category) seen.add(category);
+    }
+    for (const extra of categoryExtras) seen.add(extra);
+    return [...seen].sort((a, b) => a.localeCompare(b, "es")).map((category) => ({ value: category, label: category }));
+  }, [inventory, categoryExtras]);
+
+  // Foto del alta: el archivo elegido manda; si no, la URL manual válida.
+  const manualImage = inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null;
+  const photoPreview = pendingPhoto?.dataUrl ?? manualImage;
+  const hasPhoto = Boolean(pendingPhoto) || Boolean(form.imageUrl.trim());
+
   // Disponibilidad del ítem abierto en el rango pedido + sustitutos sugeridos.
   useEffect(() => {
     if (!selectedId || !rangeActive) {
@@ -306,6 +332,7 @@ export function InventarioModule() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
+    setPhotoError("");
     setNotice("");
     const image = form.imageUrl.trim();
     const imageError = inventoryImageError(image);
@@ -327,7 +354,7 @@ export function InventarioModule() {
     }
     setBusy(true);
     // El alta de ítems vive en `/api/admin/resources` (contrato existente del panel).
-    const result = await adminSend<AdminApiResponse>("/api/admin/resources", {
+    const result = await adminSend<{ inventory?: { id?: string }; warning?: string }>("/api/admin/resources", {
       kind: "inventory",
       name: form.name,
       category: form.category || "General",
@@ -339,17 +366,61 @@ export function InventarioModule() {
       wholesaleFromDays: wholesaleFromDays ?? 0,
       minimumPrice: minimumPrice ?? 0,
     });
-    setBusy(false);
     if (!result.ok) {
+      setBusy(false);
       setFormError(result.error);
       return;
     }
+
+    // La foto necesita el id del ítem: recién creado se sube (issue #109). Si
+    // falla, el ítem ya quedó y se avisa tal cual; la foto se reintenta después.
+    let photoWarning = "";
+    const createdId = result.data.inventory?.id ?? "";
+    if (createdId && pendingPhoto) {
+      const photoForm = new FormData();
+      photoForm.append("file", pendingPhoto.blob, pendingPhoto.fileName);
+      const upload = await adminApiUpload(`/api/admin/inventory/${createdId}/image`, photoForm);
+      if (!upload.ok) photoWarning = ` La foto no se pudo subir: ${upload.error}`;
+    }
+    setBusy(false);
+
     // El aviso de precios incoherentes no bloquea el alta: se muestra tal cual.
     const warning = typeof result.data.warning === "string" ? result.data.warning : "";
-    setNotice(`Ítem «${form.name}» cargado.${warning ? ` ${warning}` : ""}`);
-    setNoticeTone(warning ? "warn" : "ok");
+    setNotice(`Ítem «${form.name}» cargado.${warning ? ` ${warning}` : ""}${photoWarning}`);
+    setNoticeTone(warning || photoWarning ? "warn" : "ok");
     setForm(EMPTY_FORM);
+    setPendingPhoto(null);
+    setPhotoError("");
+    setCategoryExtras([]);
     resources.reload();
+  }
+
+  /** Elige y comprime la foto del alta en el navegador (issue #109). */
+  async function selectPhotoFile(file: File | null) {
+    if (!file) return;
+    setPhotoError("");
+    setPhotoBusy(true);
+    try {
+      // El pipeline de imagen (canvas + magic bytes) se carga recién acá.
+      const { prepareInventoryPhoto } = await import("@/lib/inventory-image");
+      const result = await prepareInventoryPhoto(file);
+      if (!result.ok) {
+        setPhotoError(result.error);
+        return;
+      }
+      // Un solo origen: la foto elegida reemplaza la URL escrita.
+      setPendingPhoto(result.photo);
+      setForm((current) => ({ ...current, imageUrl: "" }));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  /** Saca la foto del alta: la elegida o la URL manual. */
+  function clearPhoto() {
+    setPendingPhoto(null);
+    setPhotoError("");
+    setForm((current) => ({ ...current, imageUrl: "" }));
   }
 
   /** Abre la edición de precios del ítem con los valores actuales. */
@@ -564,86 +635,131 @@ export function InventarioModule() {
           submitLabel="Cargar ítem"
           onSubmit={submit}
           onCancel={() => setShowForm(false)}
-          busy={busy}
+          onEscape={() => setShowForm(false)}
+          busy={busy || photoBusy}
           status={formError}
           statusNote={!formError && formPriceWarning ? <AdminNote tone="warn">{formPriceWarning}</AdminNote> : undefined}
         >
-          <TextField
-            label="Artículo"
-            required
-            maxLength={120}
-            value={form.name}
-            onChange={(value) => setForm({ ...form, name: value })}
-            placeholder="Ej.: Pantalla LED P3.9 500×500"
-          />
-          <TextField
-            label="Categoría"
-            maxLength={80}
-            value={form.category}
-            onChange={(value) => setForm({ ...form, category: value })}
-            placeholder="Ej.: Pantallas"
-          />
-          <SelectField
-            label="Tipo"
-            value={form.inventoryKind}
-            onChange={(value) => setForm({ ...form, inventoryKind: value })}
-            options={[
-              { value: "REUSABLE", label: "Reutilizable" },
-              { value: "CONSUMABLE", label: "Consumible" },
-              { value: "DISPOSABLE", label: "Descartable" },
-            ]}
-          />
-          <NumberField
-            label="Cantidad"
-            required
-            maxLength={6}
-            value={form.quantity}
-            onChange={(value) => setForm({ ...form, quantity: value })}
-          />
-          <TextField
-            label="Imagen (URL)"
-            maxLength={FIELD_LIMITS.image}
-            value={form.imageUrl}
-            onChange={(value) => setForm({ ...form, imageUrl: value })}
-            placeholder="Ej.: /assets/products/pantalla-led.png"
-            hint="Ruta interna (/assets/…) o URL http(s). Opcional."
-            inputMode="url"
-            autoCapitalize="none"
-          />
-          {/* Vista previa con la misma caja uniforme del módulo (issue #98):
-              sin imagen (o con una URL que no carga) muestra el ícono, nunca
-              un cuadro roto. */}
-          <div className="admin-field">
-            <span className="admin-field-label">Vista previa</span>
-            <span className="admin-image-preview">
-              <InventoryThumb item={{ imageUrl: inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null }} size={64} />
-            </span>
+          {/* Datos del ítem (issue #109): campos finos; la cantidad va corta. */}
+          <div className="admin-form-group admin-form-group--item">
+            <span className="admin-form-group-title">Ítem</span>
+            <TextField
+              label="Artículo"
+              required
+              maxLength={120}
+              value={form.name}
+              onChange={(value) => setForm({ ...form, name: value })}
+              placeholder="Ej.: Pantalla LED P3.9 500×500"
+            />
+            <Combobox
+              label="Categoría"
+              value={form.category}
+              onChange={(value) => setForm({ ...form, category: value })}
+              options={categoryChoices}
+              placeholder="Ej.: Pantallas"
+              emptyLabel="Sin categorías cargadas."
+              hint="Buscá o creá una nueva."
+              onCreate={(query) => {
+                if (!query) return;
+                setCategoryExtras((current) => (current.includes(query) ? current : [...current, query]));
+                setForm((current) => ({ ...current, category: query }));
+              }}
+              createLabel={(query) => (query ? `Crear categoría «${query}»` : "Crear categoría")}
+            />
+            <SelectField
+              label="Tipo"
+              value={form.inventoryKind}
+              onChange={(value) => setForm({ ...form, inventoryKind: value })}
+              options={[
+                { value: "REUSABLE", label: "Reutilizable" },
+                { value: "CONSUMABLE", label: "Consumible" },
+                { value: "DISPOSABLE", label: "Descartable" },
+              ]}
+            />
+            <NumberField
+              label="Cantidad"
+              required
+              maxLength={6}
+              value={form.quantity}
+              onChange={(value) => setForm({ ...form, quantity: value })}
+            />
           </div>
-          <MoneyField
-            label="Precio de lista"
-            value={form.listPrice}
-            onChange={(value) => setForm({ ...form, listPrice: value })}
-            hint="En guaraníes; vacío o 0 = sin cargar."
-          />
-          <MoneyField
-            label="Mayorista"
-            value={form.wholesalePrice}
-            onChange={(value) => setForm({ ...form, wholesalePrice: value })}
-            hint="Precio por volumen."
-          />
-          <NumberField
-            label="Mayorista desde (días)"
-            maxLength={4}
-            value={form.wholesaleFromDays}
-            onChange={(value) => setForm({ ...form, wholesaleFromDays: value })}
-            hint="0 = sin regla mayorista."
-          />
-          <MoneyField
-            label="Mínimo"
-            value={form.minimumPrice}
-            onChange={(value) => setForm({ ...form, minimumPrice: value })}
-            hint="Piso de venta del ítem."
-          />
+
+          {/* Foto (issue #109): URL manual o archivo subido (uno de los dos). */}
+          <div className="admin-form-group admin-form-group--photo">
+            <span className="admin-form-group-title">Foto</span>
+            <TextField
+              label="Imagen (URL)"
+              maxLength={FIELD_LIMITS.image}
+              value={form.imageUrl}
+              onChange={(value) => {
+                setPendingPhoto(null);
+                setPhotoError("");
+                setForm({ ...form, imageUrl: value });
+              }}
+              placeholder="Ej.: /assets/products/pantalla-led.png"
+              hint="Ruta interna (/assets/…) o URL http(s). Opcional."
+              inputMode="url"
+              autoCapitalize="none"
+            />
+            <AttachmentInput
+              label="Subir foto"
+              accept="image/jpeg,image/png,image/webp"
+              maxBytes={10 * 1024 * 1024}
+              hint="JPG, PNG o WebP; se comprime en el navegador (hasta 2 MB)."
+              disabled={busy || photoBusy}
+              error={photoError}
+              onSelect={(file) => void selectPhotoFile(file)}
+            />
+            <div className="admin-field">
+              <span className="admin-field-label">Vista previa</span>
+              <span className="admin-photo-preview">
+                <span className="admin-image-preview">
+                  <InventoryThumb item={{ imageUrl: photoPreview }} size={64} />
+                </span>
+                {hasPhoto ? (
+                  <AdminButton
+                    icon="trash"
+                    type="button"
+                    title="Quitar la foto elegida"
+                    aria-label="Quitar la foto elegida"
+                    onClick={clearPhoto}
+                  >
+                    Quitar foto
+                  </AdminButton>
+                ) : null}
+              </span>
+            </div>
+          </div>
+
+          <div className="admin-form-group">
+            <span className="admin-form-group-title">Precios de venta</span>
+            <MoneyField
+              label="Precio de lista"
+              value={form.listPrice}
+              onChange={(value) => setForm({ ...form, listPrice: value })}
+              hint="En guaraníes; vacío o 0 = sin cargar."
+            />
+            <MoneyField
+              label="Mayorista"
+              value={form.wholesalePrice}
+              onChange={(value) => setForm({ ...form, wholesalePrice: value })}
+              hint="Precio por volumen."
+            />
+            <NumberField
+              label="Mayorista desde (días)"
+              maxLength={4}
+              value={form.wholesaleFromDays}
+              onChange={(value) => setForm({ ...form, wholesaleFromDays: value })}
+              hint="0 = sin regla mayorista."
+            />
+            <MoneyField
+              label="Mínimo"
+              value={form.minimumPrice}
+              onChange={(value) => setForm({ ...form, minimumPrice: value })}
+              hint="Piso de venta del ítem."
+            />
+          </div>
         </AdminFormPanel>
       ) : null}
 
