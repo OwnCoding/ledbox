@@ -62,6 +62,7 @@ import {
   AdminToolbar,
 } from "../AdminUI";
 import {
+  Combobox,
   DateField,
   MoneyField,
   NumberField,
@@ -1221,26 +1222,27 @@ export function FacturacionModule() {
             />
 
             {invoiceForm.source === "budget" ? (
-              <SelectField
+              <Combobox
                 label="Presupuesto aprobado"
                 wide
                 required
                 value={invoiceForm.budgetId}
                 onChange={(value) => setInvoiceForm({ ...invoiceForm, budgetId: value })}
-                options={[
-                  { value: "", label: approvedBudgets.length > 0 ? "Elegí el presupuesto…" : "No hay presupuestos aprobados" },
-                  ...approvedBudgets.map((budget) => ({
-                    value: budget.id,
-                    label: `${budget.title} · ${budget.client.company || budget.client.name} · ${formatMoney(budget.total)}`,
-                  })),
-                ]}
+                placeholder="Buscá por título o cliente…"
+                emptyLabel={approvedBudgets.length > 0 ? "Sin coincidencias." : "No hay presupuestos aprobados."}
+                options={approvedBudgets.map((budget) => ({
+                  value: budget.id,
+                  label: budget.title,
+                  description: `${budget.client.company || budget.client.name} · ${formatMoney(budget.total)}`,
+                }))}
                 hint={selectedBudget ? "Las líneas del presupuesto entran como ítems de la factura (IVA 10 % por defecto, ajustable después)." : undefined}
               />
             ) : (
               <>
-                <SelectField
+                <Combobox
                   label="Cliente"
                   value={invoiceForm.clientId}
+                  placeholder="Buscá por nombre o empresa…"
                   onChange={(value) => {
                     const client = activeClients.find((candidate) => candidate.id === value);
                     setInvoiceForm({
@@ -1552,9 +1554,10 @@ export function FacturacionModule() {
               onChange={(value) => setPurchaseForm({ ...purchaseForm, total: value })}
               hint="IVA incluido: la base y el crédito se desagregan solos"
             />
-            <SelectField
+            <Combobox
               label="Proveedor del directorio"
               value={purchaseForm.supplierId}
+              placeholder="Buscá el proveedor…"
               onChange={(value) => {
                 const supplier = (suppliers.data ?? []).find((candidate) => candidate.id === value);
                 setPurchaseForm({

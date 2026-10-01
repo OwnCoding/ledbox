@@ -77,10 +77,18 @@ export type AdminSessionState = {
   error: string;
   /** Vuelve a leer la sesión (lo usan perfil y empresa al guardar cambios). */
   reload: () => void;
+  /** Bloqueo por PIN disponible para este usuario (issue #21). */
+  lockEligible: boolean;
+  /** Bloquea el panel a pedido del usuario (lo usa Mi perfil, issue #117). */
+  lockPanel: (reason: "inactivity" | "manual") => void;
+  /** Cierra la sesión (o sale de la demo). */
+  logout: () => Promise<void>;
+  /** Hay un cierre de sesión en curso. */
+  loggingOut: boolean;
 };
 
-/** Datos de sesión que viven en el estado del shell; `reload` se agrega al contexto. */
-type AdminSessionData = Omit<AdminSessionState, "reload">;
+/** Datos de sesión del shell; `reload` y las acciones de cuenta se agregan al contexto. */
+type AdminSessionData = Omit<AdminSessionState, "reload" | "lockEligible" | "lockPanel" | "logout" | "loggingOut">;
 
 const EMPTY_SESSION: AdminSessionData = {
   user: null,
@@ -98,6 +106,10 @@ const EMPTY_SESSION: AdminSessionData = {
 const AdminSessionContext = createContext<AdminSessionState>({
   ...EMPTY_SESSION,
   reload: () => {},
+  lockEligible: false,
+  lockPanel: () => {},
+  logout: async () => {},
+  loggingOut: false,
 });
 
 export function useAdminSession(): AdminSessionState {
@@ -275,11 +287,9 @@ export function AdminShell({
   /** La sesión embebida se consume una vez: después manda `loadSession`. */
   const skipInitialLoadRef = useRef(Boolean(initialSession));
   const [menuOpen, setMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteMounted, setPaletteMounted] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
   // Bloqueo por PIN (issue #21): error/estado de la pantalla y canal entre pestañas.
   const [lockError, setLockError] = useState("");
   const [lockBusy, setLockBusy] = useState(false);
@@ -389,7 +399,6 @@ export function AdminShell({
 
   useEffect(() => {
     setMenuOpen(false);
-    setUserMenuOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -405,24 +414,6 @@ export function AdminShell({
     };
   }, [menuOpen]);
 
-  // Menú del chip de usuario: cierra con Escape y al hacer clic afuera.
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setUserMenuOpen(false);
-    }
-    function closeOnOutside(event: PointerEvent) {
-      const node = userMenuRef.current;
-      if (node && event.target instanceof Node && !node.contains(event.target)) setUserMenuOpen(false);
-    }
-    document.addEventListener("keydown", closeOnEscape);
-    document.addEventListener("pointerdown", closeOnOutside);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape);
-      document.removeEventListener("pointerdown", closeOnOutside);
-    };
-  }, [userMenuOpen]);
-
   // ── Bloqueo por PIN y auto-bloqueo por inactividad (issue #21) ──────────────
   const lockEligible = Boolean(session.user) && !session.demo && session.lock?.hasPin === true;
   const autoLockMinutes = session.lock?.autoLockMinutes ?? 10;
@@ -436,7 +427,6 @@ export function AdminShell({
       setLockError("");
       setLockRequireLogin(false);
       setMenuOpen(false);
-      setUserMenuOpen(false);
       lockChannelRef.current?.postMessage({ type: "locked", reason });
       // Best-effort: si el aviso al servidor no llega, el bloqueo local sigue y el
       // desbloqueo igual valida el PIN contra el servidor.
@@ -639,10 +629,6 @@ export function AdminShell({
   const moduleIcon = adminNavIcon(pathname);
   const canEditOrganization = canManageOrganization(session.role);
   const organizationLogos = session.organization?.logos;
-  const sessionValue = useMemo<AdminSessionState>(
-    () => ({ ...session, reload: () => void loadSession() }),
-    [session, loadSession],
-  );
   /**
    * Entrada a la demo: mientras no haya sesión, la campana de avisos no se monta
    * (su 401 manda al login y competiría con la creación de la sesión demo). En el
@@ -663,7 +649,7 @@ export function AdminShell({
     }
   }, []);
 
-  async function logout() {
+  const logout = useCallback(async () => {
     if (session.demo) {
       await exitDemo();
       return;
@@ -675,7 +661,12 @@ export function AdminShell({
       router.replace("/login");
       router.refresh();
     }
-  }
+  }, [session.demo, exitDemo, router]);
+
+  const sessionValue = useMemo<AdminSessionState>(
+    () => ({ ...session, reload: () => void loadSession(), lockEligible, lockPanel, logout, loggingOut }),
+    [session, loadSession, lockEligible, lockPanel, logout, loggingOut],
+  );
 
   // Con el panel bloqueado no se dibuja nada del shell: solo la pantalla de PIN.
   const showLock = Boolean(session.user) && session.locked && !session.demo;
@@ -812,83 +803,27 @@ export function AdminShell({
               )
             ) : null}
               {session.user ? (
-                <div
-                  className="admin-usermenu admin-usermenu--sidebar"
-                  ref={userMenuRef}
-                  onBlur={(event) => {
-                    const next = event.relatedTarget;
-                    if (next && !event.currentTarget.contains(next)) setUserMenuOpen(false);
-                  }}
+                /* El chip es un enlace directo: la cuenta vive en Mi perfil (issue #117). */
+                <Link
+                  className="admin-user admin-user--sidebar"
+                  href="/perfil"
+                  aria-label={`Mi perfil · ${session.user.name}`}
+                  title={`${session.user.name} · ${adminRoleLabel(session.user.role)} · Editar mi perfil`}
                 >
-                  <button
-                    type="button"
-                    className="admin-user admin-user--sidebar"
-                    onClick={() => setUserMenuOpen((open) => !open)}
-                    aria-haspopup="menu"
-                    aria-expanded={userMenuOpen}
-                    aria-controls="admin-usermenu"
-                    title={`${session.user.name} · ${adminRoleLabel(session.user.role)} · Tu cuenta`}
-                  >
-                    <AdminAvatar
-                      name={session.user.name}
-                      src={
-                        session.user.avatarUpdatedAt
-                          ? adminAvatarUrl(session.user.id, session.user.avatarUpdatedAt)
-                          : null
-                      }
-                      size={28}
-                    />
-                    <span className="admin-user-info">
-                      <strong>{session.user.name}</strong>
-                      <small>{adminRoleLabel(session.user.role)}</small>
-                    </span>
-                    <AdminIcon name="chevron-down" size={14} />
-                  </button>
-
-                  {userMenuOpen ? (
-                    <div className="admin-usermenu-panel" id="admin-usermenu" role="menu" aria-label="Tu cuenta">
-                      <div className="admin-usermenu-head">
-                        <strong>{session.user.name}</strong>
-                        <small>{session.user.email}</small>
-                        <AdminBadge tone={statusTone(session.user.role)}>{adminRoleLabel(session.user.role)}</AdminBadge>
-                      </div>
-                      <Link className="admin-usermenu-item" role="menuitem" href="/perfil">
-                        <AdminIcon name="user" size={15} />
-                        <span>Mi perfil</span>
-                        <small>Nombre, contraseña, PIN y foto</small>
-                      </Link>
-                      {lockEligible ? (
-                        <button
-                          type="button"
-                          className="admin-usermenu-item"
-                          role="menuitem"
-                          onClick={() => lockPanel("manual")}
-                        >
-                          <AdminIcon name="power" size={15} />
-                          <span>Bloquear panel</span>
-                          <small>Se reabre con tu PIN</small>
-                        </button>
-                      ) : null}
-                      {canEditOrganization ? (
-                        <Link className="admin-usermenu-item" role="menuitem" href="/ajustes/empresa">
-                          <AdminIcon name="building" size={15} />
-                          <span>Empresa</span>
-                          <small>Nombre y logos</small>
-                        </Link>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="admin-usermenu-item"
-                        role="menuitem"
-                        onClick={() => void logout()}
-                        disabled={loggingOut}
-                      >
-                        <AdminIcon name="logout" size={15} />
-                        <span>{session.demo ? "Salir de la demo" : "Cerrar sesión"}</span>
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+                  <AdminAvatar
+                    name={session.user.name}
+                    src={
+                      session.user.avatarUpdatedAt
+                        ? adminAvatarUrl(session.user.id, session.user.avatarUpdatedAt)
+                        : null
+                    }
+                    size={28}
+                  />
+                  <span className="admin-user-info">
+                    <strong>{session.user.name}</strong>
+                    <small>{adminRoleLabel(session.user.role)}</small>
+                  </span>
+                </Link>
               ) : null}
 
             <p className="admin-sidebar-note">Panel privado · LedBox</p>

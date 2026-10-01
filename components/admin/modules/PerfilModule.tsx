@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { adminRoleLabel } from "@/lib/admin-format";
+import { adminRoleLabel, statusTone } from "@/lib/admin-format";
+import { canManageOrganization } from "@/lib/admin-policy";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import { adminAvatarUrl } from "@/lib/admin-types";
 import { normalizePersonName, personNameValid } from "@/lib/field-rules";
@@ -9,7 +11,8 @@ import type { PreparedIdentityImage } from "@/lib/identity-image";
 import { useAdminSession } from "../AdminShell";
 import { AdminAvatar } from "../AdminAvatar";
 import { PasswordField, TextField } from "../AdminFields";
-import { AdminButton, AdminDataState, AdminImageUpload, AdminNote, AdminPanel } from "../AdminUI";
+import { AdminButton, AdminBadge, AdminDataState, AdminImageUpload, AdminNote, AdminPanel } from "../AdminUI";
+import { AdminIcon } from "../AdminIcons";
 import { AdminPinSettings } from "../AdminPinSettings";
 import { ApiKeysPanel } from "../ApiKeysPanel";
 
@@ -25,7 +28,7 @@ import { ApiKeysPanel } from "../ApiKeysPanel";
  * solo lectura (el API responde 403 «Modo demo»).
  */
 export function PerfilModule() {
-  const { user, demo, reload } = useAdminSession();
+  const { user, demo, reload, lockEligible, lockPanel, logout, loggingOut } = useAdminSession();
   const profile = useAdminResource("/api/admin/profile", (payload) => payload.profile ?? null);
   const data = profile.data ?? null;
   const readOnly = demo;
@@ -151,8 +154,24 @@ export function PerfilModule() {
     );
   }
 
+  // Identidad arriba (issue #117): nombre, correo y rol, como los mostraba el menú.
+  const identity = {
+    name: data?.name ?? user?.name ?? "",
+    email: data?.email ?? user?.email ?? "",
+    role: data?.role ?? user?.role ?? null,
+  };
+
   return (
     <div className="admin-module-page">
+      <section className="admin-account-head" aria-label="Tu identidad en el panel">
+        <AdminAvatar name={identity.name} src={avatarSrc} size={40} />
+        <span className="admin-account-head-copy">
+          <strong>{identity.name}</strong>
+          <small>{identity.email}</small>
+        </span>
+        {identity.role ? <AdminBadge tone={statusTone(identity.role)}>{adminRoleLabel(identity.role)}</AdminBadge> : null}
+      </section>
+
       {notice ? <AdminNote tone="ok">{notice}</AdminNote> : null}
 
       <AdminDataState loading={profile.loading} error={profile.error} onRetry={profile.reload} rows={4}>
@@ -278,6 +297,32 @@ export function PerfilModule() {
 
       {/* API keys de servicio (issue #69): solo OWNER. */}
       {user?.role === "OWNER" ? <ApiKeysPanel /> : null}
+
+      {/* Cuenta (issue #117): cerrar sesión arriba de Empresa; el bloqueo por
+          PIN se conserva cuando el usuario lo tiene habilitado. */}
+      <AdminPanel title="Cuenta" icon="logout">
+        <div className="admin-account-actions">
+          {lockEligible ? (
+            <button type="button" className="admin-account-item" onClick={() => lockPanel("manual")}>
+              <AdminIcon name="power" size={15} />
+              <span>Bloquear panel</span>
+              <small>Se reabre con tu PIN</small>
+            </button>
+          ) : null}
+          <button type="button" className="admin-account-item" onClick={() => void logout()} disabled={loggingOut}>
+            <AdminIcon name="logout" size={15} />
+            <span>{demo ? "Salir de la demo" : "Cerrar sesión"}</span>
+            <small>{demo ? "Volver a ledbox.online" : "Terminar la sesión en este dispositivo"}</small>
+          </button>
+          {canManageOrganization(user?.role ?? null) ? (
+            <Link className="admin-account-item" href="/ajustes/empresa">
+              <AdminIcon name="building" size={15} />
+              <span>Empresa</span>
+              <small>Nombre y logos</small>
+            </Link>
+          ) : null}
+        </div>
+      </AdminPanel>
     </div>
   );
 }

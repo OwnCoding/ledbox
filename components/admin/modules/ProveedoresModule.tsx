@@ -47,6 +47,7 @@ import {
   AdminWhatsappLink,
 } from "../AdminUI";
 import {
+  Combobox,
   DateField,
   EmailField,
   MoneyField,
@@ -451,7 +452,7 @@ export function ProveedoresModule() {
             busy={jobBusy}
             status={jobError}
           >
-            <SelectField
+            <Combobox
               label="Proveedor"
               required
               value={jobForm.supplierId}
@@ -459,19 +460,24 @@ export function ProveedoresModule() {
                 const supplier = suppliers.find((item) => item.id === value);
                 setJobForm({ ...jobForm, supplierId: value, category: supplier?.category ?? jobForm.category });
               }}
-              options={[
-                { value: "", label: "Elegí un proveedor…" },
-                ...suppliers
-                  .filter((supplier) => supplier.active || supplier.id === jobForm.supplierId)
-                  .map((supplier) => ({ value: supplier.id, label: supplier.name })),
-              ]}
+              placeholder="Buscá por nombre o rubro…"
+              emptyLabel={suppliers.length > 0 ? "Sin coincidencias." : "No hay proveedores cargados."}
+              options={suppliers
+                .filter((supplier) => supplier.active || supplier.id === jobForm.supplierId)
+                .map((supplier) => ({
+                  value: supplier.id,
+                  label: supplier.name,
+                  description: supplier.company?.trim() || undefined,
+                }))}
             />
-            <SelectField
+            <Combobox
               label="Evento"
               hint="Opcional"
               value={jobForm.eventId}
               onChange={(value) => setJobForm({ ...jobForm, eventId: value })}
-              options={[{ value: "", label: "Sin evento asociado" }, ...events.map((item) => ({ value: item.id, label: item.name }))]}
+              placeholder="Buscá el evento…"
+              emptyLabel={events.length > 0 ? "Sin coincidencias." : "No hay eventos cargados."}
+              options={[...events.map((item) => ({ value: item.id, label: item.name }))]}
             />
             <SelectField
               label="Rubro del trabajo"
@@ -549,12 +555,14 @@ export function ProveedoresModule() {
               </div>
             ) : null}
             <TextField label="Proveedor" disabled value={editingJob.supplier.name} onChange={() => {}} />
-            <SelectField
+            <Combobox
               label="Evento"
               hint="Opcional"
               value={jobForm.eventId}
               onChange={(value) => setJobForm({ ...jobForm, eventId: value })}
-              options={[{ value: "", label: "Sin evento asociado" }, ...events.map((item) => ({ value: item.id, label: item.name }))]}
+              placeholder="Buscá el evento…"
+              emptyLabel={events.length > 0 ? "Sin coincidencias." : "No hay eventos cargados."}
+              options={events.map((item) => ({ value: item.id, label: item.name }))}
             />
             <SelectField
               label="Rubro del trabajo"
