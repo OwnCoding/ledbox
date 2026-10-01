@@ -94,10 +94,11 @@ export type PortalBudgetProof = {
 
 /**
  * Estado visible de un pago esperado (issue #28): `AWAITING` esperando la
- * transferencia del cliente, `PROOF` con comprobante en revisión, `CONFIRMED`
- * ya acreditado en una cuenta y `CANCELLED` cuando el plan dejó de incluirlo.
+ * transferencia del cliente, `PROOF` con comprobante en revisión, `PARTIAL`
+ * con una seña cobrada y saldo pendiente (issue #129), `CONFIRMED` ya
+ * acreditado en una cuenta y `CANCELLED` cuando el plan dejó de incluirlo.
  */
-export type PortalExpectedPaymentStatus = "AWAITING" | "PROOF" | "CONFIRMED" | "CANCELLED";
+export type PortalExpectedPaymentStatus = "AWAITING" | "PROOF" | "PARTIAL" | "CONFIRMED" | "CANCELLED";
 
 export type PortalExpectedPayment = {
   id: string;
@@ -106,6 +107,10 @@ export type PortalExpectedPayment = {
   label: string;
   installmentNumber: number | null;
   amount: number;
+  /** Monto ya cobrado del concepto (seña/parciales, issue #129). */
+  paidAmount: number;
+  /** Saldo pendiente (`amount − paidAmount`); 0 en lo confirmado. */
+  remaining: number;
   dueAt: string | null;
   status: PortalExpectedPaymentStatus;
   /** Nombre de la cuenta de tesorería donde se espera la transferencia. */
@@ -337,6 +342,8 @@ type BudgetForPortal = {
     installmentNumber: number | null;
     label: string;
     amount: number;
+    /** Monto ya cobrado contra el concepto (issue #129). */
+    paidAmount: number;
     dueAt: Date | null;
     status: string;
     reviewNote: string | null;
@@ -525,7 +532,7 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
   const demo = isDemoOrganizationSlug(budget.organization.slug);
   const expectedPayments = budget.expectedPayments.map((expected): PortalExpectedPayment => {
     const status: PortalExpectedPaymentStatus =
-      expected.status === "PROOF" || expected.status === "CONFIRMED" || expected.status === "CANCELLED"
+      expected.status === "PROOF" || expected.status === "PARTIAL" || expected.status === "CONFIRMED" || expected.status === "CANCELLED"
         ? expected.status
         : "AWAITING";
     const concept: PortalExpectedPayment["concept"] =
@@ -536,6 +543,8 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
       label: expected.label,
       installmentNumber: expected.installmentNumber,
       amount: expected.amount,
+      paidAmount: expected.paidAmount,
+      remaining: Math.max(0, expected.amount - expected.paidAmount),
       dueAt: expected.dueAt ? dayKeyOf(expected.dueAt) : null,
       status,
       accountName: expected.expectedAccount?.name ?? null,
@@ -547,7 +556,9 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
       createdAt: expected.createdAt.toISOString(),
     };
   });
-  const openExpected = budget.expectedPayments.filter((row) => row.status === "AWAITING" || row.status === "PROOF").length;
+  const openExpected = budget.expectedPayments.filter(
+    (row) => row.status === "AWAITING" || row.status === "PROOF" || row.status === "PARTIAL",
+  ).length;
   return {
     reference: budgetReference(budget.id),
     title: budget.title,
@@ -644,6 +655,7 @@ const portalInclude = {
       installmentNumber: true,
       label: true,
       amount: true,
+      paidAmount: true,
       dueAt: true,
       status: true,
       reviewNote: true,

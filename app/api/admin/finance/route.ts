@@ -268,6 +268,22 @@ export async function POST(request: Request) {
     const reference = typeof body.reference === "string" ? body.reference.trim() : "";
     if (reference.length > MAX_REFERENCE) return jsonError(`La referencia no puede superar los ${MAX_REFERENCE} caracteres.`, 400);
 
+    // Seña de un cobro libre (issue #129): con el total acordado, el saldo queda
+    // como cobro a plazo para completarlo después.
+    let balanceAmount = 0;
+    let balanceDueKey: string | null = null;
+    if (body.totalAmount !== undefined && body.totalAmount !== null && body.totalAmount !== "") {
+      const total = Number(body.totalAmount);
+      if (!Number.isSafeInteger(total) || total <= amount || total > MAX_AMOUNT) {
+        return jsonError("El total acordado tiene que ser mayor al monto de la seña (hasta 99.000.000.000).", 400);
+      }
+      balanceAmount = total - amount;
+      if (body.balanceDueAt !== undefined && body.balanceDueAt !== null && body.balanceDueAt !== "") {
+        balanceDueKey = readDayKey(body.balanceDueAt);
+        if (!balanceDueKey) return jsonError("El vencimiento del saldo tiene que ser un día válido (AAAA-MM-DD).", 400);
+      }
+    }
+
     const now = new Date();
     // Cobro + entrada de tesorería en la misma transacción: la plata cobrada entra
     // a la cuenta elegida o no se registra el cobro. El snapshot del cobro y del
@@ -319,9 +335,29 @@ export async function POST(request: Request) {
         },
       });
     }
+    // Saldo de la seña: cobro a plazo por el resto del total acordado (#129).
+    let balance: { id: string; amount: number } | null = null;
+    if (balanceAmount > 0) {
+      const createdBalance = await tx.clientPayment.create({
+        data: {
+          id: randomUUID(),
+          organizationId,
+          clientId: client.id,
+          budgetId: budgetId || undefined,
+          amount: balanceAmount,
+          status: "PENDING",
+          method: method ?? undefined,
+          dueAt: balanceDueKey ? dayStart(balanceDueKey) : null,
+          notes: "Saldo pendiente de la seña",
+          treasuryAccountId: treasuryAccount?.id ?? null,
+        },
+        select: { id: true, amount: true },
+      });
+      balance = createdBalance;
+    }
     return {
       status: 201,
-      body: { payment: created },
+      body: { payment: created, ...(balance ? { balance } : {}) },
       afterCommit: () =>
         recordAudit({
           context: auth.context,
@@ -329,12 +365,15 @@ export async function POST(request: Request) {
           entity: "ClientPayment",
           entityId: created.id,
           summary: treasuryAccount
-            ? `Registró un cobro del cliente «${clientLabel(client)}» en «${treasuryAccount.name}»`
-            : `Registró un cobro del cliente «${clientLabel(client)}»`,
+            ? `Registró un cobro del cliente «${clientLabel(client)}» en «${treasuryAccount.name}»${
+                balance ? ` con saldo pendiente de ${balance.amount}` : ""
+              }`
+            : `Registró un cobro del cliente «${clientLabel(client)}»${balance ? ` con saldo pendiente de ${balance.amount}` : ""}`,
           detail: {
             fields: {
               ...auditPick(created, ["clientId", "budgetId", "amount", "method", "reference", "paidAt"]),
               treasuryAccountId: treasuryAccount?.id ?? null,
+              ...(balance ? { balancePaymentId: balance.id, balanceAmount: balance.amount, balanceDueAt: balanceDueKey } : {}),
             },
           },
         }),

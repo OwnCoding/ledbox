@@ -1,7 +1,7 @@
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
-import { confirmExpectedPayment, reviewExpectedPayment } from "@/lib/server/expected-payments";
+import { confirmExpectedPayment, reviewExpectedPayment, splitExpectedPayment } from "@/lib/server/expected-payments";
 import { dayKeyOf, dayStart, isValidDayKey } from "@/lib/server/notifications";
 
 export const runtime = "nodejs";
@@ -48,6 +48,11 @@ const rowInclude = {
   expectedAccount: { select: accountSelect },
   proof: { select: { id: true, uploadedByName: true, mime: true, size: true, createdAt: true } },
   payment: { select: { id: true, status: true, collectedAt: true, paidAt: true, method: true, reference: true, treasuryAccountId: true } },
+  // Seña y cobros parciales imputados al concepto (issue #129).
+  partialPayments: {
+    orderBy: { collectedAt: "desc" },
+    select: { id: true, amount: true, method: true, collectedAt: true, reference: true, treasuryAccountId: true },
+  },
 } as const;
 
 export async function GET(request: Request) {
@@ -70,7 +75,7 @@ export async function GET(request: Request) {
     }),
     db.expectedPayment.findMany({
       where: { organizationId, ...(budgetId ? { budgetId } : {}) },
-      select: { status: true, amount: true, dueAt: true },
+      select: { status: true, amount: true, paidAmount: true, dueAt: true },
     }),
   ]);
 
@@ -78,6 +83,8 @@ export async function GET(request: Request) {
   const summary = {
     awaiting: { count: 0, total: 0 },
     proof: { count: 0, total: 0 },
+    /** Señas/cobros parciales (issue #129): lo que queda por cobrar de cada uno. */
+    partial: { count: 0, total: 0 },
     overdue: { count: 0, total: 0 },
     confirmed: { count: 0, total: 0 },
     /** Lo que necesita acción: comprobantes en revisión + vencidos sin comprobante. */
@@ -91,6 +98,15 @@ export async function GET(request: Request) {
       if (overdue) {
         summary.overdue.count += 1;
         summary.overdue.total += row.amount;
+      }
+    } else if (row.status === "PARTIAL") {
+      const remaining = Math.max(0, row.amount - row.paidAmount);
+      summary.partial.count += 1;
+      summary.partial.total += remaining;
+      const overdue = Boolean(row.dueAt) && dayKeyOf(row.dueAt as Date) < todayKey;
+      if (overdue) {
+        summary.overdue.count += 1;
+        summary.overdue.total += remaining;
       }
     } else if (row.status === "PROOF") {
       summary.proof.count += 1;
@@ -120,7 +136,7 @@ export async function POST(request: Request) {
   const body = (await readJson(request)) as Record<string, unknown>;
   const expectedPaymentId = typeof body.expectedPaymentId === "string" ? body.expectedPaymentId : "";
   if (!expectedPaymentId) return jsonError("Indicá el pago esperado.", 400);
-  const kind = body.kind === "confirm" ? "confirm" : body.kind === "reject" ? "reject" : "";
+  const kind = body.kind === "confirm" ? "confirm" : body.kind === "reject" ? "reject" : body.kind === "split" ? "split" : "";
   if (!kind) return jsonError("Unknown expected payment entry.", 400);
 
   if (kind === "reject") {
@@ -135,7 +151,33 @@ export async function POST(request: Request) {
     return Response.json({ expectedPayment: outcome.expectedPayment });
   }
 
+  // División del saldo pendiente en partes con vencimiento (issue #129).
+  if (kind === "split") {
+    const rawParts = Array.isArray(body.parts) ? body.parts : [];
+    const outcome = await splitExpectedPayment({
+      organizationId: auth.context.organizationId,
+      expectedPaymentId,
+      parts: rawParts.map((part) => {
+        const row = part && typeof part === "object" ? (part as Record<string, unknown>) : {};
+        return {
+          amount: Number(row.amount),
+          dueAt: typeof row.dueAt === "string" ? row.dueAt : null,
+        };
+      }),
+      actor: auth.context,
+    });
+    if (!outcome.ok) return jsonError(outcome.error, outcome.status);
+    return Response.json({ expectedPayment: outcome.expectedPayment, parts: outcome.parts });
+  }
+
   const accountId = typeof body.accountId === "string" && body.accountId.trim() ? body.accountId.trim() : null;
+  // Monto parcial (issue #129): sin monto se confirma el saldo pendiente completo.
+  const amount =
+    body.amount === undefined || body.amount === null || body.amount === "" ? null : Number(body.amount);
+  if (amount !== null && (!Number.isSafeInteger(amount) || amount <= 0)) {
+    return jsonError("El monto a confirmar tiene que ser un entero en guaraníes mayor a cero.", 400);
+  }
+  const method = typeof body.method === "string" && body.method.trim() ? body.method.trim() : null;
   let collectedAt: Date | null = null;
   if (body.date !== undefined && body.date !== null && body.date !== "") {
     if (typeof body.date !== "string" || !isValidDayKey(body.date.trim().slice(0, 10))) {
@@ -150,6 +192,8 @@ export async function POST(request: Request) {
     organizationId: auth.context.organizationId,
     expectedPaymentId,
     accountId,
+    amount,
+    method,
     actor: auth.context,
     collectedAt,
     reference,
@@ -161,5 +205,10 @@ export async function POST(request: Request) {
     expectedPayment: outcome.expectedPayment,
     alreadyConfirmed: outcome.alreadyConfirmed,
     movementCreated: outcome.movementCreated,
+    // Cobro parcial/seña (issue #129): lo aplicado y el saldo que queda.
+    appliedAmount: outcome.appliedAmount,
+    remaining: outcome.remaining,
+    paymentId: outcome.paymentId,
+    partial: outcome.appliedAmount > 0 && outcome.remaining > 0,
   });
 }

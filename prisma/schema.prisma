@@ -871,12 +871,20 @@ model ClientPayment {
   reminders         PaymentReminderLog[]
   proofs            BudgetPaymentProof[]
   /// Pago esperado que se confirmó con este cobro (issue #28); 1:1 opcional.
-  expectedPayment   ExpectedPayment?
+  expectedPayment   ExpectedPayment?     @relation("ExpectedPaymentConfirmation")
+  /**
+   * Concepto del plan que este cobro imputa (issue #129): la seña o un cobro
+   * parcial; el cobro completo también queda enlazado acá. Un cobro libre
+   * (sin plan) queda en `null`.
+   */
+  expectedPaymentId String?
+  expectedPaymentRef ExpectedPayment?    @relation("ExpectedPaymentPartialPayments", fields: [expectedPaymentId], references: [id], onDelete: SetNull)
 
   @@index([clientId, paidAt])
   @@index([organizationId, paidAt])
   @@index([organizationId, status, dueAt])
   @@index([treasuryAccountId])
+  @@index([expectedPaymentId])
 }
 
 /**
@@ -1197,6 +1205,8 @@ enum ExpectedPaymentConcept {
 enum ExpectedPaymentStatus {
   AWAITING
   PROOF
+  /// Cobro parcial (issue #129): entró una seña y queda saldo pendiente.
+  PARTIAL
   CONFIRMED
   CANCELLED
 }
@@ -1230,6 +1240,8 @@ model ExpectedPayment {
    */
   label             String
   amount            Int
+  /// Monto ya cobrado contra este concepto (issue #129): seña + cobros parciales.
+  paidAmount        Int                    @default(0)
   dueAt             DateTime?
   status            ExpectedPaymentStatus  @default(AWAITING)
   /// Cuenta de tesorería donde se espera que entre la plata.
@@ -1256,7 +1268,9 @@ model ExpectedPayment {
   budget            Budget                 @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   expectedAccount   TreasuryAccount?       @relation("ExpectedPaymentAccount", fields: [expectedAccountId], references: [id], onDelete: SetNull)
   proof             BudgetPaymentProof?    @relation(fields: [proofId], references: [id], onDelete: SetNull)
-  payment           ClientPayment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  payment           ClientPayment?         @relation("ExpectedPaymentConfirmation", fields: [paymentId], references: [id], onDelete: SetNull)
+  /// Cobros imputados a este concepto (issue #129): seña y cobros parciales.
+  partialPayments   ClientPayment[]        @relation("ExpectedPaymentPartialPayments")
   reminders         PaymentReminderLog[]
 
   @@unique([budgetId, slot])
@@ -1371,6 +1385,10 @@ model TreasuryAccount {
   name              String
   type              TreasuryAccountType @default(CASH)
   bank              String?
+  /// Número de cuenta (issue #129): lo que se comparte para transferir.
+  number            String?
+  /// Alias de la cuenta (issue #129); alternativa al número.
+  alias             String?
   currency          String              @default("PYG")
   openingBalance    Int                 @default(0)
   sortOrder         Int                 @default(0)

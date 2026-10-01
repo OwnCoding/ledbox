@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ExpectedPayment, Prisma } from "@prisma/client";
+import { formatMoney } from "@/lib/admin-format";
 import { db } from "./db";
 import { parseInstallments } from "./budget-portal";
-import { clientLabel, dayKeyOf, dayStart } from "./notifications";
+import { clientLabel, dayKeyOf, dayStart, isValidDayKey } from "./notifications";
 import { auditChanges, recordAudit, type AuditContext } from "./audit";
+import { collectionSnapshotOf } from "./finance-snapshots";
 
 /**
  * Pagos esperados del plan de un presupuesto (issue #28): el dinero que el
@@ -29,7 +31,7 @@ export const MAX_EXPECTED_NOTE = 1000;
 export const MAX_EXPECTED_REFERENCE = 120;
 
 export type ExpectedConceptValue = "advance" | "installment" | "balance";
-export type ExpectedStatusValue = "AWAITING" | "PROOF" | "CONFIRMED" | "CANCELLED";
+export type ExpectedStatusValue = "AWAITING" | "PROOF" | "PARTIAL" | "CONFIRMED" | "CANCELLED";
 
 export type ExpectedPlanItem = {
   /** Ranura estable dentro del plan: `advance`, `installment:N` o `balance`. */
@@ -199,8 +201,9 @@ export async function syncBudgetExpectedPayments(input: {
       continue;
     }
     existing.delete(item.slot);
-    // Lo confirmado no se pisa: la plata ya entró con sus valores reales.
-    if (current.status === "CONFIRMED") continue;
+    // Lo confirmado y lo parcial no se pisan: la plata ya entró con sus valores
+    // reales y el saldo pendiente se completa o se divide a mano (issue #129).
+    if (current.status === "CONFIRMED" || current.status === "PARTIAL") continue;
 
     const nextStatus: ExpectedStatusValue = current.status === "CANCELLED" ? "AWAITING" : (current.status as ExpectedStatusValue);
     const reviving = current.status === "CANCELLED";
@@ -244,9 +247,10 @@ export async function syncBudgetExpectedPayments(input: {
     result.updated += 1;
   }
 
-  // Conceptos que salieron del plan: se cancelan (lo confirmado queda).
+  // Conceptos que salieron del plan: se cancelan (lo confirmado queda). Las
+  // partes de una división manual (`split:`) no son del plan: se respetan.
   for (const row of existing.values()) {
-    if (row.status === "CONFIRMED" || row.status === "CANCELLED") continue;
+    if (row.status === "CONFIRMED" || row.status === "CANCELLED" || row.slot.startsWith("split:")) continue;
     await db.expectedPayment.update({
       where: { id: row.id },
       data: { status: "CANCELLED", cancelledAt: now },
@@ -291,8 +295,27 @@ export type ConfirmExpectedOutcome =
       expectedPayment: ExpectedPaymentWithRefs;
       /** Se creó el movimiento de entrada ahora (false si el cobro ya estaba registrado). */
       movementCreated: boolean;
+      /** Monto aplicado en esta confirmación (issue #129): la seña o el saldo. */
+      appliedAmount: number;
+      /** Saldo pendiente después de aplicar (0 en la confirmación completa). */
+      remaining: number;
+      /** Cobro creado/cobrado en la confirmación (issue #129). */
+      paymentId: string | null;
     }
   | { ok: false; status: number; error: string };
+
+export type SplitExpectedOutcome =
+  | {
+      ok: true;
+      /** Concepto original, ahora la primera parte. */
+      expectedPayment: ExpectedPaymentWithRefs;
+      /** Partes nuevas (2..N) del saldo. */
+      parts: ExpectedPayment[];
+    }
+  | { ok: false; status: number; error: string };
+
+/** Tope de partes de una división de saldo (issue #129). */
+export const MAX_SPLIT_PARTS = 12;
 
 export type RejectExpectedOutcome =
   | { ok: true; expectedPayment: ExpectedPayment }
@@ -307,16 +330,27 @@ function isoDay(value: Date | null): string | null {
  * había un cobro a plazo vinculado al comprobante) el `ClientPayment`
  * `RECEIVED` y su movimiento de entrada en la **misma transacción**, vincula
  * comprobante y pago esperado y deja la traza del actor. Idempotente: el
- * `updateMany` condicional por estado es el candado; un segundo intento
- * devuelve `alreadyConfirmed` sin duplicar nada.
+ * `updateMany` condicional por estado (y por saldo) es el candado; un segundo
+ * intento devuelve `alreadyConfirmed` sin duplicar nada.
  *
- * El monto confirmado es el del pago esperado real (no se inventa un monto
- * nuevo) y la fecha del cobro es la elegida en el panel o el instante actual.
+ * Cobro parcial / seña (issue #129): con `amount` menor al saldo pendiente se
+ * registra el cobro por ese monto, el concepto queda `PARTIAL` con
+ * `paidAmount` acumulado y el saldo sigue pendiente de completar. Sin `amount`
+ * se confirma el saldo pendiente completo (`CONFIRMED`). El monto nunca puede
+ * superar el saldo y un comprobante con cobro a plazo vinculado se cobra
+ * completo (no se parte para no dejar el cobro a plazo colgado).
+ *
+ * La fecha del cobro es la elegida en el panel o el instante actual y el método
+ * sale del panel/contrato de métodos (por defecto, transferencia).
  */
 export async function confirmExpectedPayment(input: {
   organizationId: string;
   expectedPaymentId: string;
   accountId?: string | null;
+  /** Monto a confirmar (issue #129): menor al saldo registra una seña. */
+  amount?: number | null;
+  /** Método del cobro (issue #129); por defecto, transferencia. */
+  method?: string | null;
   actor: AuditContext;
   collectedAt?: Date | null;
   reference?: string | null;
@@ -330,12 +364,39 @@ export async function confirmExpectedPayment(input: {
   if (expected.status === "CANCELLED") {
     return { ok: false, status: 409, error: "El pago esperado está cancelado: no se puede confirmar." };
   }
-  if (expected.status === "CONFIRMED") {
+  const client = expected.budget.client;
+  const remaining = Math.max(0, expected.amount - expected.paidAmount);
+  if (expected.status === "CONFIRMED" || remaining === 0) {
     return {
       ok: true,
       alreadyConfirmed: true,
       expectedPayment: expected,
       movementCreated: false,
+      appliedAmount: 0,
+      remaining: 0,
+      paymentId: expected.paymentId,
+    };
+  }
+
+  // Monto aplicado: el pedido (seña) o el saldo completo.
+  const requestedAmount = input.amount === undefined || input.amount === null ? remaining : Math.round(input.amount);
+  if (!Number.isSafeInteger(requestedAmount) || requestedAmount <= 0) {
+    return { ok: false, status: 400, error: "El monto a confirmar tiene que ser un entero en guaraníes mayor a cero." };
+  }
+  if (requestedAmount > remaining) {
+    return { ok: false, status: 400, error: `El monto no puede superar el saldo pendiente (${formatMoney(remaining)}).` };
+  }
+  const appliedAmount = requestedAmount;
+  const isPartial = appliedAmount < remaining;
+  const method = (input.method ?? "").trim().slice(0, 60) || "Transferencia";
+
+  /** Cobro a plazo ya vinculado al comprobante (flujo del issue #17). */
+  const pending = expected.proof?.payment?.status === "PENDING" ? expected.proof.payment : null;
+  if (isPartial && pending) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Este concepto tiene un cobro a plazo vinculado: cobralo completo o anulá ese cobro antes de registrar una seña.",
     };
   }
 
@@ -357,40 +418,61 @@ export async function confirmExpectedPayment(input: {
   const now = new Date();
   const reference = (input.reference ?? "").trim().slice(0, MAX_EXPECTED_REFERENCE) || null;
   const notes = (input.notes ?? "").trim().slice(0, MAX_EXPECTED_NOTE) || null;
-  const client = expected.budget.client;
+  const paymentNotes = notes ?? `Pago esperado: ${expected.label}${isPartial ? " (seña)" : ""}`;
+  const snapshot = collectionSnapshotOf({
+    at: collectedAt,
+    amount: appliedAmount,
+    method,
+    reference,
+    client,
+    budget: expected.budget,
+    account,
+  });
 
   const applied = await db.$transaction(async (tx) => {
-    // Candado de idempotencia: solo la primera confirmación escribe.
+    // Candado: solo escribe si el saldo no cambió desde la lectura (issue #129).
     const claimed = await tx.expectedPayment.updateMany({
       where: {
         id: expected.id,
         organizationId: input.organizationId,
-        status: { in: ["AWAITING", "PROOF"] },
+        status: { in: ["AWAITING", "PROOF", "PARTIAL"] },
+        paidAmount: expected.paidAmount,
       },
-      data: {
-        status: "CONFIRMED",
-        confirmedAt: now,
-        confirmedById: input.actor.user.id,
-        confirmedByName: input.actor.user.name,
-        confirmedByEmail: input.actor.user.email,
-        expectedAccountId: account.id,
-      },
+      data: isPartial
+        ? {
+            status: "PARTIAL",
+            paidAmount: expected.paidAmount + appliedAmount,
+            expectedAccountId: account.id,
+          }
+        : {
+            status: "CONFIRMED",
+            paidAmount: expected.amount,
+            confirmedAt: now,
+            confirmedById: input.actor.user.id,
+            confirmedByName: input.actor.user.name,
+            confirmedByEmail: input.actor.user.email,
+            expectedAccountId: account.id,
+          },
     });
     if (claimed.count === 0) return null;
 
     /** Cobro a plazo ya vinculado al comprobante (flujo del issue #17). */
-    const pending = expected.proof?.payment?.status === "PENDING" ? expected.proof.payment : null;
     let paymentId: string | null = null;
     let movementCreated = false;
 
-    if (pending) {
+    if (!isPartial && pending) {
       const collected = await tx.clientPayment.updateMany({
         where: { id: pending.id, organizationId: input.organizationId, status: "PENDING" },
         data: {
           status: "RECEIVED",
+          // El cobro a plazo se cierra por lo realmente cobrado (issue #129).
+          amount: appliedAmount,
           paidAt: collectedAt,
           collectedAt,
           treasuryAccountId: account.id,
+          expectedPaymentId: expected.id,
+          method,
+          collectedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           ...(reference ? { reference } : {}),
         },
       });
@@ -402,11 +484,11 @@ export async function confirmExpectedPayment(input: {
             organizationId: input.organizationId,
             accountId: account.id,
             direction: "IN",
-            amount: expected.amount,
+            amount: appliedAmount,
             occurredAt: collectedAt,
             origin: "client_payment",
             sourceId: pending.id,
-            notes: notes ?? `Pago esperado: ${expected.label}`,
+            notes: paymentNotes,
             createdById: input.actor.user.id,
             createdByName: input.actor.user.name,
             createdByEmail: input.actor.user.email,
@@ -431,14 +513,16 @@ export async function confirmExpectedPayment(input: {
           organizationId: input.organizationId,
           clientId: client.id,
           budgetId: expected.budgetId,
-          amount: expected.amount,
+          expectedPaymentId: expected.id,
+          amount: appliedAmount,
           status: "RECEIVED",
           paidAt: collectedAt,
           collectedAt,
-          method: "Transferencia",
+          method,
           reference,
-          notes: notes ?? `Pago esperado: ${expected.label}`,
+          notes: paymentNotes,
           treasuryAccountId: account.id,
+          collectedSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         },
         select: { id: true },
       });
@@ -449,11 +533,11 @@ export async function confirmExpectedPayment(input: {
           organizationId: input.organizationId,
           accountId: account.id,
           direction: "IN",
-          amount: expected.amount,
+          amount: appliedAmount,
           occurredAt: collectedAt,
           origin: "client_payment",
           sourceId: created.id,
-          notes: notes ?? `Pago esperado: ${expected.label}`,
+          notes: paymentNotes,
           createdById: input.actor.user.id,
           createdByName: input.actor.user.name,
           createdByEmail: input.actor.user.email,
@@ -464,7 +548,7 @@ export async function confirmExpectedPayment(input: {
 
     const updated = await tx.expectedPayment.update({
       where: { id: expected.id },
-      data: { paymentId },
+      data: isPartial ? {} : { paymentId },
       include: expectedInclude,
     });
     // El comprobante del portal queda colgado del cobro real (mismo binario, más traza).
@@ -474,9 +558,18 @@ export async function confirmExpectedPayment(input: {
     return { updated, paymentId, movementCreated };
   });
 
+  const remainingAfter = isPartial ? remaining - appliedAmount : 0;
   if (!applied) {
     const current = await db.expectedPayment.findUnique({ where: { id: expected.id }, include: expectedInclude });
-    return { ok: true, alreadyConfirmed: true, expectedPayment: current ?? expected, movementCreated: false };
+    return {
+      ok: true,
+      alreadyConfirmed: true,
+      expectedPayment: current ?? expected,
+      movementCreated: false,
+      appliedAmount: 0,
+      remaining: Math.max(0, expected.amount - expected.paidAmount),
+      paymentId: null,
+    };
   }
 
   await recordAudit({
@@ -484,20 +577,27 @@ export async function confirmExpectedPayment(input: {
     action: "status",
     entity: "ExpectedPayment",
     entityId: expected.id,
-    summary: `Confirmó el pago esperado «${expected.label}» de «${clientLabel(client)}» en «${account.name}»${
-      applied.movementCreated ? "" : " (el cobro ya estaba registrado: no se duplicó el movimiento)"
-    }`,
+    summary: isPartial
+      ? `Registró una seña de ${formatMoney(appliedAmount)} del pago esperado «${expected.label}» de «${clientLabel(client)}» en «${account.name}» (saldo ${formatMoney(remainingAfter)})`
+      : `Confirmó el pago esperado «${expected.label}» de «${clientLabel(client)}» en «${account.name}»${
+          applied.movementCreated ? "" : " (el cobro ya estaba registrado: no se duplicó el movimiento)"
+        }`,
     detail: {
       changes: {
-        status: { from: expected.status, to: "CONFIRMED" },
+        status: { from: expected.status, to: isPartial ? "PARTIAL" : "CONFIRMED" },
         expectedAccountId: { from: expected.expectedAccountId, to: account.id },
+        paidAmount: { from: expected.paidAmount, to: expected.paidAmount + appliedAmount },
       },
       fields: {
-        amount: expected.amount,
+        amount: appliedAmount,
+        expectedAmount: expected.amount,
+        remaining: remainingAfter,
+        partial: isPartial,
         budgetId: expected.budgetId,
         paymentId: applied.paymentId,
         proofId: expected.proofId,
         movementCreated: applied.movementCreated,
+        method,
         reference,
         collectedAt: isoDay(collectedAt),
       },
@@ -509,7 +609,126 @@ export async function confirmExpectedPayment(input: {
     alreadyConfirmed: false,
     expectedPayment: applied.updated,
     movementCreated: applied.movementCreated,
+    appliedAmount,
+    remaining: remainingAfter,
+    paymentId: applied.paymentId,
   };
+}
+
+/**
+ * Divide el saldo pendiente de un concepto en partes con vencimiento (issue
+ * #129): la seña ya cobrada queda en el concepto original, que pasa a ser la
+ * primera parte, y las demás nacen como saldos nuevos (`split:`), fuera del
+ * plan automático. Las partes tienen que sumar exactamente el saldo pendiente:
+ * no se inventa ni se pierde plata, y todo queda auditado.
+ */
+export async function splitExpectedPayment(input: {
+  organizationId: string;
+  expectedPaymentId: string;
+  parts: Array<{ amount: number; dueAt?: string | null }>;
+  actor: AuditContext;
+}): Promise<SplitExpectedOutcome> {
+  const expected = await db.expectedPayment.findFirst({
+    where: { id: input.expectedPaymentId, organizationId: input.organizationId },
+    include: expectedInclude,
+  });
+  if (!expected) return { ok: false, status: 404, error: "Pago esperado no encontrado." };
+  if (expected.status === "CONFIRMED" || expected.status === "CANCELLED") {
+    return { ok: false, status: 409, error: "El pago esperado ya está cerrado: no se puede dividir." };
+  }
+  const remaining = Math.max(0, expected.amount - expected.paidAmount);
+  if (remaining <= 0) {
+    return { ok: false, status: 409, error: "El pago esperado no tiene saldo pendiente para dividir." };
+  }
+  if (!Array.isArray(input.parts) || input.parts.length < 2 || input.parts.length > MAX_SPLIT_PARTS) {
+    return { ok: false, status: 400, error: `Dividí el saldo en 2 a ${MAX_SPLIT_PARTS} partes.` };
+  }
+
+  const parts = input.parts.map((part) => {
+    const amount = Math.round(Number(part.amount));
+    const dueDay = part.dueAt ? String(part.dueAt).trim().slice(0, 10) : "";
+    return {
+      amount,
+      dueAt: dueDay || null,
+      valid: Number.isSafeInteger(amount) && amount > 0 && (!dueDay || isValidDayKey(dueDay)),
+    };
+  });
+  if (parts.some((part) => !part.valid)) {
+    return { ok: false, status: 400, error: "Cada parte necesita un monto en guaraníes mayor a cero y un vencimiento válido (o vacío)." };
+  }
+  const total = parts.reduce((sum, part) => sum + part.amount, 0);
+  if (total !== remaining) {
+    return { ok: false, status: 400, error: `Las partes tienen que sumar el saldo pendiente (${formatMoney(remaining)}).` };
+  }
+
+  const client = expected.budget.client;
+  const applied = await db.$transaction(async (tx) => {
+    // Candado: el saldo no puede haber cambiado desde la lectura.
+    const claimed = await tx.expectedPayment.updateMany({
+      where: {
+        id: expected.id,
+        organizationId: input.organizationId,
+        status: { in: ["AWAITING", "PROOF", "PARTIAL"] },
+        paidAmount: expected.paidAmount,
+      },
+      data: {
+        // La primera parte queda en el concepto original (conserva su seña).
+        amount: expected.paidAmount + parts[0].amount,
+        label: `${expected.label} · parte 1/${parts.length}`,
+        status: expected.paidAmount > 0 ? "PARTIAL" : "AWAITING",
+        dueAt: parts[0].dueAt ? dayStart(parts[0].dueAt) : null,
+      },
+    });
+    if (claimed.count === 0) return null;
+
+    const created: ExpectedPayment[] = [];
+    for (let index = 1; index < parts.length; index += 1) {
+      const part = parts[index];
+      created.push(
+        await tx.expectedPayment.create({
+          data: {
+            id: randomUUID(),
+            organizationId: input.organizationId,
+            budgetId: expected.budgetId,
+            concept: "balance",
+            slot: `split:${randomUUID()}`,
+            installmentNumber: null,
+            label: `${expected.label} · parte ${index + 1}/${parts.length}`,
+            amount: part.amount,
+            dueAt: part.dueAt ? dayStart(part.dueAt) : null,
+            status: "AWAITING",
+            expectedAccountId: expected.expectedAccountId,
+          },
+        }),
+      );
+    }
+    const updated = await tx.expectedPayment.findUniqueOrThrow({ where: { id: expected.id }, include: expectedInclude });
+    return { updated, created };
+  });
+
+  if (!applied) {
+    return { ok: false, status: 409, error: "El pago esperado cambió mientras lo dividías: volvé a intentar." };
+  }
+
+  await recordAudit({
+    context: input.actor,
+    action: "update",
+    entity: "ExpectedPayment",
+    entityId: expected.id,
+    summary: `Dividió el saldo de «${expected.label}» de «${clientLabel(client)}» en ${parts.length} partes (${formatMoney(remaining)})`,
+    detail: {
+      changes: { amount: { from: expected.amount, to: expected.paidAmount + parts[0].amount } },
+      fields: {
+        budgetId: expected.budgetId,
+        paidAmount: expected.paidAmount,
+        remaining,
+        parts: parts.map((part) => ({ amount: part.amount, dueAt: part.dueAt })),
+        createdIds: applied.created.map((row) => row.id),
+      },
+    },
+  });
+
+  return { ok: true, expectedPayment: applied.updated, parts: applied.created };
 }
 
 /**

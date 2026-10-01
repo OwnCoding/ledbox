@@ -103,6 +103,8 @@ const PROOF_STATUS: Record<PortalBudgetProof["status"], { label: string; tone: s
 const EXPECTED_STATUS: Record<PortalExpectedPayment["status"], { label: string; tone: string }> = {
   AWAITING: { label: "Esperando tu transferencia", tone: "warn" },
   PROOF: { label: "Comprobante recibido, en revisión", tone: "info" },
+  // Seña cobrada con saldo pendiente (issue #129).
+  PARTIAL: { label: "Seña recibida · saldo pendiente", tone: "accent" },
   CONFIRMED: { label: "Confirmado por LedBox", tone: "ok" },
   CANCELLED: { label: "Cancelado", tone: "neutral" },
 };
@@ -474,14 +476,16 @@ export function PortalBudgetView({
     setDraft(Object.fromEntries(budget.items.map((item) => [item.id, { quantity: item.quantity, days: item.days }])));
   }, [itemsSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- el borrador solo depende de la firma de los ítems
 
-  // Conceptos del plan abiertos (issue #28): esperando transferencia o con
-  // comprobante en revisión. Alimentan la tabla de pagos y el selector del
-  // comprobante.
+  // Conceptos del plan abiertos (issue #28): esperando transferencia, con
+  // comprobante en revisión o con una seña cobrada y saldo (issue #129).
   const openExpected = budget.expectedPayments.filter(
-    (expected) => expected.status === "AWAITING" || expected.status === "PROOF",
+    (expected) => expected.status === "AWAITING" || expected.status === "PROOF" || expected.status === "PARTIAL",
   );
-  /** Concepto que corresponde transferir ahora: el primero abierto sin comprobante. */
-  const dueNowExpected = openExpected.find((expected) => expected.status === "AWAITING") ?? null;
+  /** Concepto que corresponde transferir ahora: el primero sin nada cobrado; si no, una seña con saldo. */
+  const dueNowExpected =
+    openExpected.find((expected) => expected.status === "AWAITING") ??
+    openExpected.find((expected) => expected.status === "PARTIAL") ??
+    null;
   const paymentPlan = budget.paymentPlan;
   /**
    * Qué se transfiere ahora: con pagos esperados manda el primer concepto abierto
@@ -490,7 +494,11 @@ export function PortalBudgetView({
    */
   const transferNow = budget.expectedPayments.length > 0
     ? dueNowExpected
-      ? { label: dueNowExpected.label, amount: dueNowExpected.amount }
+      ? {
+          label: dueNowExpected.label,
+          // De una seña se transfiere el saldo, no el total del concepto (#129).
+          amount: dueNowExpected.status === "PARTIAL" ? dueNowExpected.remaining : dueNowExpected.amount,
+        }
       : null
     : paymentPlan.dueNow;
 
@@ -988,11 +996,22 @@ export function PortalBudgetView({
                     <td className="portal-item-cell">
                       <strong className="portal-item-name">{expected.label}</strong>
                       {isDueNow ? <small className="portal-item-note">A transferir ahora</small> : null}
-                      {expected.status === "AWAITING" && expected.reviewNote ? (
+                      {expected.status === "PARTIAL" ? (
+                        <small className="portal-expected-note">
+                          Pagaste {formatMoney(expected.paidAmount)} · saldo {formatMoney(expected.remaining)}
+                        </small>
+                      ) : null}
+                      {(expected.status === "AWAITING" || expected.status === "PARTIAL") && expected.reviewNote ? (
                         <small className="portal-expected-note">Observación: {expected.reviewNote}</small>
                       ) : null}
                     </td>
-                    <td className="portal-num" data-label="Monto">{formatMoney(expected.amount)}</td>
+                    <td
+                      className="portal-num"
+                      data-label="Monto"
+                      title={expected.status === "PARTIAL" ? `Total del concepto: ${formatMoney(expected.amount)} · pagado ${formatMoney(expected.paidAmount)}` : undefined}
+                    >
+                      {expected.status === "PARTIAL" ? formatMoney(expected.remaining) : formatMoney(expected.amount)}
+                    </td>
                     <td data-label="Vencimiento">
                       {dueLabel(expected.dueAt)}
                       {expected.dueAt && expected.status !== "CONFIRMED" ? (

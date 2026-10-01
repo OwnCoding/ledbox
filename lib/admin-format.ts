@@ -1098,6 +1098,8 @@ export function statementAmountLabel(row: { direction: string; amount: number })
 const EXPECTED_STATUS: Record<string, string> = {
   AWAITING: "Esperando transferencia",
   PROOF: "Comprobante en revisión",
+  // Cobro parcial / seña (issue #129): entró una parte y queda saldo.
+  PARTIAL: "Parcial (seña)",
   CONFIRMED: "Confirmado",
   CANCELLED: "Cancelado",
 };
@@ -1105,6 +1107,7 @@ const EXPECTED_STATUS: Record<string, string> = {
 const EXPECTED_STATUS_TONES: Record<string, AdminTone> = {
   AWAITING: "warn",
   PROOF: "info",
+  PARTIAL: "accent",
   CONFIRMED: "ok",
   CANCELLED: "neutral",
 };

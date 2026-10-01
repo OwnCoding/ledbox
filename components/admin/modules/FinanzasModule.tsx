@@ -45,6 +45,7 @@ import {
   isCollectedPayment,
   PAYMENT_METHODS,
   supplierJobBalance,
+  TERM_PAYMENT_METHODS,
   TREASURY_ACCOUNT_TYPES,
   type AdminBudgetPaymentProofRow,
   type AdminExpectedPaymentRow,
@@ -91,7 +92,7 @@ import { ConciliacionBancaria } from "./ConciliacionBancaria";
 /** Métodos de pago del alta directa (catálogo cerrado, espejo del API). */
 const METHOD_OPTIONS = [...PAYMENT_METHODS];
 /** Un cobro a plazo se cobra por transferencia, efectivo o cheque. */
-const TERM_METHOD_OPTIONS = ["Transferencia", "Efectivo", "Cheque"];
+const TERM_METHOD_OPTIONS = [...TERM_PAYMENT_METHODS];
 /** Plazos ofrecidos en días desde la emisión de la factura (issue #16). */
 const TERM_DAY_OPTIONS = ["0", "15", "30", "60"];
 
@@ -132,6 +133,7 @@ const EMPTY_TREASURY_SUMMARY: AdminTreasurySummary = {
 const EMPTY_EXPECTED_SUMMARY: AdminExpectedPaymentSummary = {
   awaiting: { count: 0, total: 0 },
   proof: { count: 0, total: 0 },
+  partial: { count: 0, total: 0 },
   overdue: { count: 0, total: 0 },
   confirmed: { count: 0, total: 0 },
   pending: { count: 0, total: 0 },
@@ -148,12 +150,15 @@ type AccountForm = {
   name: string;
   type: string;
   bank: string;
+  /** Datos para transferir (issue #129): número y alias de la cuenta. */
+  number: string;
+  alias: string;
   openingBalance: string;
   sortOrder: string;
   active: boolean;
 };
 
-const EMPTY_ACCOUNT_FORM: AccountForm = { id: "", name: "", type: "CASH", bank: "", openingBalance: "", sortOrder: "", active: true };
+const EMPTY_ACCOUNT_FORM: AccountForm = { id: "", name: "", type: "CASH", bank: "", number: "", alias: "", openingBalance: "", sortOrder: "", active: true };
 
 type MovementForm = {
   direction: string;
@@ -242,6 +247,18 @@ function accountBalanceTitle(account: AdminTreasuryAccountRow): string {
   ].join(" · ");
 }
 
+/**
+ * Etiqueta de una cuenta para los selectores de cobro/pago (issue #129): nombre,
+ * tipo y datos para transferir (banco, número o alias). Misma lectura para el
+ * panel y el contrato de métodos/cuentas que usa la carga con IA.
+ */
+function treasuryAccountLabel(
+  account: Pick<AdminTreasuryAccountRow, "name" | "type" | "bank" | "number" | "alias">,
+): string {
+  const details = [treasuryAccountTypeLabel(account.type), account.bank, account.number ?? account.alias].filter(Boolean);
+  return `${account.name}${details.length > 0 ? ` · ${details.join(" · ")}` : ""}`;
+}
+
 type PaymentForm = {
   clientId: string;
   budgetId: string;
@@ -255,6 +272,9 @@ type PaymentForm = {
   dueDays: string;
   dueAt: string;
   chequeDate: string;
+  /** Seña de un cobro libre (issue #129): total acordado y vencimiento del saldo. */
+  totalAmount: string;
+  balanceDueAt: string;
   /** Cuenta de tesorería donde entra el cobro (issue #27). */
   treasuryAccountId: string;
 };
@@ -271,6 +291,8 @@ const EMPTY_PAYMENT_FORM: PaymentForm = {
   dueDays: "30",
   dueAt: "",
   chequeDate: "",
+  totalAmount: "",
+  balanceDueAt: "",
   treasuryAccountId: "",
 };
 
@@ -494,7 +516,7 @@ function PaymentRemindersDialog({
 // visible para el cliente en el portal.
 
 type ExpectedReviewSubmit =
-  | { kind: "confirm"; accountId: string; date: string; reference: string }
+  | { kind: "confirm"; accountId: string; date: string; reference: string; amount: string; method: string }
   | { kind: "reject"; note: string };
 
 /**
@@ -527,6 +549,10 @@ function ExpectedReviewDialog({
       ? row.expectedAccount.id
       : accounts[0]?.id ?? "",
   );
+  /** Saldo pendiente del concepto (issue #129): se puede confirmar todo o una seña. */
+  const remaining = Math.max(0, row.amount - row.paidAmount);
+  const [amount, setAmount] = useState(String(remaining));
+  const [method, setMethod] = useState(row.payment?.method ?? "Transferencia");
   const [date, setDate] = useState(todayDayKey());
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
@@ -543,7 +569,10 @@ function ExpectedReviewDialog({
   const label = row.budget.client.company || row.budget.client.name;
   const concept = expectedPaymentConcept(row);
   const confirming = mode === "confirm";
-  const canSubmit = confirming ? Boolean(accountId) && !busy : note.trim().length > 0 && !busy;
+  const amountValue = Number(amount) || 0;
+  const amountOk = Number.isSafeInteger(amountValue) && amountValue > 0 && amountValue <= remaining;
+  const partial = amountOk && amountValue < remaining;
+  const canSubmit = confirming ? Boolean(accountId) && amountOk && !busy : note.trim().length > 0 && !busy;
 
   return (
     <div
@@ -582,7 +611,15 @@ function ExpectedReviewDialog({
           </div>
           <div>
             <dt>Monto</dt>
-            <dd>{formatMoney(row.amount)}</dd>
+            <dd>
+              {formatMoney(row.amount)}
+              {row.paidAmount > 0 ? (
+                <>
+                  {" "}
+                  · pagado {formatMoney(row.paidAmount)} · saldo {formatMoney(remaining)}
+                </>
+              ) : null}
+            </dd>
           </div>
           <div>
             <dt>Vencimiento</dt>
@@ -644,10 +681,27 @@ function ExpectedReviewDialog({
                 accounts.length > 0
                   ? accounts.map((account) => ({
                       value: account.id,
-                      label: `${account.name} · ${treasuryAccountTypeLabel(account.type)}`,
+                      label: treasuryAccountLabel(account),
                     }))
                   : [{ value: "", label: "Sin cuentas de tesorería" }]
               }
+            />
+            <MoneyField
+              label="Monto a confirmar"
+              hint={
+                row.paidAmount > 0 || partial
+                  ? `Saldo pendiente: ${formatMoney(remaining)} · menos que eso registra una seña`
+                  : `Todo el monto o menos para registrar una seña con saldo`
+              }
+              value={amount}
+              onChange={setAmount}
+              error={amount !== "" && !amountOk ? `El monto va de 1 a ${formatMoney(remaining)}.` : undefined}
+            />
+            <SelectField
+              label="Método"
+              value={method}
+              onChange={setMethod}
+              options={PAYMENT_METHODS.map((option) => ({ value: option, label: option }))}
             />
             <DateField label="Fecha del cobro" value={date} onChange={setDate} />
             <TextField
@@ -676,9 +730,11 @@ function ExpectedReviewDialog({
 
         {confirming ? (
           <p className="admin-dialog-text">
-            Confirmar crea el cobro <strong>{formatMoney(row.amount)}</strong> como cobrado y la entrada en la cuenta
-            elegida en la misma operación, y vincula el comprobante. Si el cobro ya existía, se cobra ese registro: no se
-            duplica.
+            Confirmar crea el cobro <strong>{formatMoney(amountOk ? amountValue : remaining)}</strong> como cobrado y la
+            entrada en la cuenta elegida en la misma operación, y vincula el comprobante.{" "}
+            {partial
+              ? "Es una seña: el saldo pendiente queda para completarlo o dividirlo después."
+              : "Si el cobro ya existía, se cobra ese registro: no se duplica."}
           </p>
         ) : null}
 
@@ -694,11 +750,172 @@ function ExpectedReviewDialog({
             disabled={!canSubmit || busy}
             onClick={() =>
               confirming
-                ? onSubmit({ kind: "confirm", accountId, date, reference: reference.trim() })
+                ? onSubmit({ kind: "confirm", accountId, date, reference: reference.trim(), amount, method })
                 : onSubmit({ kind: "reject", note: note.trim() })
             }
           >
             {confirming ? "Confirmar en cuenta" : "Enviar observación"}
+          </AdminButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type SplitPartDraft = { key: string; amount: string; dueAt: string };
+
+/**
+ * Dividir el saldo pendiente en partes con vencimiento (issue #129): la seña
+ * cobrada queda en el concepto original (primera parte) y las demás nacen como
+ * saldos nuevos. Las partes tienen que sumar exactamente el saldo pendiente.
+ */
+function ExpectedSplitDialog({
+  row,
+  busy,
+  error,
+  onSplit,
+  onClose,
+}: {
+  row: AdminExpectedPaymentRow;
+  busy: boolean;
+  error: string;
+  onSplit: (parts: Array<{ amount: number; dueAt: string }>) => void;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const nextKey = useRef(3);
+  const remaining = Math.max(0, row.amount - row.paidAmount);
+  const [parts, setParts] = useState<SplitPartDraft[]>(() => {
+    const half = Math.ceil(remaining / 2);
+    return [
+      { key: "part-1", amount: String(half), dueAt: "" },
+      { key: "part-2", amount: String(remaining - half), dueAt: "" },
+    ];
+  });
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const label = row.budget.client.company || row.budget.client.name;
+  const concept = expectedPaymentConcept(row);
+  const total = parts.reduce((sum, part) => sum + (Number(part.amount) || 0), 0);
+  const valid = parts.length >= 2 && parts.every((part) => Number(part.amount) > 0) && total === remaining;
+
+  return (
+    <div
+      className="admin-dialog-overlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="admin-dialog admin-dialog--wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Dividir el saldo de ${concept} de ${label}`}
+      >
+        <header className="admin-dialog-head">
+          <h2 className="admin-dialog-title">
+            <span className="admin-panel-icon admin-panel-icon--sm" aria-hidden="true">
+              <AdminIcon name="calendar" size={11} />
+            </span>
+            Dividir saldo · {concept}
+          </h2>
+          <button ref={closeRef} type="button" className="admin-iconbtn" onClick={onClose} aria-label="Cerrar" title="Cerrar">
+            <AdminIcon name="close" size={15} />
+          </button>
+        </header>
+
+        <dl className="admin-dialog-facts">
+          <div>
+            <dt>Cliente</dt>
+            <dd>{label}</dd>
+          </div>
+          <div>
+            <dt>Concepto</dt>
+            <dd>
+              {concept} · total {formatMoney(row.amount)}
+              {row.paidAmount > 0 ? ` · pagado ${formatMoney(row.paidAmount)}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Saldo pendiente</dt>
+            <dd>
+              <strong>{formatMoney(remaining)}</strong>
+            </dd>
+          </div>
+        </dl>
+
+        <div className="admin-plan-list">
+          {parts.map((part, index) => (
+            <div className="admin-plan-row" key={part.key}>
+              <MoneyField
+                label={`Parte ${index + 1} (Gs)`}
+                value={part.amount}
+                onChange={(value) =>
+                  setParts((current) => current.map((rowPart) => (rowPart.key === part.key ? { ...rowPart, amount: value } : rowPart)))
+                }
+              />
+              <DateField
+                label={`Vence la parte ${index + 1}`}
+                hint="Opcional: sin fecha queda a convenir"
+                value={part.dueAt}
+                onChange={(value) =>
+                  setParts((current) => current.map((rowPart) => (rowPart.key === part.key ? { ...rowPart, dueAt: value } : rowPart)))
+                }
+              />
+              <AdminButton
+                icon="close"
+                disabled={parts.length <= 2}
+                title={`Quitar la parte ${index + 1}`}
+                aria-label={`Quitar la parte ${index + 1}`}
+                onClick={() => setParts((current) => current.filter((rowPart) => rowPart.key !== part.key))}
+              />
+            </div>
+          ))}
+          {parts.length < 12 ? (
+            <AdminButton
+              icon="plus"
+              type="button"
+              onClick={() =>
+                setParts((current) => [
+                  ...current,
+                  { key: `part-${nextKey.current++}`, amount: "", dueAt: "" },
+                ])
+              }
+            >
+              Agregar parte
+            </AdminButton>
+          ) : null}
+        </div>
+
+        <p className="admin-dialog-text">
+          La seña ya cobrada queda en el concepto original como primera parte; las demás se agregan como saldos con su
+          vencimiento. Las partes suman <strong>{formatMoney(total)}</strong> de {formatMoney(remaining)} pendientes.
+        </p>
+
+        {error ? <AdminNote tone="error">{error}</AdminNote> : null}
+
+        <div className="admin-dialog-foot">
+          <span className="admin-dialog-spacer" />
+          <AdminButton icon="close" type="button" disabled={busy} onClick={onClose}>
+            Cancelar
+          </AdminButton>
+          <AdminButton
+            variant="primary"
+            icon="calendar"
+            busy={busy}
+            disabled={!valid || busy}
+            onClick={() => onSplit(parts.map((part) => ({ amount: Number(part.amount), dueAt: part.dueAt })))}
+          >
+            Dividir en {parts.length} partes
           </AdminButton>
         </div>
       </section>
@@ -921,6 +1138,8 @@ export function FinanzasModule() {
     summary: payload.expectedSummary ?? EMPTY_EXPECTED_SUMMARY,
   }));
   const [expectedReview, setExpectedReview] = useState<{ row: AdminExpectedPaymentRow; mode: "confirm" | "reject" } | null>(null);
+  /** División del saldo pendiente (issue #129): partes con vencimiento. */
+  const [expectedSplit, setExpectedSplit] = useState<AdminExpectedPaymentRow | null>(null);
   const [expectedTimeline, setExpectedTimeline] = useState<AdminExpectedPaymentRow | null>(null);
   const [expectedBusy, setExpectedBusy] = useState(false);
   const [expectedError, setExpectedError] = useState("");
@@ -995,7 +1214,7 @@ export function FinanzasModule() {
   const expenseSuppliers = useMemo(() => expenses.data?.suppliers ?? [], [expenses.data]);
 
   const accountOptions = useMemo(
-    () => activeAccounts.map((account) => ({ value: account.id, label: `${account.name} · ${treasuryAccountTypeLabel(account.type)}` })),
+    () => activeAccounts.map((account) => ({ value: account.id, label: treasuryAccountLabel(account) })),
     [activeAccounts],
   );
   const projectOptions = useMemo<Array<{ value: string; label: string }>>(
@@ -1268,6 +1487,11 @@ export function FinanzasModule() {
       if (form.method === "Cheque") payload.chequeDate = form.chequeDate;
     } else {
       payload.reference = form.reference || undefined;
+      // Seña de un cobro libre (issue #129): el saldo queda a plazo.
+      if (form.totalAmount.trim()) {
+        payload.totalAmount = Number(form.totalAmount);
+        if (form.balanceDueAt) payload.balanceDueAt = form.balanceDueAt;
+      }
     }
     const result = await adminSend("/api/admin/finance", payload, "POST", { idempotencyKey: true });
     setBusy(false);
@@ -1275,7 +1499,14 @@ export function FinanzasModule() {
       setFormError(result.error);
       return;
     }
-    setNotice({ tone: "ok", text: term ? "Cobro a plazo registrado." : "Cobro registrado." });
+    setNotice({
+      tone: "ok",
+      text: term
+        ? "Cobro a plazo registrado."
+        : form.totalAmount.trim()
+          ? "Seña registrada: el saldo quedó como cobro a plazo."
+          : "Cobro registrado.",
+    });
     setForm({ ...EMPTY_PAYMENT_FORM });
     finance.reload();
   }
@@ -1427,21 +1658,29 @@ export function FinanzasModule() {
     let failure = "";
     let alreadyConfirmed = false;
     let movementSkipped = false;
+    let appliedAmount = 0;
+    let remainingAfter = 0;
     if (payload.kind === "confirm") {
-      const result = await adminSend<{ alreadyConfirmed?: boolean; movementCreated?: boolean }>(
-        "/api/admin/finance/expected",
-        {
-          kind: "confirm",
-          expectedPaymentId: row.id,
-          accountId: payload.accountId || undefined,
-          date: payload.date || undefined,
-          reference: payload.reference || undefined,
-        },
-      );
+      const result = await adminSend<{
+        alreadyConfirmed?: boolean;
+        movementCreated?: boolean;
+        appliedAmount?: number;
+        remaining?: number;
+      }>("/api/admin/finance/expected", {
+        kind: "confirm",
+        expectedPaymentId: row.id,
+        accountId: payload.accountId || undefined,
+        amount: Number(payload.amount) || undefined,
+        method: payload.method || undefined,
+        date: payload.date || undefined,
+        reference: payload.reference || undefined,
+      });
       if (!result.ok) failure = result.error;
       else {
         alreadyConfirmed = Boolean(result.data.alreadyConfirmed);
         movementSkipped = result.data.movementCreated === false;
+        appliedAmount = result.data.appliedAmount ?? 0;
+        remainingAfter = result.data.remaining ?? 0;
       }
     } else {
       const result = await adminSend<{ expectedPayment?: AdminExpectedPaymentRow }>("/api/admin/finance/expected", {
@@ -1460,22 +1699,60 @@ export function FinanzasModule() {
     setExpectedReview(null);
     if (payload.kind === "confirm") {
       const accountName = accounts.find((account) => account.id === payload.accountId)?.name ?? "la cuenta";
-      setNotice({
-        tone: "ok",
-        text: alreadyConfirmed
-          ? `«${concept}» de ${label} ya estaba confirmado: no se duplicó nada.`
-          : `«${concept}» de ${label} confirmado en «${accountName}»${
-              movementSkipped
-                ? ": el cobro ya estaba registrado y no se duplicó el movimiento."
-                : ": el cobro quedó cobrado y el disponible subió."
-            }`,
-      });
+      if (!alreadyConfirmed && remainingAfter > 0) {
+        setNotice({
+          tone: "ok",
+          text: `Seña de ${formatMoney(appliedAmount)} registrada para «${concept}» de ${label} en «${accountName}»: quedan ${formatMoney(remainingAfter)} por cobrar y el saldo se puede completar o dividir desde la fila.`,
+        });
+      } else {
+        setNotice({
+          tone: "ok",
+          text: alreadyConfirmed
+            ? `«${concept}» de ${label} ya estaba confirmado: no se duplicó nada.`
+            : `«${concept}» de ${label} confirmado en «${accountName}»${
+                movementSkipped
+                  ? ": el cobro ya estaba registrado y no se duplicó el movimiento."
+                  : ": el cobro quedó cobrado y el disponible subió."
+              }`,
+        });
+      }
     } else {
       setNotice({ tone: "ok", text: `Observación enviada a ${label}: el motivo se ve en el portal.` });
     }
     expected.reload();
     finance.reload();
     treasury.reload();
+  }
+
+  /**
+   * Divide el saldo pendiente del concepto en partes con vencimiento (issue
+   * #129): el API deja la seña en la primera parte y crea el resto.
+   */
+  async function submitExpectedSplit(parts: Array<{ amount: number; dueAt: string }>) {
+    if (!expectedSplit) return;
+    const row = expectedSplit;
+    const label = row.budget.client.company || row.budget.client.name;
+    const concept = expectedPaymentConcept(row);
+    setExpectedBusy(true);
+    setExpectedError("");
+    setNotice(null);
+    const result = await adminSend<{ parts?: AdminExpectedPaymentRow[] }>("/api/admin/finance/expected", {
+      kind: "split",
+      expectedPaymentId: row.id,
+      parts,
+    });
+    setExpectedBusy(false);
+    if (!result.ok) {
+      setExpectedError(result.error);
+      return;
+    }
+    setExpectedSplit(null);
+    setNotice({
+      tone: "ok",
+      text: `Saldo de «${concept}» de ${label} dividido en ${parts.length} partes con su vencimiento.`,
+    });
+    expected.reload();
+    finance.reload();
   }
 
   // ── Tesorería (issue #27) ─────────────────────────────────────────────────
@@ -1492,6 +1769,9 @@ export function FinanzasModule() {
       name,
       type: accountForm.type,
       bank: accountForm.type === "BANK" ? accountForm.bank.trim() : undefined,
+      // Datos para transferir (issue #129): se guardan con la cuenta.
+      number: accountForm.number.trim(),
+      alias: accountForm.alias.trim(),
       openingBalance: Number(accountForm.openingBalance || 0),
       sortOrder: Number(accountForm.sortOrder || 0),
       active: accountForm.active,
@@ -1521,6 +1801,8 @@ export function FinanzasModule() {
       name: account.name,
       type: account.type,
       bank: account.bank ?? "",
+      number: account.number ?? "",
+      alias: account.alias ?? "",
       openingBalance: account.openingBalance ? String(account.openingBalance) : "",
       sortOrder: account.sortOrder ? String(account.sortOrder) : "",
       active: account.active,
@@ -1969,14 +2251,35 @@ export function FinanzasModule() {
               ) : null}
             </>
           ) : (
-            <TextField
-              label="Referencia"
-              hint="Nº de transferencia o recibo"
-              maxLength={120}
-              value={form.reference}
-              onChange={(value) => setForm({ ...form, reference: value })}
-              placeholder="Opcional"
-            />
+            <>
+              <TextField
+                label="Referencia"
+                hint="Nº de transferencia o recibo"
+                maxLength={120}
+                value={form.reference}
+                onChange={(value) => setForm({ ...form, reference: value })}
+                placeholder="Opcional"
+              />
+              <MoneyField
+                label="Total acordado (seña)"
+                hint="Opcional: con un total mayor al monto, registra una seña y el saldo queda como cobro a plazo"
+                value={form.totalAmount}
+                onChange={(value) => setForm({ ...form, totalAmount: value, balanceDueAt: value ? form.balanceDueAt : "" })}
+                error={
+                  form.totalAmount.trim() && Number(form.totalAmount) <= (Number(form.amount) || 0)
+                    ? "El total tiene que ser mayor al monto de la seña."
+                    : undefined
+                }
+              />
+              {form.totalAmount.trim() ? (
+                <DateField
+                  label="Vence el saldo"
+                  hint="Opcional: sin fecha queda a convenir"
+                  value={form.balanceDueAt}
+                  onChange={(value) => setForm({ ...form, balanceDueAt: value })}
+                />
+              ) : null}
+            </>
           )}
         </AdminFormPanel>
       ) : null}
@@ -2034,7 +2337,7 @@ export function FinanzasModule() {
             {expectedQueue.map((row) => {
               const label = row.budget.client.company || row.budget.client.name;
               const concept = expectedPaymentConcept(row);
-              const overdue = row.status === "AWAITING";
+              const overdue = row.status === "AWAITING" || row.status === "PARTIAL";
               const proof = expectedProofOf(row);
               return (
                 <AdminRow key={row.id}>
@@ -2042,8 +2345,11 @@ export function FinanzasModule() {
                     <strong>{label}</strong>
                     <small className="admin-cell-sub"> · {row.budget.title}</small>
                   </AdminCell>
-                  <AdminCell title={`${concept}${row.dueAt ? ` · vence el ${formatDate(row.dueAt)}` : ""}`}>
+                  <AdminCell title={`${concept}${row.label.includes("· parte ") ? ` ${row.label.split("· parte ")[1]}` : ""}${row.dueAt ? ` · vence el ${formatDate(row.dueAt)}` : ""}`}>
                     {concept}
+                    {row.label.includes("· parte ") ? (
+                      <small className="admin-cell-sub"> · parte {row.label.split("· parte ")[1]}</small>
+                    ) : null}
                   </AdminCell>
                   <AdminCell
                     title={row.dueAt ? `Vence el ${formatDate(row.dueAt)} · ${formatCountdown(row.dueAt)}` : "Sin fecha de vencimiento"}
@@ -2075,18 +2381,32 @@ export function FinanzasModule() {
                     )}
                   </AdminCell>
                   <AdminCell>
-                    {overdue ? (
+                    {row.status === "PARTIAL" ? (
+                      <AdminBadge tone={expectedPaymentStatusTone("PARTIAL")} title="Seña cobrada: queda saldo pendiente">
+                        Parcial (seña)
+                      </AdminBadge>
+                    ) : overdue ? (
                       <AdminBadge tone="danger" title="Vencido sin comprobante: reclamá la transferencia">
                         Vencido
                       </AdminBadge>
                     ) : (
                       <AdminBadge tone={expectedPaymentStatusTone(row.status)} title={expectedPaymentStatusLabel(row.status)}>
-                        En revisión
+                        {expectedPaymentStatusLabel(row.status)}
                       </AdminBadge>
                     )}
                   </AdminCell>
-                  <AdminCell end title={`Monto ${formatMoney(row.amount)}`}>
-                    <strong>{formatMoney(row.amount)}</strong>
+                  <AdminCell
+                    end
+                    title={
+                      row.paidAmount > 0
+                        ? `Monto ${formatMoney(row.amount)} · pagado ${formatMoney(row.paidAmount)} · saldo ${formatMoney(Math.max(0, row.amount - row.paidAmount))}`
+                        : `Monto ${formatMoney(row.amount)}`
+                    }
+                  >
+                    <strong>{formatMoney(row.status === "PARTIAL" ? Math.max(0, row.amount - row.paidAmount) : row.amount)}</strong>
+                    {row.paidAmount > 0 ? (
+                      <small className="admin-cell-sub"> · pagado {formatMoney(row.paidAmount)}</small>
+                    ) : null}
                   </AdminCell>
                   <AdminCell end className="admin-cell--actions">
                     <span className="admin-actions">
@@ -2096,6 +2416,18 @@ export function FinanzasModule() {
                         aria-label={`Ver la trazabilidad del presupuesto «${row.budget.title}»`}
                         onClick={() => setExpectedTimeline(row)}
                       />
+                      {writable && row.status !== "CONFIRMED" && row.status !== "CANCELLED" ? (
+                        <AdminButton
+                          icon="calendar"
+                          disabled={Boolean(expectedBusy)}
+                          title={`Dividir el saldo de ${concept} de ${label} en partes con vencimiento`}
+                          aria-label={`Dividir el saldo de ${concept} de ${label}`}
+                          onClick={() => {
+                            setExpectedError("");
+                            setExpectedSplit(row);
+                          }}
+                        />
+                      ) : null}
                       {writable ? (
                         <AdminButton
                           icon="alert"
@@ -2643,6 +2975,22 @@ export function FinanzasModule() {
                 </datalist>
               </>
             ) : null}
+            <TextField
+              label="Número de cuenta"
+              hint="Para transferir; se muestra junto a la cuenta al cobrar"
+              maxLength={40}
+              value={accountForm.number}
+              onChange={(value) => setAccountForm({ ...accountForm, number: value })}
+              placeholder="6191649354"
+            />
+            <TextField
+              label="Alias"
+              hint="Alternativa al número (opcional)"
+              maxLength={60}
+              value={accountForm.alias}
+              onChange={(value) => setAccountForm({ ...accountForm, alias: value })}
+              placeholder="ledbox.cta"
+            />
             <MoneyField
               label="Saldo inicial"
               hint="Lo que ya había en la cuenta (opcional)"
@@ -3196,6 +3544,19 @@ export function FinanzasModule() {
           onSubmit={(payload) => void submitExpectedReview(payload)}
           onClose={() => {
             setExpectedReview(null);
+            setExpectedError("");
+          }}
+        />
+      ) : null}
+
+      {expectedSplit ? (
+        <ExpectedSplitDialog
+          row={expectedSplit}
+          busy={expectedBusy}
+          error={expectedError}
+          onSplit={(parts) => void submitExpectedSplit(parts)}
+          onClose={() => {
+            setExpectedSplit(null);
             setExpectedError("");
           }}
         />
