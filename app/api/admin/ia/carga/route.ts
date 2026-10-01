@@ -4,6 +4,8 @@ import { recordAudit } from "@/lib/server/audit";
 import { jsonError, readJson } from "@/lib/server/http";
 import { rateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
 import { requireAdminContext } from "@/lib/server/tenancy";
+import { clientLogoUrl } from "@/lib/admin-types";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
   IaError,
   analizarCarga,
@@ -93,13 +95,13 @@ export async function POST(request: Request) {
       where: { organizationId: auth.context.organizationId, active: true },
       orderBy: { name: "asc" },
       take: 1000,
-      select: { id: true, name: true, company: true, ruc: true, phone: true },
+      select: { id: true, name: true, company: true, ruc: true, phone: true, logo: { select: { updatedAt: true } } },
     }),
     db.inventoryItem.findMany({
       where: { organizationId: auth.context.organizationId },
       orderBy: { name: "asc" },
       take: 2000,
-      select: { id: true, name: true, sku: true, category: true },
+      select: { id: true, name: true, sku: true, category: true, imageUrl: true, imageMime: true, updatedAt: true },
     }),
   ]);
   const registros = asignarExistentes(analisis, {
@@ -109,12 +111,21 @@ export async function POST(request: Request) {
       empresa: cliente.company,
       ruc: cliente.ruc,
       telefono: cliente.phone,
+      // Logo para el preview (issue #125); sin logo queda el monograma.
+      imagenUrl: cliente.logo ? clientLogoUrl(cliente.id, cliente.logo.updatedAt) : null,
     })),
     productos: productos.map((producto) => ({
       id: producto.id,
       nombre: producto.name,
       sku: producto.sku,
       categoria: producto.category,
+      // Foto del ítem (subida o URL manual) para la miniatura del preview.
+      imagenUrl: inventoryImageUrl({
+        id: producto.id,
+        imageUrl: producto.imageUrl,
+        imageMime: producto.imageMime,
+        updatedAt: producto.updatedAt,
+      }),
     })),
   });
 
