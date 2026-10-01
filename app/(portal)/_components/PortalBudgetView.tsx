@@ -312,6 +312,33 @@ function Stepper({
   );
 }
 
+/**
+ * Miniatura del ítem en el portal (issue #107): la imagen del producto
+ * vinculado, con la misma caja uniforme del inventario (criterio #98) —caja
+ * fija, cuadrada, foto entera con `contain`— y fallback al ícono del módulo si
+ * no hay imagen o la URL no carga (nunca un cuadro roto).
+ */
+function PortalItemThumb({ imageUrl }: { imageUrl: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [imageUrl]);
+  return (
+    <span className="portal-item-thumb" aria-hidden="true">
+      {imageUrl && !failed ? (
+        <img
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <AdminIcon name="inventory" size={16} />
+      )}
+    </span>
+  );
+}
+
 export function PortalBudgetView({
   budget: canonicalBudget,
   token,
@@ -382,6 +409,8 @@ export function PortalBudgetView({
   const revisionRef = useRef<HTMLElement | null>(null);
   const actionRef = useRef<HTMLElement | null>(null);
   const proofRef = useRef<HTMLElement | null>(null);
+  /** Bloque de pago post-aprobación (issue #107): destino del scroll al confirmar. */
+  const payFirstRef = useRef<HTMLDivElement | null>(null);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
   const discountInputRef = useRef<HTMLInputElement | null>(null);
   const [actionBelowViewport, setActionBelowViewport] = useState(false);
@@ -423,9 +452,13 @@ export function PortalBudgetView({
   }, [canEdit]);
 
   // El foco acompaña el cambio de estado para que un lector de pantalla anuncie
-  // el resultado de la acción (el bloque nuevo entra al tabulado).
+  // el resultado de la acción (el bloque nuevo entra al tabulado). Al autorizar,
+  // además, la vista queda en el bloque de pago (issue #107): datos para
+  // transferir y plan acordado, que es lo que el cliente necesita para pagar.
   useEffect(() => {
-    if (justApproved) approvedRef.current?.focus();
+    if (!justApproved) return;
+    approvedRef.current?.focus();
+    if (!justApproved.already) payFirstRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [justApproved]);
   useEffect(() => {
     if (justRequested) revisionRef.current?.focus();
@@ -912,6 +945,309 @@ export function PortalBudgetView({
           : "Contanos qué necesitás modificar para preparar una nueva versión.",
   }));
 
+  /**
+   * Bloques del pago (issue #107): con el presupuesto aprobado van primero
+   * —datos para transferir, plan real y comprobante—, para que el cliente sepa
+   * cómo pagar sin buscarlo. Sin aprobar, cada bloque conserva su lugar en el
+   * recorrido de la decisión.
+   */
+  const paymentsCard = (
+    <section className="portal-card" aria-labelledby="portal-payments">
+      <div className="portal-card-head">
+        <PortalCardTitle id="portal-payments" icon="wallet">
+          {approved ? "Plan de pagos" : "Plan de pagos propuesto"}
+        </PortalCardTitle>
+        <p className="portal-card-lead">
+          {budget.expectedPayments.length > 0
+            ? "Cada concepto del plan con su estado real; el equipo confirma el cobro cuando llega la transferencia."
+            : "Cada cuota con su vencimiento; los datos para transferir se muestran cuando el presupuesto esté autorizado."}
+        </p>
+      </div>
+
+      {budget.expectedPayments.length > 0 ? (
+        <div className="portal-table-wrap">
+          <table className="portal-table portal-table--plan portal-table--expected">
+            <caption className="portal-table-caption">Tus pagos</caption>
+            <thead>
+              <tr>
+                <th scope="col">Concepto</th>
+                <th scope="col" className="portal-num">
+                  Monto
+                </th>
+                <th scope="col">Vencimiento</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Cuenta destino</th>
+              </tr>
+            </thead>
+            <tbody>
+              {budget.expectedPayments.map((expected) => {
+                const state = EXPECTED_STATUS[expected.status];
+                const isDueNow = dueNowExpected?.id === expected.id;
+                return (
+                  <tr key={expected.id} data-status={expected.status}>
+                    <td className="portal-item-cell">
+                      <strong className="portal-item-name">{expected.label}</strong>
+                      {isDueNow ? <small className="portal-item-note">A transferir ahora</small> : null}
+                      {expected.status === "AWAITING" && expected.reviewNote ? (
+                        <small className="portal-expected-note">Observación: {expected.reviewNote}</small>
+                      ) : null}
+                    </td>
+                    <td className="portal-num" data-label="Monto">{formatMoney(expected.amount)}</td>
+                    <td data-label="Vencimiento">
+                      {dueLabel(expected.dueAt)}
+                      {expected.dueAt && expected.status !== "CONFIRMED" ? (
+                        <span className="portal-countdown" data-tone={countdownTone(expected.dueAt)}>
+                          {formatCountdown(expected.dueAt, "client")}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td data-label="Estado">
+                      <span className="portal-chip" data-tone={state.tone}>
+                        {state.label}
+                      </span>
+                      {expected.status === "CONFIRMED" && expected.confirmedAt ? (
+                        <small className="portal-expected-note">
+                          el {formatDateTime(expected.confirmedAt)}
+                          {expected.confirmedByName ? ` · por ${expected.confirmedByName}` : ""}
+                        </small>
+                      ) : null}
+                      {expected.status === "PROOF" ? (
+                        <small className="portal-expected-note">El equipo de LedBox lo revisa: no hace falta hacer nada más.</small>
+                      ) : null}
+                      {expected.status === "CANCELLED" ? (
+                        <small className="portal-expected-note">Ya no forma parte del plan de pagos.</small>
+                      ) : null}
+                    </td>
+                    <td data-label="Cuenta destino">{expected.accountName ?? "Te la confirmamos al transferir"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : paymentPlan.installments.length > 0 ? (
+        <div className="portal-table-wrap">
+          <table className="portal-table portal-table--plan">
+            <caption className="portal-table-caption">Cuotas del plan</caption>
+            <thead>
+              <tr>
+                <th scope="col">Cuota</th>
+                <th scope="col" className="portal-num">
+                  Monto
+                </th>
+                <th scope="col">Vencimiento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentPlan.advanceAmount > 0 ? (
+                <tr>
+                  <td>Anticipo{approved ? " (a transferir ahora)" : " (con la autorización)"}</td>
+                  <td className="portal-num">{formatMoney(paymentPlan.advanceAmount)}</td>
+                  <td>Con la autorización</td>
+                </tr>
+              ) : null}
+              {paymentPlan.installments.map((installment, index) => (
+                <tr key={`${installment.label}-${index}`}>
+                  <td>
+                    {installment.label}
+                    {paymentPlan.advanceAmount === 0 && index === 0 ? " (a transferir ahora)" : ""}
+                  </td>
+                  <td className="portal-num">{formatMoney(installment.amount)}</td>
+                  <td>
+                    {dueLabel(installment.dueAt)}
+                    {installment.dueAt ? (
+                      <span className="portal-countdown" data-tone={countdownTone(installment.dueAt)}>
+                        {formatCountdown(installment.dueAt, "client")}
+                      </span>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="portal-empty">El presupuesto se paga en un solo pago: {formatMoney(budget.total)}.</p>
+      )}
+
+      {paymentPlan.pending > 0 ? (
+        <p className="portal-help">
+          Saldo sin cuota agendada: <span className="portal-num">{formatMoney(paymentPlan.pending)}</span>
+        </p>
+      ) : null}
+      {paymentPlan.terms ? <p className="portal-note">{paymentPlan.terms}</p> : null}
+      {!approved ? (
+        <p className="portal-help">
+          Los datos bancarios de {budget.organization} se muestran cuando autorices el presupuesto.
+        </p>
+      ) : null}
+    </section>
+  );
+
+  const payCard = approved ? (
+    <section className="portal-card portal-card--pay" aria-labelledby="portal-payment-data">
+      <div className="portal-card-head">
+        <PortalCardTitle id="portal-payment-data" icon="bank">
+          Datos para transferir
+        </PortalCardTitle>
+      </div>
+      {transferNow ? (
+        <div className="portal-pay-now">
+          <div>
+            <span className="portal-pay-label">{transferNow.label}</span>
+            <strong className="portal-pay-amount portal-num">{formatMoney(transferNow.amount)}</strong>
+          </div>
+          <span className="portal-pay-total portal-num">Total del presupuesto: {formatMoney(budget.total)}</span>
+        </div>
+      ) : budget.expectedPayments.length > 0 ? (
+        <p className="portal-help">Ya confirmamos todos los pagos de este presupuesto: no queda nada por transferir.</p>
+      ) : null}
+
+      {budget.paymentDetails ? (
+        <div className="portal-pay-grid">
+          <div className="portal-bank" title={`Banco: ${budget.paymentDetails.bank ?? "—"}`}>
+            {mark?.asset ? (
+              <img className="portal-bank-asset" src={mark.asset} alt={`Logo de ${mark.label}`} />
+            ) : (
+              <span className="portal-bank-mark" style={{ background: mark?.color ?? "#0E5A8A" }} aria-hidden="true">
+                {mark?.initials ?? "B"}
+              </span>
+            )}
+            <span className="portal-bank-name">{mark?.label ?? "Datos de pago"}</span>
+          </div>
+          <dl className="portal-facts portal-facts--pay">
+            <div>
+              <dt>Titular</dt>
+              <dd>{budget.paymentDetails.holder || "—"}</dd>
+            </div>
+            <div>
+              <dt>RUC</dt>
+              <dd>{budget.paymentDetails.ruc || "—"}</dd>
+            </div>
+            <div>
+              <dt>Cuenta</dt>
+              <dd>{budget.paymentDetails.account || "—"}</dd>
+            </div>
+            <div>
+              <dt>Alias</dt>
+              <dd>{budget.paymentDetails.alias || "—"}</dd>
+            </div>
+          </dl>
+          <div className="portal-form-actions portal-print-hide">
+            <button type="button" className="portal-btn portal-btn--ghost" onClick={() => void copyPaymentDetails()}>
+              {copied ? "Datos copiados" : "Copiar datos de pago"}
+            </button>
+          </div>
+          <p className="portal-help" aria-live="polite">
+            {copied
+              ? "Los datos quedaron en el portapapeles para pegarlos donde los necesites."
+              : "Transferí el monto indicado y enviá el comprobante al equipo de LedBox."}
+          </p>
+        </div>
+      ) : (
+        <p className="portal-help">
+          El equipo de LedBox todavía no cargó los datos bancarios de esta empresa. Escribinos y te los pasamos para
+          completar el pago.
+        </p>
+      )}
+    </section>
+  ) : null;
+
+  const proofCard = budget.proofUpload.allowed ? (
+    <section className="portal-card portal-print-hide" aria-labelledby="portal-proof" ref={proofRef} tabIndex={-1}>
+      <div className="portal-card-head">
+        <PortalCardTitle id="portal-proof" icon="upload">
+          Enviar comprobante
+        </PortalCardTitle>
+        <p className="portal-card-lead">
+          Transferí el monto indicado y adjuntá el comprobante: JPG, PNG, WebP o PDF, hasta 2 MB. Indicá qué pago
+          estás comprobando para que quede vinculado a ese concepto; el equipo de LedBox lo revisa desde el panel.
+        </p>
+      </div>
+      <form className="portal-form" onSubmit={(event) => void submitProof(event)}>
+        {openExpected.length > 0 ? (
+          <label className="portal-field" htmlFor="portal-proof-concept">
+            <span className="portal-field-label">¿Qué pago estás comprobando?</span>
+            <select
+              id="portal-proof-concept"
+              name="proof-concept"
+              value={proofExpectedId}
+              onChange={(event) => {
+                setProofExpectedId(event.target.value);
+                setProofSent(false);
+              }}
+              required
+            >
+              <option value="">Elegí el concepto…</option>
+              {openExpected.map((expected) => (
+                <option key={expected.id} value={expected.id}>
+                  {expected.label} · {formatMoney(expected.amount)}
+                  {expected.status === "PROOF" ? " (en revisión)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <div className="portal-form-row">
+          <label className="portal-field" htmlFor="portal-proof-name">
+            <span className="portal-field-label">Nombre y apellido</span>
+            <input
+              id="portal-proof-name"
+              name="proof-name"
+              value={proofName}
+              onChange={(event) => {
+                setProofName(event.target.value);
+                setProofSent(false);
+              }}
+              maxLength={120}
+              autoComplete="name"
+              required
+              aria-describedby="portal-proof-name-hint"
+            />
+            <span className="portal-help" id="portal-proof-name-hint">
+              {contactName
+                ? `Prellenado con el responsable de ${clientLabel}${contactRole ? ` · ${contactRole}` : ""}.`
+                : `Escribí quién hizo la transferencia en nombre de ${clientLabel}.`}
+            </span>
+          </label>
+          <label className="portal-field" htmlFor="portal-proof-file">
+            <span className="portal-field-label">Comprobante</span>
+            <input
+              ref={proofInputRef}
+              id="portal-proof-file"
+              name="proof-file"
+              type="file"
+              accept={`${PAYMENT_PROOF_MIMES.join(",")},.jpg,.jpeg,.png,.webp,.pdf`}
+              onChange={(event) => {
+                setProofFile(event.target.files?.[0] ?? null);
+                setProofError("");
+                setProofSent(false);
+              }}
+              aria-describedby="portal-proof-hint"
+              required
+            />
+          </label>
+        </div>
+        <p className="portal-help" id="portal-proof-hint">
+          El archivo no se publica: solo lo ve el equipo de LedBox con su sesión del panel.
+        </p>
+        {proofError ? (
+          <p className="portal-error" role="alert">
+            {proofError}
+          </p>
+        ) : null}
+        {proofSent ? (
+          <p className="portal-ok" role="status">
+            Recibimos tu comprobante. El equipo lo revisa y marca el cobro; vas a ver el estado en el plan de pagos.
+          </p>
+        ) : null}
+        <button className="portal-btn portal-btn--primary" type="submit" disabled={proofBusy} aria-busy={proofBusy || undefined}>
+          {proofBusy ? "Subiendo comprobante…" : "Enviar comprobante"}
+        </button>
+      </form>
+    </section>
+  ) : null;
+
   return (
     <article className={`portal-budget${canEdit ? " portal-budget--can-edit" : ""}`}>
       {demoBanner}
@@ -1015,6 +1351,14 @@ export function PortalBudgetView({
 
       <div className="portal-budget-grid">
         <div className="portal-budget-main">
+          {/* Aprobado (issue #107): primero pago y plan; el scroll automático apunta acá. */}
+          {approved ? (
+            <div className="portal-pay-first" ref={payFirstRef}>
+              {payCard}
+              {paymentsCard}
+              {proofCard}
+            </div>
+          ) : null}
           <section className="portal-card" aria-labelledby="portal-items">
             <div className="portal-card-head">
               <PortalCardTitle id="portal-items" icon="budgets">
@@ -1061,14 +1405,19 @@ export function PortalBudgetView({
                       return (
                         <tr key={item.id} data-changed={changed ? "true" : undefined}>
                           <td className="portal-item-cell">
-                            <strong className="portal-item-name">{item.name}</strong>
-                            {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
-                            {changed ? (
-                              <small className="portal-item-note">
-                                Antes: {formatNumber(item.quantity)} × {formatNumber(item.days)} d · subtotal{" "}
-                                {formatMoney(item.subtotal)}
-                              </small>
-                            ) : null}
+                            <span className="portal-item-identity">
+                              <PortalItemThumb imageUrl={item.imageUrl} />
+                              <span className="portal-item-text">
+                                <strong className="portal-item-name">{item.name}</strong>
+                                {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
+                                {changed ? (
+                                  <small className="portal-item-note">
+                                    Antes: {formatNumber(item.quantity)} × {formatNumber(item.days)} d · subtotal{" "}
+                                    {formatMoney(item.subtotal)}
+                                  </small>
+                                ) : null}
+                              </span>
+                            </span>
                           </td>
                           <td className="portal-num" data-label="Cantidad">
                             {canEdit ? (
@@ -1360,136 +1709,7 @@ export function PortalBudgetView({
             </section>
           ) : null}
 
-          <section className="portal-card" aria-labelledby="portal-payments">
-            <div className="portal-card-head">
-              <PortalCardTitle id="portal-payments" icon="wallet">
-                {approved ? "Plan de pagos" : "Plan de pagos propuesto"}
-              </PortalCardTitle>
-              <p className="portal-card-lead">
-                {budget.expectedPayments.length > 0
-                  ? "Cada concepto del plan con su estado real; el equipo confirma el cobro cuando llega la transferencia."
-                  : "Cada cuota con su vencimiento; los datos para transferir se muestran cuando el presupuesto esté autorizado."}
-              </p>
-            </div>
-
-            {budget.expectedPayments.length > 0 ? (
-              <div className="portal-table-wrap">
-                <table className="portal-table portal-table--plan portal-table--expected">
-                  <caption className="portal-table-caption">Tus pagos</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Concepto</th>
-                      <th scope="col" className="portal-num">
-                        Monto
-                      </th>
-                      <th scope="col">Vencimiento</th>
-                      <th scope="col">Estado</th>
-                      <th scope="col">Cuenta destino</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {budget.expectedPayments.map((expected) => {
-                      const state = EXPECTED_STATUS[expected.status];
-                      const isDueNow = dueNowExpected?.id === expected.id;
-                      return (
-                        <tr key={expected.id} data-status={expected.status}>
-                          <td className="portal-item-cell">
-                            <strong className="portal-item-name">{expected.label}</strong>
-                            {isDueNow ? <small className="portal-item-note">A transferir ahora</small> : null}
-                            {expected.status === "AWAITING" && expected.reviewNote ? (
-                              <small className="portal-expected-note">Observación: {expected.reviewNote}</small>
-                            ) : null}
-                          </td>
-                          <td className="portal-num" data-label="Monto">{formatMoney(expected.amount)}</td>
-                          <td data-label="Vencimiento">
-                            {dueLabel(expected.dueAt)}
-                            {expected.dueAt && expected.status !== "CONFIRMED" ? (
-                              <span className="portal-countdown" data-tone={countdownTone(expected.dueAt)}>
-                                {formatCountdown(expected.dueAt, "client")}
-                              </span>
-                            ) : null}
-                          </td>
-                          <td data-label="Estado">
-                            <span className="portal-chip" data-tone={state.tone}>
-                              {state.label}
-                            </span>
-                            {expected.status === "CONFIRMED" && expected.confirmedAt ? (
-                              <small className="portal-expected-note">
-                                el {formatDateTime(expected.confirmedAt)}
-                                {expected.confirmedByName ? ` · por ${expected.confirmedByName}` : ""}
-                              </small>
-                            ) : null}
-                            {expected.status === "PROOF" ? (
-                              <small className="portal-expected-note">El equipo de LedBox lo revisa: no hace falta hacer nada más.</small>
-                            ) : null}
-                            {expected.status === "CANCELLED" ? (
-                              <small className="portal-expected-note">Ya no forma parte del plan de pagos.</small>
-                            ) : null}
-                          </td>
-                          <td data-label="Cuenta destino">{expected.accountName ?? "Te la confirmamos al transferir"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : paymentPlan.installments.length > 0 ? (
-              <div className="portal-table-wrap">
-                <table className="portal-table portal-table--plan">
-                  <caption className="portal-table-caption">Cuotas del plan</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Cuota</th>
-                      <th scope="col" className="portal-num">
-                        Monto
-                      </th>
-                      <th scope="col">Vencimiento</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paymentPlan.advanceAmount > 0 ? (
-                      <tr>
-                        <td>Anticipo{approved ? " (a transferir ahora)" : " (con la autorización)"}</td>
-                        <td className="portal-num">{formatMoney(paymentPlan.advanceAmount)}</td>
-                        <td>Con la autorización</td>
-                      </tr>
-                    ) : null}
-                    {paymentPlan.installments.map((installment, index) => (
-                      <tr key={`${installment.label}-${index}`}>
-                        <td>
-                          {installment.label}
-                          {paymentPlan.advanceAmount === 0 && index === 0 ? " (a transferir ahora)" : ""}
-                        </td>
-                        <td className="portal-num">{formatMoney(installment.amount)}</td>
-                        <td>
-                          {dueLabel(installment.dueAt)}
-                          {installment.dueAt ? (
-                            <span className="portal-countdown" data-tone={countdownTone(installment.dueAt)}>
-                              {formatCountdown(installment.dueAt, "client")}
-                            </span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="portal-empty">El presupuesto se paga en un solo pago: {formatMoney(budget.total)}.</p>
-            )}
-
-            {paymentPlan.pending > 0 ? (
-              <p className="portal-help">
-                Saldo sin cuota agendada: <span className="portal-num">{formatMoney(paymentPlan.pending)}</span>
-              </p>
-            ) : null}
-            {paymentPlan.terms ? <p className="portal-note">{paymentPlan.terms}</p> : null}
-            {!approved ? (
-              <p className="portal-help">
-                Los datos bancarios de {budget.organization} se muestran cuando autorices el presupuesto.
-              </p>
-            ) : null}
-          </section>
+          {approved ? null : paymentsCard}
 
           {budget.deliveryAt || budget.ivaType || budget.warranty ? (
             <section className="portal-card" aria-labelledby="portal-terms">
@@ -1526,169 +1746,10 @@ export function PortalBudgetView({
             </section>
           ) : null}
 
-          {approved ? (
-            <section className="portal-card portal-card--pay" aria-labelledby="portal-payment-data">
-              <div className="portal-card-head">
-                <PortalCardTitle id="portal-payment-data" icon="bank">
-                  Datos para transferir
-                </PortalCardTitle>
-              </div>
-              {transferNow ? (
-                <div className="portal-pay-now">
-                  <div>
-                    <span className="portal-pay-label">{transferNow.label}</span>
-                    <strong className="portal-pay-amount portal-num">{formatMoney(transferNow.amount)}</strong>
-                  </div>
-                  <span className="portal-pay-total portal-num">Total del presupuesto: {formatMoney(budget.total)}</span>
-                </div>
-              ) : budget.expectedPayments.length > 0 ? (
-                <p className="portal-help">Ya confirmamos todos los pagos de este presupuesto: no queda nada por transferir.</p>
-              ) : null}
 
-              {budget.paymentDetails ? (
-                <div className="portal-pay-grid">
-                  <div className="portal-bank" title={`Banco: ${budget.paymentDetails.bank ?? "—"}`}>
-                    {mark?.asset ? (
-                      <img className="portal-bank-asset" src={mark.asset} alt={`Logo de ${mark.label}`} />
-                    ) : (
-                      <span className="portal-bank-mark" style={{ background: mark?.color ?? "#0E5A8A" }} aria-hidden="true">
-                        {mark?.initials ?? "B"}
-                      </span>
-                    )}
-                    <span className="portal-bank-name">{mark?.label ?? "Datos de pago"}</span>
-                  </div>
-                  <dl className="portal-facts portal-facts--pay">
-                    <div>
-                      <dt>Titular</dt>
-                      <dd>{budget.paymentDetails.holder || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt>RUC</dt>
-                      <dd>{budget.paymentDetails.ruc || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt>Cuenta</dt>
-                      <dd>{budget.paymentDetails.account || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt>Alias</dt>
-                      <dd>{budget.paymentDetails.alias || "—"}</dd>
-                    </div>
-                  </dl>
-                  <div className="portal-form-actions portal-print-hide">
-                    <button type="button" className="portal-btn portal-btn--ghost" onClick={() => void copyPaymentDetails()}>
-                      {copied ? "Datos copiados" : "Copiar datos de pago"}
-                    </button>
-                  </div>
-                  <p className="portal-help" aria-live="polite">
-                    {copied
-                      ? "Los datos quedaron en el portapapeles para pegarlos donde los necesites."
-                      : "Transferí el monto indicado y enviá el comprobante al equipo de LedBox."}
-                  </p>
-                </div>
-              ) : (
-                <p className="portal-help">
-                  El equipo de LedBox todavía no cargó los datos bancarios de esta empresa. Escribinos y te los pasamos para
-                  completar el pago.
-                </p>
-              )}
-            </section>
-          ) : null}
 
-          {budget.proofUpload.allowed ? (
-            <section className="portal-card portal-print-hide" aria-labelledby="portal-proof" ref={proofRef} tabIndex={-1}>
-              <div className="portal-card-head">
-                <PortalCardTitle id="portal-proof" icon="upload">
-                  Enviar comprobante
-                </PortalCardTitle>
-                <p className="portal-card-lead">
-                  Transferí el monto indicado y adjuntá el comprobante: JPG, PNG, WebP o PDF, hasta 2 MB. Indicá qué pago
-                  estás comprobando para que quede vinculado a ese concepto; el equipo de LedBox lo revisa desde el panel.
-                </p>
-              </div>
-              <form className="portal-form" onSubmit={(event) => void submitProof(event)}>
-                {openExpected.length > 0 ? (
-                  <label className="portal-field" htmlFor="portal-proof-concept">
-                    <span className="portal-field-label">¿Qué pago estás comprobando?</span>
-                    <select
-                      id="portal-proof-concept"
-                      name="proof-concept"
-                      value={proofExpectedId}
-                      onChange={(event) => {
-                        setProofExpectedId(event.target.value);
-                        setProofSent(false);
-                      }}
-                      required
-                    >
-                      <option value="">Elegí el concepto…</option>
-                      {openExpected.map((expected) => (
-                        <option key={expected.id} value={expected.id}>
-                          {expected.label} · {formatMoney(expected.amount)}
-                          {expected.status === "PROOF" ? " (en revisión)" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-                <div className="portal-form-row">
-                  <label className="portal-field" htmlFor="portal-proof-name">
-                    <span className="portal-field-label">Nombre y apellido</span>
-                    <input
-                      id="portal-proof-name"
-                      name="proof-name"
-                      value={proofName}
-                      onChange={(event) => {
-                        setProofName(event.target.value);
-                        setProofSent(false);
-                      }}
-                      maxLength={120}
-                      autoComplete="name"
-                      required
-                      aria-describedby="portal-proof-name-hint"
-                    />
-                    <span className="portal-help" id="portal-proof-name-hint">
-                      {contactName
-                        ? `Prellenado con el responsable de ${clientLabel}${contactRole ? ` · ${contactRole}` : ""}.`
-                        : `Escribí quién hizo la transferencia en nombre de ${clientLabel}.`}
-                    </span>
-                  </label>
-                  <label className="portal-field" htmlFor="portal-proof-file">
-                    <span className="portal-field-label">Comprobante</span>
-                    <input
-                      ref={proofInputRef}
-                      id="portal-proof-file"
-                      name="proof-file"
-                      type="file"
-                      accept={`${PAYMENT_PROOF_MIMES.join(",")},.jpg,.jpeg,.png,.webp,.pdf`}
-                      onChange={(event) => {
-                        setProofFile(event.target.files?.[0] ?? null);
-                        setProofError("");
-                        setProofSent(false);
-                      }}
-                      aria-describedby="portal-proof-hint"
-                      required
-                    />
-                  </label>
-                </div>
-                <p className="portal-help" id="portal-proof-hint">
-                  El archivo no se publica: solo lo ve el equipo de LedBox con su sesión del panel.
-                </p>
-                {proofError ? (
-                  <p className="portal-error" role="alert">
-                    {proofError}
-                  </p>
-                ) : null}
-                {proofSent ? (
-                  <p className="portal-ok" role="status">
-                    Recibimos tu comprobante. El equipo lo revisa y marca el cobro; vas a ver el estado en el plan de pagos.
-                  </p>
-                ) : null}
-                <button className="portal-btn portal-btn--primary" type="submit" disabled={proofBusy} aria-busy={proofBusy || undefined}>
-                  {proofBusy ? "Subiendo comprobante…" : "Enviar comprobante"}
-                </button>
-              </form>
-            </section>
-          ) : null}
+          {approved ? null : proofCard}
+
 
           {budget.proofs.length > 0 ? (
             <section className="portal-card" aria-labelledby="portal-proofs">
@@ -1790,7 +1851,9 @@ export function PortalBudgetView({
               <span className="portal-chip" data-tone={budgetApprovalTone(approvalState)}>
                 {budgetApprovalLabel(approvalState)}
               </span>
-              {budget.validUntil ? (
+              {/* Con el presupuesto aprobado la vigencia dejó de correr: se
+                  esconde la cuenta (issue #107), el dato queda en el resumen. */}
+              {!approved && budget.validUntil ? (
                 <span className="portal-countdown" data-tone={countdownTone(budget.validUntil)}>
                   {formatCountdown(budget.validUntil, "client")}
                 </span>
