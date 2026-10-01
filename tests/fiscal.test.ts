@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   fiscalSummaryOf,
@@ -127,4 +128,30 @@ test("mes fiscal: validación, corrimiento y etiqueta", () => {
   assert.equal(shiftMonthKey("2026-01", -1), "2025-12");
   assert.match(monthKeyLabel("2026-09"), /septiembre/i);
   assert.equal(monthKeyLabel("nada"), "—");
+});
+
+const repoFile = (relative: string) => readFileSync(new URL(`../${relative}`, import.meta.url), "utf8");
+
+/**
+ * Datos fiscales de la empresa (issue #114): el formulario ya no pide timbrado
+ * mientras no haya uno autorizado por la DNIT; la completitud mira RUC + razón
+ * social, el payload conserva el timbrado guardado (no destructivo) y el
+ * timbrado de las compras del proveedor sigue igual.
+ */
+test("el registro fiscal de la empresa no pide timbrado y los avisos miran RUC + razón social (issue #114)", () => {
+  const module = repoFile("components/admin/modules/FacturacionModule.tsx");
+  const profileForm = module.match(/title="Datos fiscales de la empresa"[\s\S]*?<\/form>/)?.[0] ?? "";
+  assert.ok(profileForm, "el formulario de datos fiscales existe");
+  assert.doesNotMatch(profileForm, /label="Timbrado"/, "el formulario no puede pedir timbrado");
+  assert.doesNotMatch(profileForm, /profileForm\.timbrado/, "el formulario no puede tocar el timbrado");
+  assert.match(module, /const profileIncomplete = profile \? !profile\.ruc \|\| !profile\.razonSocial : false;/);
+  assert.match(module, /\(RUC y razón social\): son el encabezado/);
+  assert.doesNotMatch(module, /RUC, razón social y timbrado/, "el aviso no puede seguir pidiendo timbrado");
+  // No destructivo: el valor cargado sigue en el estado y viaja en el payload.
+  assert.match(module, /timbrado: profile\.timbrado \?\? ""/);
+  assert.match(module, /kind: "profile", \.\.\.profileForm/);
+  // El timbrado de las compras (del proveedor) no se toca.
+  assert.match(module, /<TextField label="Timbrado" value=\{purchaseForm\.timbrado\}/);
+  // Queda anotado que el campo puede volver con un timbrado autorizado.
+  assert.match(repoFile("docs/FISCAL-SIFEN.md"), /timbrado\*\* quedó fuera del formulario/);
 });
