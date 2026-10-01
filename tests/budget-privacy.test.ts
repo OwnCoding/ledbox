@@ -46,7 +46,19 @@ function budgetWithCosts() {
     client: { name: "Ana", company: "Scale Strategy Group EAS", contactName: "Ana", contactRole: "Compras" },
     event: null,
     items: [
-      { id: "it_1", name: "Panel LED", quantity: 4, days: 1, unitPrice: 3_000_000, costPrice: 1_234_567, subtotal: 12_000_000, notes: null },
+      {
+        id: "it_1",
+        name: "Panel LED",
+        quantity: 4,
+        days: 1,
+        unitPrice: 3_000_000,
+        costPrice: 1_234_567,
+        subtotal: 12_000_000,
+        notes: null,
+        // Imagen del producto vinculado (issue #107) con costo interno al lado:
+        // solo la URL puede viajar al portal.
+        inventory: { imageUrl: "/assets/products/pantalla-led.png", dailyCost: 777_777 },
+      },
     ],
     payments: [],
     expectedPayments: [],
@@ -82,13 +94,16 @@ test("la vista pública no expone ningún costo ni margen", () => {
     else if (value && typeof value === "object") Object.values(value).forEach(collect);
   };
   collect(view);
-  for (const internal of [5_105_000, 3_111_111, 2_222_222, 1_234_567, 8_105_000]) {
+  for (const internal of [5_105_000, 3_111_111, 2_222_222, 1_234_567, 8_105_000, 777_777]) {
     assert.ok(!numbers.has(internal), `el monto interno ${internal} no debe viajar al cliente`);
   }
   // Los campos del cliente sí viajan (issue #65).
   assert.equal(view.deliveryAt, "2026-10-10T12:00:00.000Z");
   assert.equal(view.ivaType, "IVA10");
   assert.equal(view.warranty, "12 meses por defectos de fabricación.");
+  // La imagen del producto vinculado viaja sola, sin el resto del inventario
+  // (issue #107); los costos internos del ítem siguen sin salir.
+  assert.equal(view.items[0].imageUrl, "/assets/products/pantalla-led.png");
 });
 
 test("el portal y el imprimible no nombran campos internos de costo", () => {
@@ -110,4 +125,7 @@ test("la vista pública arma los ítems solo con precio de venta", () => {
   const itemMapping = source.match(/items: budget\.items\.map\(\(item\) => \(\{[\s\S]*?\}\)\),/)?.[0] ?? "";
   assert.ok(itemMapping, "el mapeo de ítems de la vista pública existe");
   assert.doesNotMatch(itemMapping, /costPrice|costEstimate/);
+  // La imagen del producto vinculado sí viaja (issue #107), sola y validada.
+  assert.match(itemMapping, /imageUrl:\s+item\.inventory\?\.imageUrl/);
+  assert.match(itemMapping, /inventoryImageValid\(item\.inventory\.imageUrl\)/);
 });

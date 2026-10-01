@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "./db";
 import { BUDGET_CODE_ALPHABET, formatBudgetCode, normalizeBudgetCode } from "@/lib/public-config";
+import { inventoryImageValid } from "@/lib/field-rules";
 import { budgetReference } from "@/lib/admin-format";
 import type { AdminTimelineEntry } from "@/lib/admin-types";
 import { isDemoOrganizationSlug } from "./demo-data";
@@ -41,6 +42,12 @@ export type PortalBudgetItem = {
   unitPrice: number;
   subtotal: number;
   notes: string | null;
+  /**
+   * Imagen del producto de inventario vinculado al ítem (issue #107), aditiva:
+   * `null` sin vínculo, sin imagen o con una URL inválida. El portal la dibuja
+   * como miniatura con fallback (nunca un cuadro roto, criterio #98).
+   */
+  imageUrl: string | null;
 };
 
 /** Cuota del plan de pagos (forma documentada; `dueAt` es `YYYY-MM-DD`). */
@@ -320,7 +327,7 @@ type BudgetForPortal = {
   organization: { name: string; slug: string; paymentDetails: unknown };
   client: { name: string; company: string | null; contactName: string | null; contactRole: string | null };
   event: { name: string; location: string | null; startsAt: Date | null } | null;
-  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; notes: string | null }>;
+  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; notes: string | null; inventory: { imageUrl: string | null } | null }>;
   /** Solo los cobros pendientes: habilitan el comprobante y el aviso al equipo. */
   payments: Array<{ id: string; amount: number }>;
   /** Pagos esperados del plan aprobado (issue #28), con su cuenta destino. */
@@ -568,6 +575,10 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
       notes: item.notes,
+      // Imagen del producto vinculado (issue #107): aditiva y opcional; solo
+      // viaja una URL de imagen válida (el resto cae al ícono en el portal).
+      imageUrl:
+        item.inventory?.imageUrl && inventoryImageValid(item.inventory.imageUrl) ? item.inventory.imageUrl : null,
     })),
     subtotal: budget.subtotal,
     discount: budget.discount,
@@ -617,7 +628,9 @@ const portalInclude = {
   organization: { select: { name: true, slug: true, paymentDetails: true } },
   client: { select: { name: true, company: true, contactName: true, contactRole: true } },
   event: { select: { name: true, location: true, startsAt: true } },
-  items: { orderBy: { name: "asc" } },
+  // La imagen del producto vinculado viaja con el ítem (issue #107): solo la
+  // URL, nunca costos ni stock del inventario.
+  items: { orderBy: { name: "asc" }, include: { inventory: { select: { imageUrl: true } } } },
   changeRequests: { orderBy: { createdAt: "desc" }, take: PORTAL_MAX_REQUESTS },
   payments: { where: { status: "PENDING" }, select: { id: true, amount: true } },
   // Pagos esperados (issue #28): estado real de cada concepto y cuenta destino.
