@@ -15,13 +15,14 @@ import {
   FIELD_LIMITS,
   FIELD_MESSAGES,
   formatPercent,
+  INVENTORY_PRICE_DAYS_MAX,
   INVENTORY_PRICE_LIMIT,
-  INVENTORY_WHOLESALE_DAYS_MAX,
   inventoryImageError,
   inventoryImageValid,
+  inventoryPriceDaysValue,
   inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
+  readInventoryPriceValues,
   moneyInputDisplay,
   moneyInputMaxLength,
   normalizeEmail,
@@ -183,32 +184,77 @@ test("precios de venta: enteros ≥ 0 dentro del tope; vacío no cambia, basura 
   assert.equal(inventoryPriceValue(""), null);
 });
 
-test("días del mayorista: entero entre 0 y el tope; vacío no cambia", () => {
-  assert.equal(INVENTORY_WHOLESALE_DAYS_MAX, 3650);
-  assert.equal(inventoryWholesaleDaysValue(3), 3);
-  assert.equal(inventoryWholesaleDaysValue("0"), 0);
-  assert.equal(inventoryWholesaleDaysValue(3650), 3650);
-  assert.equal(inventoryWholesaleDaysValue(3651), false);
-  assert.equal(inventoryWholesaleDaysValue(2.5), false);
-  assert.equal(inventoryWholesaleDaysValue("<i>3</i>"), false);
-  assert.equal(inventoryWholesaleDaysValue(undefined), null);
-  assert.equal(inventoryWholesaleDaysValue(null), null);
+test("días de las reglas: entero entre 0 y el tope; vacío no cambia", () => {
+  assert.equal(INVENTORY_PRICE_DAYS_MAX, 3650);
+  assert.equal(inventoryPriceDaysValue(3), 3);
+  assert.equal(inventoryPriceDaysValue("0"), 0);
+  assert.equal(inventoryPriceDaysValue(3650), 3650);
+  assert.equal(inventoryPriceDaysValue(3651), false);
+  assert.equal(inventoryPriceDaysValue(2.5), false);
+  assert.equal(inventoryPriceDaysValue("<i>3</i>"), false);
+  assert.equal(inventoryPriceDaysValue(undefined), null);
+  assert.equal(inventoryPriceDaysValue(null), null);
 });
 
-test("aviso de precios: mayorista o mínimo por encima de la lista (con lista cargada)", () => {
-  assert.equal(inventoryPriceWarning({ listPrice: 750_000, wholesalePrice: 500_000, minimumPrice: 400_000 }), null);
-  assert.equal(inventoryPriceWarning({ listPrice: 0, wholesalePrice: 500_000, minimumPrice: 900_000 }), null);
+test("los siete campos de precios se validan de una vez (issues #90 y #110)", () => {
+  const full = {
+    listPrice: "750000",
+    listFromDays: "3",
+    listFromPrice: "500000",
+    wholesalePrice: "600000",
+    wholesaleFromDays: "5",
+    wholesaleFromPrice: "450000",
+    minimumPrice: "400000",
+  };
+  const read = readInventoryPriceValues(full);
+  assert.equal(read.ok, true);
+  if (read.ok) {
+    assert.deepEqual(read.values, {
+      listPrice: 750_000,
+      listFromDays: 3,
+      listFromPrice: 500_000,
+      wholesalePrice: 600_000,
+      wholesaleFromDays: 5,
+      wholesaleFromPrice: 450_000,
+      minimumPrice: 400_000,
+    });
+  }
+  // Vacíos = sin valor (no cambia / queda en 0); basura o tope excedido = error.
+  const empty = readInventoryPriceValues({});
+  assert.equal(empty.ok, true);
+  if (empty.ok) assert.equal(empty.values.listFromPrice, null);
+  const badPrice = readInventoryPriceValues({ ...full, listFromPrice: "<b>" });
+  assert.equal(badPrice.ok, false);
+  if (!badPrice.ok) assert.equal(badPrice.error, FIELD_MESSAGES.price);
+  const badDays = readInventoryPriceValues({ ...full, wholesaleFromDays: "3651" });
+  assert.equal(badDays.ok, false);
+  if (!badDays.ok) assert.equal(badDays.error, FIELD_MESSAGES.priceDays);
+});
+
+test("aviso de precios: coherencia entre frentes y dentro de cada frente", () => {
+  const base = { listPrice: 750_000, listFromPrice: 500_000, wholesalePrice: 600_000, wholesaleFromPrice: 450_000, minimumPrice: 400_000 };
+  assert.equal(inventoryPriceWarning(base), null);
+  assert.equal(inventoryPriceWarning({ ...base, listPrice: 0, minimumPrice: 900_000 }), null);
   assert.equal(
-    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 600_000, minimumPrice: 400_000 }),
+    inventoryPriceWarning({ ...base, wholesalePrice: 800_000 }),
     "El precio mayorista supera al de lista.",
   );
   assert.equal(
-    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 500_000, minimumPrice: 600_000 }),
+    inventoryPriceWarning({ ...base, minimumPrice: 800_000 }),
     "El precio mínimo supera al de lista.",
   );
   assert.equal(
-    inventoryPriceWarning({ listPrice: 500_000, wholesalePrice: 600_000, minimumPrice: 700_000 }),
-    "Los precios mayorista y mínimo superan al de lista.",
+    inventoryPriceWarning({ ...base, listFromPrice: 800_000 }),
+    "El precio final desde esos días supera al normal.",
+  );
+  assert.equal(
+    inventoryPriceWarning({ ...base, wholesaleFromPrice: 700_000 }),
+    "El precio mayorista desde esos días supera al normal.",
+  );
+  // Varios avisos se muestran juntos, sin bloquear.
+  assert.equal(
+    inventoryPriceWarning({ ...base, listPrice: 500_000, wholesalePrice: 600_000, minimumPrice: 700_000 }),
+    "El precio mayorista supera al de lista. El precio mínimo supera al de lista.",
   );
 });
 
