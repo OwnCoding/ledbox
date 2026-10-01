@@ -202,3 +202,10 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - categoría buscable, campos finos y subir foto en el alta
 - foto del ítem subida, en la base y pública por UUID
 
+## v2.1.56 — 2026-10-01
+
+- nombre fantasía en los datos fiscales y el imprimible
+- el registro fiscal de la empresa no pide timbrado
+- el guardado de ítems conserva el vínculo con inventario
+- post-aprobación ordenada y miniaturas de los ítems
+
