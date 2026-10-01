@@ -60,6 +60,9 @@ type ClienteEdit = {
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  /** Campos que no están en el texto (issue #126): exigen confirmación. */
+  inventados: string[];
+  confirmado: boolean;
   nombre: string;
   empresa: string;
   tipo: "FINAL" | "RESELLER";
@@ -76,6 +79,8 @@ type EventoEdit = {
   clienteNombre: string | null;
   clienteId: string;
   candidatos: IaCandidato[];
+  inventados: string[];
+  confirmado: boolean;
   inicio: string;
   fin: string;
   lugar: string;
@@ -91,6 +96,8 @@ type ProductoEdit = {
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  inventados: string[];
+  confirmado: boolean;
   nombre: string;
   categoria: string;
   cantidad: string;
@@ -112,6 +119,11 @@ type CobroEdit = {
   fechaTexto: string | null;
   metodo: string;
   referencia: string;
+  /** A crédito/plazo (issue #126): no se registra; `vencimiento` estimado. */
+  plazo: boolean;
+  vencimiento: string | null;
+  inventados: string[];
+  confirmado: boolean;
   avisos: string[];
 };
 
@@ -142,6 +154,10 @@ const aNumero = (valor: string): number => {
 };
 
 const listar = (cantidad: number, singular: string, plural: string) => `${cantidad} ${cantidad === 1 ? singular : plural}`;
+
+/** Avisos del evento/cobro sin los de «elegí el cliente» cuando ya está resuelto. */
+const avisosVigentes = (avisos: string[], clienteId: string): string[] =>
+  clienteId ? avisos.filter((aviso) => !/(coincide con varios|Encontramos)/.test(aviso)) : avisos;
 
 /** Opciones de acción+existente en un solo select: `crear`, `vincular:<id>` o la sugerencia. */
 function opcionesDeAccion(candidatos: IaCandidato[], sugerencia = false): ClienteOpcion[] {
@@ -199,6 +215,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [opcionesCliente, setOpcionesCliente] = useState<ClienteOpcion[]>([]);
   const [cargandoClientes, setCargandoClientes] = useState(false);
+  const [cartera, setCartera] = useState<{ clientes: number; productos: number } | null>(null);
 
   useEffect(() => {
     let activo = true;
@@ -230,8 +247,17 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     [clientes, eventos, productos, cobros],
   );
   const totalIncluidos = incluidos.clientes + incluidos.eventos + incluidos.productos + incluidos.cobros;
-  /** Registros incluidos con confianza media sin resolver: bloquean «Aplicar todo». */
-  const pendientes = [...clientes, ...productos].filter((fila) => fila.incluir && esAccionPendiente(fila.accion)).length;
+  /**
+   * Registros incluidos que bloquean «Aplicar todo»: elección sin resolver
+   * (confianza media) o escalares marcados sin confirmar (issue #126).
+   */
+  const pendientes = [...clientes, ...productos, ...eventos, ...cobros].filter((fila) => {
+    if (!fila.incluir) return false;
+    const accion = "accion" in fila ? fila.accion : "crear";
+    if (esAccionPendiente(accion)) return true;
+    if (accion === "vincular") return false; // lo vinculado no aplica sus datos
+    return fila.inventados.length > 0 && !fila.confirmado;
+  }).length;
 
   const actualizarCliente = (clave: string, patch: Partial<ClienteEdit>) =>
     setClientes((actuales) => actuales.map((fila) => (fila.clave === clave ? { ...fila, ...patch } : fila)));
@@ -262,7 +288,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           ? {
               ...fila,
               clienteId: clienteId ?? "",
-              incluir: Boolean(clienteId) && puedeCobrar && aNumero(fila.monto) > 0,
+              incluir: Boolean(clienteId) && puedeCobrar && !fila.plazo && aNumero(fila.monto) > 0,
             }
           : fila,
       ),
@@ -343,6 +369,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       return;
     }
     setAvisos(registros.avisos ?? []);
+    setCartera(registros.cartera ?? null);
     setClientes(
       registros.clientes.map((cliente) => ({
         clave: siguienteClave("cliente"),
@@ -352,6 +379,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         existenteNombre: cliente.existenteNombre,
         confianza: cliente.confianza,
         candidatos: cliente.candidatos ?? [],
+        inventados: cliente.inventados ?? [],
+        confirmado: (cliente.inventados ?? []).length === 0,
         nombre: cliente.nombre,
         empresa: cliente.empresa ?? "",
         tipo: cliente.tipo,
@@ -369,6 +398,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         clienteNombre: evento.clienteNombre,
         clienteId: evento.clienteId ?? "",
         candidatos: evento.candidatos ?? [],
+        inventados: evento.inventados ?? [],
+        confirmado: (evento.inventados ?? []).length === 0,
         inicio: evento.inicio ?? "",
         fin: evento.fin ?? "",
         lugar: evento.lugar ?? "",
@@ -385,6 +416,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         existenteNombre: producto.existenteNombre,
         confianza: producto.confianza,
         candidatos: producto.candidatos ?? [],
+        inventados: producto.inventados ?? [],
+        confirmado: (producto.inventados ?? []).length === 0,
         nombre: producto.nombre,
         categoria: producto.categoria,
         cantidad: String(producto.cantidad),
@@ -407,6 +440,10 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         fechaTexto: cobro.fechaTexto,
         metodo: cobro.metodo ?? "",
         referencia: cobro.referencia ?? "",
+        plazo: cobro.plazo ?? false,
+        vencimiento: cobro.vencimiento ?? null,
+        inventados: cobro.inventados ?? [],
+        confirmado: (cobro.inventados ?? []).length === 0,
         avisos: cobro.avisos,
       })),
     );
@@ -426,12 +463,16 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     const indice = new Map<string, string>();
 
     for (const cliente of clientes.filter((fila) => fila.incluir)) {
+      if (cliente.accion === "vincular") {
+        vinculados.clientes += 1;
+        continue;
+      }
       if (cliente.accion === "elegir") {
         errores.push(`Cliente «${cliente.nombre}»: quedó sin elegir (vincular o crear).`);
         continue;
       }
-      if (cliente.accion === "vincular") {
-        vinculados.clientes += 1;
+      if (cliente.inventados.length > 0 && !cliente.confirmado) {
+        errores.push(`Cliente «${cliente.nombre}»: hay datos marcados sin confirmar (${cliente.inventados.join(", ")}).`);
         continue;
       }
       const result = await adminSend<{ client?: { id?: string } }>(
@@ -457,6 +498,10 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     }
 
     for (const evento of eventos.filter((fila) => fila.incluir)) {
+      if (evento.inventados.length > 0 && !evento.confirmado) {
+        errores.push(`Evento «${evento.nombre}»: hay datos marcados sin confirmar (${evento.inventados.join(", ")}).`);
+        continue;
+      }
       const clienteId = evento.clienteId || indice.get(normalizarBusqueda(evento.clienteNombre ?? "")) || "";
       if (!clienteId) {
         errores.push(`Evento «${evento.nombre}»: falta el cliente (elegilo o creá el cliente primero).`);
@@ -480,12 +525,16 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     }
 
     for (const producto of productos.filter((fila) => fila.incluir)) {
+      if (producto.accion === "vincular") {
+        vinculados.productos += 1;
+        continue;
+      }
       if (producto.accion === "elegir") {
         errores.push(`Producto «${producto.nombre}»: quedó sin elegir (vincular o crear).`);
         continue;
       }
-      if (producto.accion === "vincular") {
-        vinculados.productos += 1;
+      if (producto.inventados.length > 0 && !producto.confirmado) {
+        errores.push(`Producto «${producto.nombre}»: hay datos marcados sin confirmar (${producto.inventados.join(", ")}).`);
         continue;
       }
       const cantidad = Math.min(100_000, Math.max(1, Math.floor(aNumero(producto.cantidad)) || 1));
@@ -513,6 +562,14 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
     for (const cobro of cobros.filter((fila) => fila.incluir)) {
       const etiqueta = cobro.clienteNombre ?? "sin cliente";
+      if (cobro.plazo) {
+        errores.push(`Cobro de «${etiqueta}»: es a crédito/plazo y no se registra en esta carga.`);
+        continue;
+      }
+      if (cobro.inventados.length > 0 && !cobro.confirmado) {
+        errores.push(`Cobro de «${etiqueta}»: hay datos marcados sin confirmar (${cobro.inventados.join(", ")}).`);
+        continue;
+      }
       if (!puedeCobrar) {
         errores.push(`Cobro de «${etiqueta}»: tu rol no puede registrar cobros (los registra Finanzas).`);
         continue;
@@ -685,6 +742,9 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               <h3 className="admin-ia-section-title">
                 {IA_TIPO_LABEL.clientes} <span>{clientes.length}</span>
               </h3>
+              {cartera && cartera.clientes === 0 ? (
+                <AdminNote tone="warn">No hay clientes cargados en esta empresa: lo detectado se crearía de cero.</AdminNote>
+              ) : null}
               {clientes.map((cliente) => (
                 <article key={cliente.clave} className="admin-ia-card" data-off={!cliente.incluir}>
                   <header className="admin-ia-card-head">
@@ -704,6 +764,23 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                     />
                   </header>
                   {cliente.avisos.length > 0 ? <AdminNote tone="warn">{cliente.avisos.join(" ")}</AdminNote> : null}
+                  {cliente.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">
+                        {`No está en el texto: ${cliente.inventados.join(" · ")}.`}
+                        {cliente.accion === "vincular" ? " Al vincular no se aplican." : ""}
+                      </AdminNote>
+                      {cliente.accion !== "vincular" ? (
+                        <div className="admin-ia-grid">
+                          <SwitchField
+                            label="Confirmo los datos marcados"
+                            checked={cliente.confirmado}
+                            onChange={(confirmado) => actualizarCliente(cliente.clave, { confirmado })}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
@@ -787,7 +864,19 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       onChange={(incluir) => actualizarEvento(evento.clave, { incluir })}
                     />
                   </header>
-                  {evento.avisos.length > 0 ? <AdminNote tone="warn">{evento.avisos.join(" ")}</AdminNote> : null}
+                  {avisosVigentes(evento.avisos, evento.clienteId).length > 0 ? <AdminNote tone="warn">{avisosVigentes(evento.avisos, evento.clienteId).join(" ")}</AdminNote> : null}
+                  {evento.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">{`No está en el texto: ${evento.inventados.join(" · ")}.`}</AdminNote>
+                      <div className="admin-ia-grid">
+                        <SwitchField
+                          label="Confirmo los datos marcados"
+                          checked={evento.confirmado}
+                          onChange={(confirmado) => actualizarEvento(evento.clave, { confirmado })}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <TextField
                       label="Nombre"
@@ -839,6 +928,9 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               <h3 className="admin-ia-section-title">
                 {IA_TIPO_LABEL.productos} <span>{productos.length}</span>
               </h3>
+              {cartera && cartera.productos === 0 ? (
+                <AdminNote tone="warn">No hay productos cargados en Inventario: lo detectado se crearía de cero.</AdminNote>
+              ) : null}
               {productos.map((producto) => (
                 <article key={producto.clave} className="admin-ia-card" data-off={!producto.incluir}>
                   <header className="admin-ia-card-head">
@@ -857,6 +949,23 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                     />
                   </header>
                   {producto.avisos.length > 0 ? <AdminNote tone="warn">{producto.avisos.join(" ")}</AdminNote> : null}
+                  {producto.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">
+                        {`No está en el texto: ${producto.inventados.join(" · ")}.`}
+                        {producto.accion === "vincular" ? " Al vincular no se aplican." : ""}
+                      </AdminNote>
+                      {producto.accion !== "vincular" ? (
+                        <div className="admin-ia-grid">
+                          <SwitchField
+                            label="Confirmo los datos marcados"
+                            checked={producto.confirmado}
+                            onChange={(confirmado) => actualizarProducto(producto.clave, { confirmado })}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
@@ -934,21 +1043,40 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                     <span className="admin-ia-card-title">{`Cobro de «${cobro.clienteNombre ?? "sin cliente"}»`}</span>
                     <SwitchField
                       label="Registrar"
-                      checked={cobro.incluir}
-                      disabled={!puedeCobrar || !cobro.clienteId || aNumero(cobro.monto) <= 0}
+                      checked={cobro.incluir && !cobro.plazo}
+                      disabled={!puedeCobrar || cobro.plazo || !cobro.clienteId || aNumero(cobro.monto) <= 0}
                       onChange={(incluir) => actualizarCobro(cobro.clave, { incluir })}
                     />
                   </header>
                   {!puedeCobrar ? (
                     <AdminNote tone="warn">Tu rol no puede registrar cobros: los registra Finanzas. El cobro queda solo como aviso.</AdminNote>
                   ) : null}
-                  {cobro.avisos.length > 0 ? <AdminNote tone="warn">{cobro.avisos.join(" ")}</AdminNote> : null}
+                  {cobro.plazo ? (
+                    <AdminNote tone="warn">
+                      {cobro.vencimiento
+                        ? `A crédito/plazo: vence el ${cobro.vencimiento}. No se registra como cobrado en esta carga.`
+                        : "A crédito/plazo: no se registra como cobrado en esta carga."}
+                    </AdminNote>
+                  ) : null}
+                  {cobro.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">{`No está en el texto: ${cobro.inventados.join(" · ")}.`}</AdminNote>
+                      <div className="admin-ia-grid">
+                        <SwitchField
+                          label="Confirmo los datos marcados"
+                          checked={cobro.confirmado}
+                          onChange={(confirmado) => actualizarCobro(cobro.clave, { confirmado })}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                  {avisosVigentes(cobro.avisos, cobro.clienteId).length > 0 ? <AdminNote tone="warn">{avisosVigentes(cobro.avisos, cobro.clienteId).join(" ")}</AdminNote> : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Cliente"
                       options={opcionesDeClienteCobro(cobro)}
                       value={cobro.clienteId}
-                      onChange={(clienteId) => actualizarCobro(cobro.clave, { clienteId, incluir: Boolean(clienteId) && aNumero(cobro.monto) > 0 })}
+                      onChange={(clienteId) => actualizarCobro(cobro.clave, { clienteId, incluir: Boolean(clienteId) && !cobro.plazo && aNumero(cobro.monto) > 0 })}
                       disabled={cargandoClientes || !puedeCobrar}
                       error={!cobro.clienteId ? "Elegí el cliente del cobro." : null}
                     />
@@ -956,7 +1084,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       label="Monto"
                       hint={cobro.montoTexto ? `En el texto: ${cobro.montoTexto}` : "No vino el monto en el texto"}
                       value={cobro.monto}
-                      onChange={(monto) => actualizarCobro(cobro.clave, { monto, incluir: Boolean(cobro.clienteId) && aNumero(monto) > 0 })}
+                      onChange={(monto) => actualizarCobro(cobro.clave, { monto, incluir: Boolean(cobro.clienteId) && !cobro.plazo && aNumero(monto) > 0 })}
                       disabled={!puedeCobrar}
                     />
                     <SelectField
