@@ -714,10 +714,12 @@ export function AdminKpi({ label, value, note, tone, icon }: { label: string; va
             <AdminIcon name={icon} size={12} />
           </span>
         ) : null}
-        {label}
+        {/* El texto va en su propio nodo para poder truncarlo sin perder el ícono. */}
+        <span className="admin-kpi-label-text" title={label}>{label}</span>
       </span>
-      <strong className="admin-kpi-value">{value}</strong>
-      {note ? <span className="admin-kpi-note">{note}</span> : null}
+      {/* El `title` deja leer completo lo que el compacto trunca (issue #113). */}
+      <strong className="admin-kpi-value" title={value}>{value}</strong>
+      {note ? <span className="admin-kpi-note" title={note}>{note}</span> : null}
     </div>
   );
 }

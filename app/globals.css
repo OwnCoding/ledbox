@@ -1315,11 +1315,24 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-module-context-hint { overflow: hidden; color: var(--a-muted-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-module-context-meta { flex: 0 0 auto; color: var(--a-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .admin-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); gap: 8px; }
-.admin-kpi { display: grid; gap: 3px; min-height: 82px; padding: 10px 12px; border: 1px solid var(--a-line); border-top: 2px solid transparent; border-radius: var(--a-radius); background: var(--a-panel); }
-.admin-kpi-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
-.admin-kpi-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 18px; height: 18px; border-radius: 8px; background: var(--a-accent-soft); color: var(--a-accent); }
-.admin-kpi-value { overflow: hidden; color: var(--a-text-strong); font: 700 20px/1.15 var(--font-body); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.admin-kpi-note { color: var(--a-muted); font-size: 11px; }
+/* KPI compacto (issue #113): el label, el número y la nota comparten la línea
+   cuando entran —la nota larga trunca y se lee completa con el `title`— y a lo
+   sumo bajan a una segunda línea en tarjetas angostas. El número conserva el
+   protagonismo, el tono y el ícono. */
+.admin-kpi { display: flex; align-items: baseline; flex-wrap: nowrap; gap: 2px 8px; min-height: 48px; padding: 8px 10px; border: 1px solid var(--a-line); border-top: 2px solid transparent; border-radius: var(--a-radius); background: var(--a-panel); }
+.admin-kpi-label { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; max-width: 100%; min-width: 0; color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.admin-kpi-label-text { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.admin-kpi-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 16px; height: 16px; border-radius: 6px; background: var(--a-accent-soft); color: var(--a-accent); }
+.admin-kpi-value { flex: 0 0 auto; overflow: hidden; color: var(--a-text-strong); font: 700 18px/1.2 var(--font-body); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+/* La nota es la primera en ceder: el label y el número no se recortan si la
+   nota puede truncarse (su texto completo queda en el `title`). */
+.admin-kpi-note { flex: 1 1000 0%; min-width: 0; color: var(--a-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Mobile: la tarjeta es angosta, así que el label ocupa su línea y el número
+   con la nota van en la segunda (máximo dos líneas, la nota trunca). */
+@media (max-width: 720px) {
+  .admin-kpi { flex-wrap: wrap; }
+  .admin-kpi-label { flex-basis: 100%; }
+}
 .admin-kpi[data-tone="accent"] .admin-kpi-value { color: var(--a-accent); }
 .admin-kpi[data-tone="ok"] .admin-kpi-value { color: var(--a-ok); }
 .admin-kpi[data-tone="warn"] .admin-kpi-value { color: var(--a-warn); }
@@ -2403,7 +2416,8 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-link-row .admin-actions { grid-area: actions; }
 }
 @media (max-width: 520px) {
-  .admin-kpi { padding: 12px 12px; }
+  /* Mobile angosto: el KPI mantiene el compacto (una o dos líneas). */
+  .admin-kpi { padding: 8px 10px; }
   .admin-kpi-value { font-size: 17px; }
 }
 @media (max-width: 420px) {
