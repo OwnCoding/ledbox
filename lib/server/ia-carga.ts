@@ -857,12 +857,14 @@ export function similitudTexto(a: string | null | undefined, b: string | null | 
     const [primeroB] = B.split(" ");
     if (primeroA && primeroB && primeroA === primeroB) puntaje += 6;
   }
-  if (
-    compactoA.length >= 4 &&
-    compactoB.length >= 4 &&
-    (compactoB.startsWith(compactoA) || compactoA.startsWith(compactoB))
-  ) {
-    puntaje = Math.max(puntaje, 84);
+  if (compactoA.length >= 4 && compactoB.length >= 4) {
+    // Prefijo compacto exacto («noeces» ⊂ «noeces btl…») o con 1–2 letras de
+    // diferencia («noeses» ≈ «noeces»): sugerencia, nunca auto-vínculo ciego.
+    const [corto, largo] = compactoA.length <= compactoB.length ? [compactoA, compactoB] : [compactoB, compactoA];
+    const distancia = distanciaCorta(largo.slice(0, corto.length), corto);
+    const permitido = corto.length >= 7 ? 2 : 1;
+    if (distancia === 0) puntaje = Math.max(puntaje, 84);
+    else if (distancia <= permitido) puntaje = Math.max(puntaje, 78);
   }
   // Typos de una letra en nombres largos («kiosco» ↔ «kiosko»): el par vale
   // 0.85 (no auto-vincula un nombre de una sola palabra), issue #126.
@@ -1040,25 +1042,14 @@ export function candidatosDeProducto(
     }));
 }
 
-/**
- * ¿El primer candidato es un match claro? Lo es con confianza ≥ `IA_MATCH_CLARO`
- * y sin un segundo candidato pegado (a menos de 12 puntos): ahí la decisión no
- * es obvia y se ofrecen las opciones.
- */
-function matchClaro(candidatos: IaCandidato[]): boolean {
-  const [top, segundo] = candidatos;
-  if (!top || top.confianza < IA_MATCH_CLARO) return false;
-  if (!segundo || segundo.confianza < IA_MATCH_DUDOSO) return true;
-  return top.confianza - segundo.confianza >= 12;
-}
-
 export type CarteraExistente = { clientes: ClienteCartera[]; productos: ProductoCartera[] };
 
 /**
- * Resuelve lo detectado contra lo existente (issue #122): clientes y productos
- * con candidato claro pasan a `vincular` (nunca se propone duplicar); si hay
- * parecidos dudosos, se avisa y se ofrecen opciones; los eventos y cobros
- * enganchan su cliente de la cartera (o quedan pendientes de elegir).
+ * Resuelve lo detectado contra lo existente (issues #122, #125 y #127): el
+ * mejor candidato (≥ `IA_MATCH_DUDOSO`) queda **preseleccionado** como vínculo
+ * —con aviso «Sugerido» cuando la confianza es media— y la persona lo cambia
+ * a un toque; sin candidatos se crea. Los eventos y cobros enganchan su cliente
+ * de la cartera (o el que quedó resuelto en el mismo análisis).
  */
 export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistente): IaAnalisis {
   const clientes = analisis.clientes.map((cliente) => {
@@ -1071,7 +1062,13 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
       cartera.clientes,
     );
     const [top] = candidatos;
-    if (matchClaro(candidatos) && top) {
+    // Con cualquier candidato (≥ 60 %) el mejor queda preseleccionado y la
+    // persona lo cambia a un toque si no es (issue #127); sin candidatos, crear.
+    if (top) {
+      const avisos = [...cliente.avisos];
+      if (top.confianza < IA_MATCH_CLARO) {
+        avisos.push(`Sugerido: «${top.nombre}» (${top.confianza} %). Podés cambiarlo o crear uno nuevo.`);
+      }
       return {
         ...cliente,
         accion: "vincular" as const,
@@ -1079,21 +1076,7 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
         existenteNombre: top.nombre,
         confianza: top.confianza,
         candidatos,
-      };
-    }
-    // Confianza media (60–89 %): la persona elige (nunca automático, issue #125).
-    if (top) {
-      return {
-        ...cliente,
-        accion: "elegir" as const,
-        existenteId: null,
-        existenteNombre: null,
-        confianza: top.confianza,
-        candidatos,
-        avisos: [
-          ...cliente.avisos,
-          `Elegí si es «${top.nombre}» (${top.confianza} %) o creá uno nuevo.`,
-        ],
+        avisos,
       };
     }
     return { ...cliente, accion: "crear" as const, existenteId: null, existenteNombre: null, confianza: null, candidatos, avisos: [...cliente.avisos] };
@@ -1108,7 +1091,11 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
       cartera.productos,
     );
     const [top] = candidatos;
-    if (matchClaro(candidatos) && top) {
+    if (top) {
+      const avisos = [...producto.avisos];
+      if (top.confianza < IA_MATCH_CLARO) {
+        avisos.push(`Sugerido: «${top.nombre}» (${top.confianza} %). Podés cambiarlo o crear uno nuevo.`);
+      }
       return {
         ...producto,
         accion: "vincular" as const,
@@ -1116,20 +1103,7 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
         existenteNombre: top.nombre,
         confianza: top.confianza,
         candidatos,
-      };
-    }
-    if (top) {
-      return {
-        ...producto,
-        accion: "elegir" as const,
-        existenteId: null,
-        existenteNombre: null,
-        confianza: top.confianza,
-        candidatos,
-        avisos: [
-          ...producto.avisos,
-          `Elegí si es «${top.nombre}» (${top.confianza} %) o creá uno nuevo.`,
-        ],
+        avisos,
       };
     }
     return { ...producto, accion: "crear" as const, existenteId: null, existenteNombre: null, confianza: null, candidatos, avisos: [...producto.avisos] };
@@ -1150,52 +1124,31 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
     if (!evento.clienteNombre) {
       return { ...evento, avisos: [...evento.avisos, "Sin cliente en el texto: elegí uno de la cartera."] };
     }
-    const encadenado = enganchar(evento.clienteNombre);
-    if (encadenado) return { ...evento, clienteId: encadenado };
     const candidatos = candidatosDeCliente({ nombre: evento.clienteNombre }, cartera.clientes);
     const [top] = candidatos;
-    if (top && matchClaro(candidatos)) return { ...evento, clienteId: top.id, candidatos };
-    if (candidatos.length === 0) {
-      return {
-        ...evento,
-        avisos: [...evento.avisos, `No encontramos «${evento.clienteNombre}» en los clientes: elegí uno o creá el cliente primero.`],
-      };
+    const clienteId = enganchar(evento.clienteNombre) ?? top?.id ?? null;
+    const avisos = [...evento.avisos];
+    if (!clienteId) {
+      avisos.push(`No encontramos «${evento.clienteNombre}» en los clientes: elegí uno o creá el cliente primero.`);
+    } else if (!enganchar(evento.clienteNombre) && top && top.confianza < IA_MATCH_CLARO) {
+      avisos.push(`Sugerido: «${top.nombre}» (${top.confianza} %). Podés cambiarlo.`);
     }
-    return {
-      ...evento,
-      candidatos,
-      avisos: [
-        ...evento.avisos,
-        candidatos.length > 1
-          ? `«${evento.clienteNombre}» coincide con varios clientes: elegí cuál.`
-          : `Encontramos «${top.nombre}» (${top.confianza} %): elegí si es ese cliente.`,
-      ],
-    };
+    return { ...evento, clienteId, candidatos, avisos };
   });
 
   const cobros = analisis.cobros.map((cobro) => {
     if (!cobro.clienteNombre) return cobro;
-    const encadenado = enganchar(cobro.clienteNombre);
-    if (encadenado) return { ...cobro, clienteId: encadenado };
     const candidatos = candidatosDeCliente({ nombre: cobro.clienteNombre }, cartera.clientes);
     const [top] = candidatos;
-    if (top && matchClaro(candidatos)) return { ...cobro, clienteId: top.id, candidatos };
-    if (candidatos.length === 0) {
-      return {
-        ...cobro,
-        avisos: [...cobro.avisos, `No encontramos «${cobro.clienteNombre}» en los clientes: elegí el cliente para registrar el cobro.`],
-      };
+    const encadenado = enganchar(cobro.clienteNombre);
+    const clienteId = encadenado ?? top?.id ?? null;
+    const avisos = [...cobro.avisos];
+    if (!clienteId) {
+      avisos.push(`No encontramos «${cobro.clienteNombre}» en los clientes: elegí el cliente para registrar el cobro.`);
+    } else if (!encadenado && top && top.confianza < IA_MATCH_CLARO) {
+      avisos.push(`Sugerido: «${top.nombre}» (${top.confianza} %). Podés cambiarlo.`);
     }
-    return {
-      ...cobro,
-      candidatos,
-      avisos: [
-        ...cobro.avisos,
-        candidatos.length > 1
-          ? `«${cobro.clienteNombre}» coincide con varios clientes: elegí a quién se le registra el cobro.`
-          : `Encontramos «${top.nombre}» (${top.confianza} %): elegí si el cobro es de ese cliente.`,
-      ],
-    };
+    return { ...cobro, clienteId, candidatos, avisos };
   });
 
   return {

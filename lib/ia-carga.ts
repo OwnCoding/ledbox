@@ -45,25 +45,20 @@ export const IA_TIPO_LABEL: Record<IaTipo, string> = {
 
 /**
  * Acción de un registro detectado. La arquitectura deja lugar a más acciones
- * (hoy: crear, vincular a un existente, elegir cuando la confianza es media y
- * registrar un cobro).
+ * (hoy: crear, vincular a un existente y registrar un cobro). Con confianza
+ * media (60–89 %) el mejor candidato queda **preseleccionado** y la persona
+ * puede cambiarlo (issues #125 y #127).
  */
-export type IaAccion = "crear" | "vincular" | "elegir" | "registrar_pago";
+export type IaAccion = "crear" | "vincular" | "registrar_pago";
 
 export const IA_ACCION_LABEL: Record<IaAccion, string> = {
   crear: "Crear nuevo",
   vincular: "Vincular a existente",
-  elegir: "Elegir existente",
   registrar_pago: "Registrar cobro",
 };
 
-/** La acción que la persona debe resolver en el preview (confianza media). */
-export function esAccionPendiente(accion: IaAccion): boolean {
-  return accion === "elegir";
-}
-
-/** Confianza media: hay candidato, pero lo elige la persona (issue #125). */
-export type IaAccionExistente = Extract<IaAccion, "crear" | "vincular" | "elegir">;
+/** Acciones de un registro que puede existir o crearse. */
+export type IaAccionExistente = Extract<IaAccion, "crear" | "vincular">;
 
 /** Candidato existente para vincular: id, nombre, confianza y foto si la hay. */
 export type IaCandidato = {
@@ -86,12 +81,12 @@ export type IaCliente = {
   ruc: string | null;
   telefono: string | null;
   correo: string | null;
-  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  /** `vincular` con el candidato preseleccionado (≥ 60 %) o `crear` sin candidatos. */
   accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
   confianza: number | null;
-  /** Candidatos con confianza y foto (hasta 8). */
+  /** Candidatos con confianza y foto (hasta 8), para cambiar la sugerencia. */
   candidatos: IaCandidato[];
   /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
   inventados: string[];
@@ -129,7 +124,7 @@ export type IaProducto = {
   precioLista: number | null;
   precioMayorista: number | null;
   precioMinimo: number | null;
-  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  /** `vincular` con el candidato preseleccionado (≥ 60 %) o `crear` sin candidatos. */
   accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
