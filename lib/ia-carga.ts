@@ -26,7 +26,7 @@ export const IA_TOKENS_MAX = 4_000;
 export const IA_TIMEOUT_MS = 30_000;
 
 /** Confianza (0–100) desde la que un candidato es «claro»: se propone vincular. */
-export const IA_MATCH_CLARO = 85;
+export const IA_MATCH_CLARO = 90;
 
 /** Confianza desde la que un candidato se muestra como posible (dudoso). */
 export const IA_MATCH_DUDOSO = 60;
@@ -45,17 +45,27 @@ export const IA_TIPO_LABEL: Record<IaTipo, string> = {
 
 /**
  * Acción de un registro detectado. La arquitectura deja lugar a más acciones
- * (hoy: crear, vincular a un existente y registrar un cobro).
+ * (hoy: crear, vincular a un existente, elegir cuando la confianza es media y
+ * registrar un cobro).
  */
-export type IaAccion = "crear" | "vincular" | "registrar_pago";
+export type IaAccion = "crear" | "vincular" | "elegir" | "registrar_pago";
 
 export const IA_ACCION_LABEL: Record<IaAccion, string> = {
   crear: "Crear nuevo",
   vincular: "Vincular a existente",
+  elegir: "Elegir existente",
   registrar_pago: "Registrar cobro",
 };
 
-/** Candidato existente para vincular: id, nombre y confianza del match (0–100). */
+/** La acción que la persona debe resolver en el preview (confianza media). */
+export function esAccionPendiente(accion: IaAccion): boolean {
+  return accion === "elegir";
+}
+
+/** Confianza media: hay candidato, pero lo elige la persona (issue #125). */
+export type IaAccionExistente = Extract<IaAccion, "crear" | "vincular" | "elegir">;
+
+/** Candidato existente para vincular: id, nombre, confianza y foto si la hay. */
 export type IaCandidato = {
   id: string;
   nombre: string;
@@ -63,6 +73,8 @@ export type IaCandidato = {
   confianza: number;
   /** Pista del match («RUC 80012345-6», «SKU PL-001», «empresa»), si la hay. */
   detalle: string | null;
+  /** Imagen para el preview (logo del cliente o foto del ítem); `null` sin imagen. */
+  imagenUrl: string | null;
 };
 
 /** Cliente detectado (preview editable; `avisos` explica lo que falta o dudó la IA). */
@@ -74,12 +86,12 @@ export type IaCliente = {
   ruc: string | null;
   telefono: string | null;
   correo: string | null;
-  /** `vincular` cuando hay un candidato claro; el dueño puede cambiarla a `crear`. */
-  accion: Extract<IaAccion, "crear" | "vincular">;
+  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
   confianza: number | null;
-  /** Candidatos con confianza (hasta 8). */
+  /** Candidatos con confianza y foto (hasta 8). */
   candidatos: IaCandidato[];
   avisos: string[];
 };
@@ -113,8 +125,8 @@ export type IaProducto = {
   precioLista: number | null;
   precioMayorista: number | null;
   precioMinimo: number | null;
-  /** `vincular` cuando ya existe un ítem claro; el dueño puede cambiarla a `crear`. */
-  accion: Extract<IaAccion, "crear" | "vincular">;
+  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
   confianza: number | null;

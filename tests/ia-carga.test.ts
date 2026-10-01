@@ -182,10 +182,10 @@ const CARTERA = [
 
 test("el match de clientes ignora acentos y mayúsculas", () => {
   assert.deepEqual(candidatosDeCliente({ nombre: "constructora sur" }, CARTERA), [
-    { id: "c1", nombre: "Constructora Sur SA", confianza: 92, detalle: null },
+    { id: "c1", nombre: "Constructora Sur SA", confianza: 92, detalle: null, imagenUrl: null },
   ]);
   assert.deepEqual(candidatosDeCliente({ nombre: "juan perez" }, CARTERA), [
-    { id: "c2", nombre: "Juan Pérez", confianza: 100, detalle: null },
+    { id: "c2", nombre: "Juan Pérez", confianza: 100, detalle: null, imagenUrl: null },
   ]);
   assert.equal(candidatosDeCliente({ nombre: "Nadie" }, CARTERA).length, 0);
 });
