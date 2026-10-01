@@ -1124,12 +1124,11 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-company-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .admin-company-name { color: var(--a-text-strong); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-sidebar-note { color: var(--a-muted); font-size: 11px; }
-/* Usuario en el nav lateral (pedido del 22-09-2026): debajo de la empresa y
-   arriba del pie; el menú se abre hacia arriba para no salir de pantalla. */
-.admin-usermenu--sidebar { width: 100%; }
-.admin-user--sidebar { width: 100%; padding: 8px 8px; border-radius: 8px; background: var(--a-bg-2); text-align: left; }
+/* Usuario en el nav lateral (issue #117): el chip es un enlace directo a Mi
+   perfil —sin menú— con el avatar, el nombre y el rol. */
+.admin-user--sidebar { width: 100%; padding: 8px 8px; border-radius: 8px; background: var(--a-bg-2); text-align: left; text-decoration: none; }
 .admin-user--sidebar .admin-user-info { flex: 1 1 auto; min-width: 0; }
-.admin-usermenu--sidebar .admin-usermenu-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; }
+.admin-user--sidebar:hover { border-color: var(--a-line-2); background: var(--a-panel-2); }
 /* En escritorio el sidebar está siempre visible: los botones de abrir/cerrar el
    menú solo existen en pantallas chicas. La regla necesita más especificidad que
    `.admin-iconbtn` (definido más abajo con la misma), que si no los volvía a
@@ -1143,23 +1142,22 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-topbar-heading { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--a-text-strong); font: 700 16px/1.2 var(--font-body); letter-spacing: .02em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .admin-topbar-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 8px; background: var(--a-accent-soft); color: var(--a-accent); }
 .admin-topbar-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.admin-usermenu { position: relative; }
 .admin-user { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border: 1px solid var(--a-line); border-radius: 999px; background: var(--a-panel); color: inherit; font-family: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
 .admin-user:hover { border-color: var(--a-line-2); background: var(--a-panel-2); }
-.admin-user[aria-expanded="true"] { border-color: var(--a-accent); }
-.admin-user > .admin-icon { color: var(--a-muted); }
-.admin-usermenu-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; display: grid; gap: 4px; width: min(18rem, calc(100vw - 24px)); padding: 8px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius-lg); background: var(--a-panel); box-shadow: var(--a-shadow); }
-.admin-usermenu-head { display: grid; justify-items: start; gap: 4px; padding: 4px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--a-line); }
-.admin-usermenu-head strong { max-width: 100%; overflow: hidden; color: var(--a-text-strong); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
-.admin-usermenu-head small { max-width: 100%; color: var(--a-muted); font-size: 11px; overflow-wrap: anywhere; }
-.admin-usermenu-head .admin-badge { margin-top: 4px; }
-.admin-usermenu-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-template-areas: "icon label" "icon sub"; gap: 0 8px; align-items: center; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 600 12.5px var(--font-body); text-align: left; text-decoration: none; cursor: pointer; }
-.admin-usermenu-item:hover { background: var(--a-accent-soft); color: var(--a-accent); }
-.admin-usermenu-item:disabled { opacity: .5; cursor: not-allowed; }
-.admin-usermenu-item .admin-icon { grid-area: icon; }
-.admin-usermenu-item > span { grid-area: label; }
-.admin-usermenu-item > small { grid-area: sub; color: var(--a-muted); font-size: 11px; font-weight: 500; }
-.admin-usermenu-item:hover > small { color: inherit; }
+/* Identidad y cuenta en Mi perfil (issue #117): lo que antes vivía en el menú
+   del chip. La identidad va arriba de los paneles; las acciones, al final. */
+.admin-account-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel); }
+.admin-account-head-copy { display: grid; gap: 2px; min-width: 0; }
+.admin-account-head-copy strong { overflow: hidden; color: var(--a-text-strong); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-account-head-copy small { overflow: hidden; color: var(--a-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-account-head .admin-badge { flex: 0 0 auto; margin-left: auto; }
+.admin-account-actions { display: grid; gap: 4px; }
+.admin-account-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-template-areas: "icon label" "icon sub"; gap: 0 8px; align-items: center; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 600 12.5px var(--font-body); text-align: left; text-decoration: none; cursor: pointer; }
+.admin-account-item:hover { background: var(--a-accent-soft); color: var(--a-accent); }
+.admin-account-item:disabled { opacity: .5; cursor: not-allowed; }
+.admin-account-item .admin-icon { grid-area: icon; }
+.admin-account-item > span { grid-area: label; }
+.admin-account-item > small { grid-area: sub; color: var(--a-muted); font-size: 11px; font-weight: 500; }
 /* Objeto único de identidad (issue #22): avatar de persona y logo de empresa. */
 .admin-avatar { display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; border-radius: 50%; background: var(--a-accent); color: #04191d; font: 700 11px var(--font-body); letter-spacing: .04em; }
 .admin-avatar:has(.admin-avatar-img) { background: var(--a-panel-2); }
@@ -1205,7 +1203,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-root[data-sidebar="collapsed"] .admin-user--sidebar { justify-content: center; padding: 8px; }
   .admin-root[data-sidebar="collapsed"] .admin-sidebar-note { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* El menú del usuario se abre al costado del sidebar, no dentro de sus 72 px. */
-  .admin-root[data-sidebar="collapsed"] .admin-usermenu--sidebar .admin-usermenu-panel { bottom: 0; left: calc(100% + 8px); right: auto; width: min(16rem, calc(100vw - 96px)); }
 }
 
 /* ── Nav en acordeón y densidad por altura (issue #50) ──
@@ -2082,7 +2079,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 @media (max-width: 560px) {
   /* El `backdrop-filter` del topbar es el bloque contenedor del panel fijo: queda pegado a la barra. */
   .admin-notif-panel { position: fixed; top: calc(var(--a-topbar) + 6px); left: 10px; right: 10px; width: auto; max-height: min(64vh, 26rem); }
-  .admin-usermenu-panel { position: fixed; top: calc(var(--a-topbar) + 6px); left: 10px; right: 10px; width: auto; }
 }
 
 /* ── Trabajo de campo offline (issue #23) ──
@@ -3308,7 +3304,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 
 .admin-sidebar { background: var(--a-sidebar-bg); border-right: var(--a-sidebar-line); border-radius: var(--a-sidebar-radius); backdrop-filter: var(--a-blur); }
 .admin-topbar { border-bottom: var(--a-topbar-line); background: var(--a-topbar-bg); backdrop-filter: var(--a-blur); box-shadow: var(--a-shadow-card); }
-.admin-card, .admin-dialog, .admin-usermenu-panel, .admin-notif-panel {
+.admin-card, .admin-dialog, .admin-notif-panel {
   border: var(--a-panel-line);
   background: var(--a-panel);
   box-shadow: var(--a-panel-shadow);
@@ -3318,7 +3314,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-sidebar-foot { border-top: var(--a-sidebar-line); }
 .admin-dialog { backdrop-filter: var(--a-blur); }
 .admin-dialog-overlay { background: color-mix(in srgb, var(--a-bg) 72%, transparent); }
-.admin-notif-panel, .admin-usermenu-panel { backdrop-filter: var(--a-blur); }
+.admin-notif-panel { backdrop-filter: var(--a-blur); }
 
 /* ── Tipografía y jerarquía ── */
 .admin-topbar-heading { font: 600 17px/1.2 var(--font-display); letter-spacing: 0; text-transform: none; }
