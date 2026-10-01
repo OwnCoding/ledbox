@@ -49,6 +49,19 @@ function invalidateSession(): void {
 export type AdminApiResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; sessionInvalid?: boolean; aborted?: boolean };
 export type AdminSendResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
+/**
+ * Aviso global de refresco (issue #120): la «Carga con IA» crea registros desde
+ * el shell, fuera de la pantalla del módulo; los recursos montados
+ * (`useAdminResource`) recargan al escuchar este evento.
+ */
+export const ADMIN_REFRESH_EVENT = "ledbox:admin-refresh";
+
+/** Pide a las pantallas montadas que recarguen sus recursos. */
+export function requestAdminRefresh(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ADMIN_REFRESH_EVENT));
+}
+
 export type AdminSendOptions = {
   /**
    * Idempotencia de la operación (issue #20): `true` genera una clave nueva por
@@ -285,6 +298,15 @@ export function useAdminResource<T>(
 
   useEffect(() => {
     if (enabled) void load();
+  }, [enabled, load]);
+
+  // Refresco global (issue #120): la «Carga con IA» avisa y cada recurso
+  // montado vuelve a pedir sus datos sin cambiar de pantalla.
+  useEffect(() => {
+    if (!enabled) return;
+    const onRefresh = () => void load({ fresh: true });
+    window.addEventListener(ADMIN_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(ADMIN_REFRESH_EVENT, onRefresh);
   }, [enabled, load]);
 
   const reload = useCallback(() => {

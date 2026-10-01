@@ -321,6 +321,12 @@ const ICON_PATHS: Record<AdminIconName, React.ReactNode> = {
       <path d="M4 20h16" />
     </>
   ),
+  sparkles: (
+    <>
+      <path d="M11 4.5l1.5 4.1 4.1 1.5-4.1 1.5L11 15.7 9.5 11.6 5.4 10.1l4.1-1.5z" />
+      <path d="M18 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+    </>
+  ),
 };
 
 export function AdminIcon({ name, size = 16 }: { name: AdminIconName; size?: number }) {
