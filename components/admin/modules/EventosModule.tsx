@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   damageSummary,
   daysUntilDue,
@@ -33,7 +34,8 @@ import {
   type AdminPromoterOption,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
-import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminViewSwitch, useAdminModuleView, type AdminModuleView } from "../AdminBoard";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { CalendarioModule } from "./CalendarioModule";
 import {
   AdminBadge,
@@ -95,8 +97,9 @@ const TASK_TYPE_OPTIONS = [
   { value: "COLLECTION", label: "Cobro" },
 ];
 
-/** Tablero kanban: una columna por estado del evento (set de estados, sin máquina). */
-const BOARD_COLUMNS: AdminBoardColumn[] = STATUS_OPTIONS.slice(1).map((option) => ({ value: option.value, label: option.label }));
+/** Vistas de eventos (issue #119): lista densa y cuadrícula; el calendario
+ *  sigue entrando por URL (`/calendario` → `?vista=calendario`, issue #56). */
+const EVENTOS_VIEWS = ["list", "grid"] as const;
 
 /** `id` del `<datalist>` con el catálogo de ciudades (owncoding-ui) del campo Ciudad. */
 const EVENT_CITY_LIST_ID = "eventos-ciudad-opciones";
@@ -217,8 +220,22 @@ export function EventosModule() {
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
-  // La vista calendario entra por `?vista=calendario` (ruta vieja `/calendario`), #56.
-  const [view, setView] = useAdminModuleView("eventos", ["list", "board", "calendar"]);
+  // Vistas del selector (issue #119): lista y cuadrícula, recordadas por usuario.
+  const [view, setView] = useAdminModuleView("eventos", EVENTOS_VIEWS);
+  // El calendario sigue entrando por URL (`/calendario` → `?vista=calendario`,
+  // issue #56): no está en el selector, pero la vista se mantiene y el primer
+  // toque en Lista/Cuadrícula vuelve al selector.
+  const searchParams = useSearchParams();
+  const calendarRequested = ["calendario", "calendar"].includes((searchParams.get("vista") ?? "").trim().toLowerCase());
+  const [calendarOpen, setCalendarOpen] = useState(calendarRequested);
+  useEffect(() => {
+    setCalendarOpen(calendarRequested);
+  }, [calendarRequested]);
+  const activeView: AdminModuleView = calendarOpen ? "calendar" : view;
+  function changeView(next: AdminModuleView) {
+    setCalendarOpen(false);
+    setView(next);
+  }
   const [taskFilter, setTaskFilter] = useState("PENDING");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_EVENT_FORM);
@@ -233,7 +250,6 @@ export function EventosModule() {
   const [taskError, setTaskError] = useState("");
   const [taskNotice, setTaskNotice] = useState("");
   const [checklistError, setChecklistError] = useState("");
-  const [boardError, setBoardError] = useState("");
 
   const [equipmentEventId, setEquipmentEventId] = useState("");
   const [assignForm, setAssignForm] = useState(EMPTY_ASSIGN_FORM);
@@ -277,7 +293,7 @@ export function EventosModule() {
   const assignments = equipmentEvent?.assignments ?? [];
   const assignedUnits = assignments.reduce((sum, assignment) => sum + assignment.quantity, 0);
 
-  /** Búsqueda compartida por lista y tablero: el filtro de estado es de la lista. */
+  /** Búsqueda compartida por lista y cuadrícula; el filtro de estado aplica a las dos. */
   const searched = useMemo(
     () => events.filter((event) => matchesQuery(query, [event.name, event.location, event.city, event.client.company, event.client.name, event.status])),
     [events, query],
@@ -289,52 +305,38 @@ export function EventosModule() {
       .sort(compareEventUrgency);
   }, [searched, status]);
 
-  // Tablero (issue #26): columnas por estado; el movimiento pega el PATCH real.
-  // La búsqueda sí filtra las tarjetas y el orden por urgencia fija el de cada
-  // columna, así el tablero abre en lo que está en juego.
-  const orderedSearched = useMemo(() => [...searched].sort(compareEventUrgency), [searched]);
-  const moveEvent = useCallback(async (event: EventRow, nextStatus: string) => {
-    setBoardError("");
-    const result = await adminSend("/api/admin/events", { id: event.id, status: nextStatus }, "PATCH");
-    return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
-  }, []);
-  const board = useAdminBoardMove({ rows: orderedSearched, move: moveEvent, onError: setBoardError });
-
-  const boardCards = useMemo<AdminBoardCardData[]>(
-    () =>
-      board.rows.map((event) => {
-        const units = event.assignments.reduce((sum, assignment) => sum + assignment.quantity, 0);
-        const progress = checklistProgress(event.tasks, { risk: isUpcomingEvent(event) });
-        const closed = event.status === "COMPLETED" || event.status === "CANCELLED";
-        return {
-          id: event.id,
-          status: event.status,
-          title: event.name,
-          subtitle: [event.client.company || event.client.name, event.location || null, event.city || null].filter(Boolean).join(" · "),
-          date: closed ? null : event.startsAt,
-          dateTitle: `Cuánto falta para el inicio: ${event.name}`,
-          badges: event.tasks.length > 0 ? [{ label: `Checklist ${progress.label}`, tone: progress.tone, title: progress.title }] : [],
-          detail: `${formatNumber(units)} equipo${units === 1 ? "" : "s"} asignado${units === 1 ? "" : "s"}`,
-          actions: (
-            <>
-              <AdminButton
-                icon="audit"
-                title={`Ver la cronología: ${event.name}`}
-                aria-label={`Ver la cronología: ${event.name}`}
-                onClick={() => setTimelineEvent(event)}
-              />
-              <AdminIconLink
-                href={`/imprimir/evento/${event.id}`}
-                icon="print"
-                label={`Imprimir orden de trabajo: ${event.name}`}
-                external
-              />
-            </>
-          ),
-        };
-      }),
-    [board.rows],
-  );
+  /** Acciones de un evento: las mismas en la fila y en la tarjeta (issue #119). */
+  function eventActions(event: EventRow) {
+    return (
+      <span className="admin-actions">
+        <AdminButton
+          icon="audit"
+          title={`Ver la cronología: ${event.name}`}
+          aria-label={`Ver la cronología: ${event.name}`}
+          onClick={() => setTimelineEvent(event)}
+        />
+        <AdminIconLink
+          href={`/imprimir/evento/${event.id}`}
+          icon="print"
+          label={`Imprimir orden de trabajo: ${event.name}`}
+          external
+        />
+        {writable && whatsappHref(event.client.phone) ? (
+          <AdminWhatsappTemplateButton
+            title={`Enviar por WhatsApp con plantilla a ${event.client.company || event.client.name}`}
+            onClick={() =>
+              setTemplateTarget({
+                kind: "event",
+                id: event.id,
+                label: event.client.company || event.client.name,
+                phone: event.client.phone,
+              })
+            }
+          />
+        ) : null}
+      </span>
+    );
+  }
 
   const checklistEntries = useMemo<ChecklistEntry[]>(() => {
     const all = events.flatMap((event) => event.tasks.map((task) => ({ task, eventName: event.name })));
@@ -646,7 +648,7 @@ export function EventosModule() {
         hint="Agenda, checklist de campo y equipos asignados por evento."
         meta={`${formatNumber(events.length)} eventos`}
       />
-      {view === "calendar" ? null : (
+      {activeView === "calendar" ? null : (
       <section className="admin-kpis" aria-label="Indicadores de eventos">
         <AdminKpi label="Eventos" icon="events" value={formatNumber(events.length)} note="cargados" />
         <AdminKpi label="Próximos" icon="calendar" value={formatNumber(upcoming)} note="con fecha futura" tone="accent" />
@@ -671,13 +673,15 @@ export function EventosModule() {
       )}
 
       <AdminToolbar>
-        {view === "calendar" ? null : (
+        {activeView === "calendar" ? null : (
           <SearchField value={query} onChange={setQuery} label="Buscar eventos" placeholder="Buscar por evento, cliente o lugar…" />
         )}
-        {view === "list" ? (
+        {/* El filtro de estado vive en el mismo lugar en lista y cuadrícula: el
+            conmutador no salta al alternar (issue #119). */}
+        {activeView === "calendar" ? null : (
           <AdminSelect value={status} onChange={setStatus} label="Filtrar por estado" options={STATUS_OPTIONS} />
-        ) : null}
-        <AdminViewSwitch view={view} onChange={setView} views={["list", "board", "calendar"]} label="Vista de eventos" />
+        )}
+        <AdminViewSwitch view={calendarOpen ? "calendar" : view} onChange={changeView} views={EVENTOS_VIEWS} label="Vista de eventos" />
         {writable ? (
           <AdminButton
             variant="primary"
@@ -783,11 +787,10 @@ export function EventosModule() {
         </AdminFormPanel>
       ) : null}
 
-      {boardError ? <AdminNote tone="error">{boardError}</AdminNote> : null}
-
-      {view === "calendar" ? (
+      {activeView === "calendar" ? (
         /* Calendario como vista del módulo (issue #56): la ruta vieja
-           `/calendario` entra acá con `?vista=calendario`. */
+           `/calendario` entra acá con `?vista=calendario`, aunque el selector
+           ya no lo ofrezca (issue #119). */
         <div className="admin-events-calendar">
           <CalendarioModule />
         </div>
@@ -802,19 +805,66 @@ export function EventosModule() {
         emptyHint="Creá un evento para activar su checklist de montaje, evento, desmontaje y cobro."
         emptyAction={writable ? <button type="button" className="admin-empty-link" onClick={() => { setFormError(""); setFormLimit(""); setShowForm(true); }}>Crear evento →</button> : undefined}
       >
-        {view === "board" ? (
-          searched.length === 0 ? (
-            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda." />
-          ) : (
-            <AdminBoard
-              label="Eventos"
-              columns={BOARD_COLUMNS}
-              cards={boardCards}
-              canMove={writable}
-              movingIds={board.movingIds}
-              onMove={writable ? board.moveTo : undefined}
-            />
-          )
+        {rows.length === 0 ? (
+          <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá el filtro de estado." />
+        ) : activeView === "grid" ? (
+          <AdminCardGrid label="Eventos" cards={rows.map((event): AdminCardData => {
+            const units = event.assignments.reduce((sum, assignment) => sum + assignment.quantity, 0);
+            const progress = checklistProgress(event.tasks, { risk: isUpcomingEvent(event) });
+            const equipmentNames = event.assignments.map((assignment) => assignment.inventory.name).join(", ");
+            const closed = event.status === "COMPLETED" || event.status === "CANCELLED";
+            return {
+              id: event.id,
+              title: event.name,
+              titleTooltip: `${event.name} · ${eventStatusLabel(event.status)}`,
+              subtitle: event.client.company || event.client.name,
+              badges: [{ label: eventStatusLabel(event.status), tone: statusTone(event.status) }],
+              fields: [
+                {
+                  label: "Fecha",
+                  value: event.startsAt ? `${formatDateShort(event.startsAt)} · ${formatTime(event.startsAt)}` : "A confirmar",
+                  title: event.startsAt ? formatDateTime(event.startsAt) : "Fecha a confirmar",
+                },
+                {
+                  label: "Falta",
+                  value:
+                    event.status === "IN_PROGRESS" ? (
+                      <AdminBadge tone="warn">En curso</AdminBadge>
+                    ) : closed || !event.startsAt ? (
+                      "—"
+                    ) : (
+                      <AdminCountdown value={event.startsAt} title={`Cuánto falta para el inicio: ${event.name}`} />
+                    ),
+                  title:
+                    event.status === "IN_PROGRESS"
+                      ? `En curso: ${event.name}`
+                      : event.startsAt
+                        ? `Inicio: ${formatDateTime(event.startsAt)}`
+                        : "Fecha a confirmar",
+                },
+                {
+                  label: "Lugar",
+                  value: [event.location, event.city].filter(Boolean).join(" · ") || "—",
+                  title: [event.location, event.city].filter(Boolean).join(" · ") || "Sin lugar definido",
+                },
+                {
+                  label: "Equipos",
+                  value: formatNumber(units),
+                  title: equipmentNames || "Sin equipos asignados",
+                },
+                {
+                  label: "Checklist",
+                  value: event.tasks.length > 0 ? (
+                    <AdminBadge tone={progress.tone} title={progress.title}>{progress.label}</AdminBadge>
+                  ) : (
+                    "—"
+                  ),
+                  title: progress.title,
+                },
+              ],
+              footer: eventActions(event),
+            };
+          })} />
         ) : (
           <>
             <AdminTable
@@ -881,41 +931,12 @@ export function EventosModule() {
                       <AdminBadge tone={statusTone(event.status)}>{eventStatusLabel(event.status)}</AdminBadge>
                     </AdminCell>
                     <AdminCell end className="admin-cell--actions">
-                      <span className="admin-actions">
-                        <AdminButton
-                          icon="audit"
-                          title={`Ver la cronología: ${event.name}`}
-                          aria-label={`Ver la cronología: ${event.name}`}
-                          onClick={() => setTimelineEvent(event)}
-                        />
-                        <AdminIconLink
-                          href={`/imprimir/evento/${event.id}`}
-                          icon="print"
-                          label={`Imprimir orden de trabajo: ${event.name}`}
-                          external
-                        />
-                        {writable && whatsappHref(event.client.phone) ? (
-                          <AdminWhatsappTemplateButton
-                            title={`Enviar por WhatsApp con plantilla a ${event.client.company || event.client.name}`}
-                            onClick={() =>
-                              setTemplateTarget({
-                                kind: "event",
-                                id: event.id,
-                                label: event.client.company || event.client.name,
-                                phone: event.client.phone,
-                              })
-                            }
-                          />
-                        ) : null}
-                      </span>
+                      {eventActions(event)}
                     </AdminCell>
                   </AdminRow>
                 );
               })}
             </AdminTable>
-            {rows.length === 0 ? (
-              <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá el filtro de estado." />
-            ) : null}
           </>
         )}
       </AdminDataState>
