@@ -7,13 +7,17 @@ import { normalizarBusqueda } from "owncoding-ui/utils";
 import { adminApiGet, adminSend, requestAdminRefresh } from "@/lib/admin-api";
 import { ADMIN_ROOT_ID } from "@/lib/admin-theme";
 import { publicConfig } from "@/lib/public-config";
+import { formatMoney } from "@/lib/admin-format";
 import { PAYMENT_METHODS } from "@/lib/admin-types";
 import { canWriteFinance } from "@/lib/admin-policy";
 import {
   IA_TEXTO_MAX,
   IA_TIPOS,
   IA_TIPO_LABEL,
-  esAccionPendiente,
+  dividirMonto,
+  hoyDelPanel,
+  parteEsPendiente,
+  sumaPartes,
   type IaAnalisis,
   type IaCandidato,
   type IaTipo,
@@ -60,6 +64,9 @@ type ClienteEdit = {
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  /** Campos que no están en el texto (issue #126): exigen confirmación. */
+  inventados: string[];
+  confirmado: boolean;
   nombre: string;
   empresa: string;
   tipo: "FINAL" | "RESELLER";
@@ -76,6 +83,8 @@ type EventoEdit = {
   clienteNombre: string | null;
   clienteId: string;
   candidatos: IaCandidato[];
+  inventados: string[];
+  confirmado: boolean;
   inicio: string;
   fin: string;
   lugar: string;
@@ -87,10 +96,14 @@ type ProductoEdit = {
   clave: string;
   incluir: boolean;
   accion: IaAccionExistente;
+  /** Editar precios de un ítem vinculado exige marcarlo (issue #128). */
+  actualizarPrecios: boolean;
   existenteId: string;
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  inventados: string[];
+  confirmado: boolean;
   nombre: string;
   categoria: string;
   cantidad: string;
@@ -100,9 +113,15 @@ type ProductoEdit = {
   avisos: string[];
 };
 
+/** Parte de un cobro dividido (issue #128): monto y fecha propia. */
+type ParteEdit = { clave: string; monto: string; fecha: string };
+
 type CobroEdit = {
   clave: string;
   incluir: boolean;
+  cuentaId: string;
+  /** Sin dividir = `null`; dividido, una parte por pago. */
+  partes: ParteEdit[] | null;
   clienteId: string;
   clienteNombre: string | null;
   candidatos: IaCandidato[];
@@ -112,6 +131,11 @@ type CobroEdit = {
   fechaTexto: string | null;
   metodo: string;
   referencia: string;
+  /** A crédito/plazo (issue #126): no se registra; `vencimiento` estimado. */
+  plazo: boolean;
+  vencimiento: string | null;
+  inventados: string[];
+  confirmado: boolean;
   avisos: string[];
 };
 
@@ -129,6 +153,9 @@ const TIPO_CLIENTE: Array<{ value: string; label: string }> = [
   { value: "RESELLER", label: "Mayorista" },
 ];
 
+/** Métodos que Finanzas acepta para un cobro a plazo (saldo). */
+const METODOS_PLAZO = ["Transferencia", "Efectivo", "Cheque"];
+
 const METODO_PAGO: Array<{ value: string; label: string }> = [
   { value: "", label: "— Sin especificar —" },
   ...PAYMENT_METHODS.map((metodo) => ({ value: metodo, label: metodo })),
@@ -143,14 +170,20 @@ const aNumero = (valor: string): number => {
 
 const listar = (cantidad: number, singular: string, plural: string) => `${cantidad} ${cantidad === 1 ? singular : plural}`;
 
-/** Opciones de acción+existente en un solo select: `crear`, `vincular:<id>` o la sugerencia. */
-function opcionesDeAccion(candidatos: IaCandidato[], sugerencia = false): ClienteOpcion[] {
-  const opciones: ClienteOpcion[] = [];
-  const [top] = candidatos;
-  if (sugerencia && top) {
-    opciones.push({ value: "", label: `— Elegí: «${top.nombre}» (${top.confianza} %) —` });
-  }
-  opciones.push({ value: "crear", label: "Crear nuevo" });
+/**
+ * Avisos del evento/cobro sin los que ya no aplican: «elegí el cliente» cuando
+ * quedó resuelto y el detalle del plazo cuando la tarjeta ya lo muestra.
+ */
+const avisosVigentes = (avisos: string[], clienteId: string): string[] =>
+  avisos.filter((aviso) => {
+    if (clienteId && /(coincide con varios|Encontramos)/.test(aviso)) return false;
+    if (/^A crédito\/plazo/.test(aviso)) return false;
+    return true;
+  });
+
+/** Opciones de acción+existente en un solo select: `crear` o `vincular:<id>`. */
+function opcionesDeAccion(candidatos: IaCandidato[]): ClienteOpcion[] {
+  const opciones: ClienteOpcion[] = [{ value: "crear", label: "Crear nuevo" }];
   const vistos = new Set<string>();
   for (const candidato of candidatos) {
     if (vistos.has(candidato.id)) continue;
@@ -160,11 +193,8 @@ function opcionesDeAccion(candidatos: IaCandidato[], sugerencia = false): Client
   return opciones;
 }
 
-const seleccionDeAccion = (fila: { accion: IaAccionExistente; existenteId: string }) => {
-  if (fila.accion === "vincular" && fila.existenteId) return `vincular:${fila.existenteId}`;
-  if (fila.accion === "elegir") return "";
-  return "crear";
-};
+const seleccionDeAccion = (fila: { accion: IaAccionExistente; existenteId: string }) =>
+  fila.accion === "vincular" && fila.existenteId ? `vincular:${fila.existenteId}` : "crear";
 
 /** Imagen del candidato elegido (o del sugerido cuando hay que elegir). */
 function imagenDeCandidato(
@@ -199,6 +229,9 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [opcionesCliente, setOpcionesCliente] = useState<ClienteOpcion[]>([]);
   const [cargandoClientes, setCargandoClientes] = useState(false);
+  const [cartera, setCartera] = useState<{ clientes: number; productos: number } | null>(null);
+  const [cuentas, setCuentas] = useState<Array<{ id: string; nombre: string; banco: string | null }>>([]);
+  const [cargandoCuentas, setCargandoCuentas] = useState(false);
 
   useEffect(() => {
     let activo = true;
@@ -230,8 +263,17 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     [clientes, eventos, productos, cobros],
   );
   const totalIncluidos = incluidos.clientes + incluidos.eventos + incluidos.productos + incluidos.cobros;
-  /** Registros incluidos con confianza media sin resolver: bloquean «Aplicar todo». */
-  const pendientes = [...clientes, ...productos].filter((fila) => fila.incluir && esAccionPendiente(fila.accion)).length;
+  /**
+   * Registros incluidos que bloquean «Aplicar todo»: los escalares marcados
+   * (issue #126) que no se confirmaron. El vínculo preseleccionado no bloquea
+   * (issue #127): se cambia a un toque si no es.
+   */
+  const pendientes = [...clientes, ...productos, ...eventos, ...cobros].filter((fila) => {
+    if (!fila.incluir) return false;
+    const accion = "accion" in fila ? fila.accion : "crear";
+    if (accion === "vincular") return false; // lo vinculado no aplica sus datos
+    return fila.inventados.length > 0 && !fila.confirmado;
+  }).length;
 
   const actualizarCliente = (clave: string, patch: Partial<ClienteEdit>) =>
     setClientes((actuales) => actuales.map((fila) => (fila.clave === clave ? { ...fila, ...patch } : fila)));
@@ -262,19 +304,151 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           ? {
               ...fila,
               clienteId: clienteId ?? "",
-              incluir: Boolean(clienteId) && puedeCobrar && aNumero(fila.monto) > 0,
+              incluir: Boolean(clienteId) && puedeCobrar && !fila.plazo && aNumero(fila.monto) > 0,
             }
           : fila,
       ),
     );
   }
 
-  /** Aplica la selección `elegir` / `crear` / `vincular:<id>` de un cliente. */
+  /** Duplica una fila del preview con clave nueva (issue #128). */
+  function duplicarRegistro<T extends { clave: string }>(fila: T, prefijo: string): T {
+    return { ...fila, clave: siguienteClave(prefijo) };
+  }
+
+  /** Registros nuevos a mano (issue #128). */
+  function agregarCliente() {
+    setClientes((actuales) => [
+      ...actuales,
+      {
+        clave: siguienteClave("cliente"),
+        incluir: true,
+        accion: "crear",
+        existenteId: "",
+        existenteNombre: null,
+        confianza: null,
+        candidatos: [],
+        inventados: [],
+        confirmado: true,
+        nombre: "",
+        empresa: "",
+        tipo: "FINAL",
+        ruc: "",
+        telefono: "",
+        correo: "",
+        avisos: [],
+      },
+    ]);
+  }
+
+  function agregarEvento() {
+    setEventos((actuales) => [
+      ...actuales,
+      {
+        clave: siguienteClave("evento"),
+        incluir: false,
+        nombre: "",
+        clienteNombre: null,
+        clienteId: "",
+        candidatos: [],
+        inventados: [],
+        confirmado: true,
+        inicio: "",
+        fin: "",
+        lugar: "",
+        ciudad: "",
+        avisos: [],
+      },
+    ]);
+  }
+
+  function agregarProducto() {
+    setProductos((actuales) => [
+      ...actuales,
+      {
+        clave: siguienteClave("producto"),
+        incluir: true,
+        accion: "crear",
+        actualizarPrecios: false,
+        existenteId: "",
+        existenteNombre: null,
+        confianza: null,
+        candidatos: [],
+        inventados: [],
+        confirmado: true,
+        nombre: "",
+        categoria: "General",
+        cantidad: "1",
+        precioLista: "",
+        precioMayorista: "",
+        precioMinimo: "",
+        avisos: [],
+      },
+    ]);
+  }
+
+  function agregarCobro() {
+    setCobros((actuales) => [
+      ...actuales,
+      {
+        clave: siguienteClave("cobro"),
+        incluir: false,
+        cuentaId: "",
+        partes: null,
+        clienteId: "",
+        clienteNombre: null,
+        candidatos: [],
+        monto: "",
+        montoTexto: null,
+        fecha: null,
+        fechaTexto: null,
+        metodo: "",
+        referencia: "",
+        plazo: false,
+        vencimiento: null,
+        inventados: [],
+        confirmado: true,
+        avisos: [],
+      },
+    ]);
+  }
+
+  /** Divide un cobro en partes iguales (el resto se reparte de a 1). */
+  function dividirCobro(cobro: CobroEdit, cantidad = 2) {
+    const partes = dividirMonto(aNumero(cobro.monto), cantidad).map((monto) => ({
+      clave: siguienteClave("parte"),
+      monto: String(monto),
+      fecha: "",
+    }));
+    actualizarCobro(cobro.clave, { partes });
+  }
+
+  function agregarParte(cobro: CobroEdit) {
+    const actuales = cobro.partes ?? [];
+    const diferencia = aNumero(cobro.monto) - sumaPartes(actuales.map((parte) => aNumero(parte.monto)));
+    actualizarCobro(cobro.clave, {
+      partes: [...actuales, { clave: siguienteClave("parte"), monto: diferencia > 0 ? String(diferencia) : "", fecha: "" }],
+    });
+  }
+
+  function quitarParte(cobro: CobroEdit, claveParte: string) {
+    const restantes = (cobro.partes ?? []).filter((parte) => parte.clave !== claveParte);
+    actualizarCobro(cobro.clave, { partes: restantes.length > 0 ? restantes : null });
+  }
+
+  const actualizarParte = (cobro: CobroEdit, claveParte: string, patch: Partial<ParteEdit>) =>
+    actualizarCobro(cobro.clave, {
+      partes: (cobro.partes ?? []).map((parte) => (parte.clave === claveParte ? { ...parte, ...patch } : parte)),
+    });
+
+  const cuentaOpciones: ClienteOpcion[] = [
+    { value: "", label: "— Primera cuenta activa —" },
+    ...cuentas.map((cuenta) => ({ value: cuenta.id, label: cuenta.banco ? `${cuenta.nombre} · ${cuenta.banco}` : cuenta.nombre })),
+  ];
+  const hoy = hoyDelPanel();
+
+  /** Aplica la selección `crear` / `vincular:<id>` de un cliente. */
   function elegirAccionCliente(cliente: ClienteEdit, valor: string) {
-    if (!valor) {
-      actualizarCliente(cliente.clave, { accion: "elegir", existenteId: "" });
-      return;
-    }
     if (valor.startsWith("vincular:")) {
       const id = valor.slice("vincular:".length);
       const candidato = cliente.candidatos.find((fila) => fila.id === id);
@@ -291,12 +465,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     encadenarCliente(cliente.nombre, null);
   }
 
-  /** Aplica la selección `elegir` / `crear` / `vincular:<id>` de un producto. */
+  /** Aplica la selección `crear` / `vincular:<id>` de un producto. */
   function elegirAccionProducto(producto: ProductoEdit, valor: string) {
-    if (!valor) {
-      actualizarProducto(producto.clave, { accion: "elegir", existenteId: "" });
-      return;
-    }
     if (valor.startsWith("vincular:")) {
       const id = valor.slice("vincular:".length);
       const candidato = producto.candidatos.find((fila) => fila.id === id);
@@ -309,6 +479,21 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       return;
     }
     actualizarProducto(producto.clave, { accion: "crear", existenteId: "" });
+  }
+
+  async function cargarCuentas() {
+    setCargandoCuentas(true);
+    const result = await adminApiGet<{ accounts?: Array<{ id: string; name: string; bank: string | null; active: boolean }> }>(
+      "/api/admin/treasury",
+      { fresh: true },
+    );
+    setCargandoCuentas(false);
+    if (!result.ok) return;
+    setCuentas(
+      (result.data.accounts ?? [])
+        .filter((cuenta) => cuenta.active)
+        .map((cuenta) => ({ id: cuenta.id, nombre: cuenta.name, banco: cuenta.bank })),
+    );
   }
 
   async function cargarClientes() {
@@ -343,6 +528,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       return;
     }
     setAvisos(registros.avisos ?? []);
+    setCartera(registros.cartera ?? null);
     setClientes(
       registros.clientes.map((cliente) => ({
         clave: siguienteClave("cliente"),
@@ -352,6 +538,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         existenteNombre: cliente.existenteNombre,
         confianza: cliente.confianza,
         candidatos: cliente.candidatos ?? [],
+        inventados: cliente.inventados ?? [],
+        confirmado: (cliente.inventados ?? []).length === 0,
         nombre: cliente.nombre,
         empresa: cliente.empresa ?? "",
         tipo: cliente.tipo,
@@ -369,6 +557,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         clienteNombre: evento.clienteNombre,
         clienteId: evento.clienteId ?? "",
         candidatos: evento.candidatos ?? [],
+        inventados: evento.inventados ?? [],
+        confirmado: (evento.inventados ?? []).length === 0,
         inicio: evento.inicio ?? "",
         fin: evento.fin ?? "",
         lugar: evento.lugar ?? "",
@@ -381,10 +571,13 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         clave: siguienteClave("producto"),
         incluir: true,
         accion: producto.accion,
+        actualizarPrecios: false,
         existenteId: producto.existenteId ?? "",
         existenteNombre: producto.existenteNombre,
         confianza: producto.confianza,
         candidatos: producto.candidatos ?? [],
+        inventados: producto.inventados ?? [],
+        confirmado: (producto.inventados ?? []).length === 0,
         nombre: producto.nombre,
         categoria: producto.categoria,
         cantidad: String(producto.cantidad),
@@ -397,7 +590,9 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     setCobros(
       registros.cobros.map((cobro) => ({
         clave: siguienteClave("cobro"),
-        incluir: puedeCobrar && Boolean(cobro.clienteId) && Boolean(cobro.monto),
+        incluir: puedeCobrar && !cobro.plazo && Boolean(cobro.clienteId) && Boolean(cobro.monto),
+        cuentaId: "",
+        partes: null,
         clienteId: cobro.clienteId ?? "",
         clienteNombre: cobro.clienteNombre,
         candidatos: cobro.candidatos ?? [],
@@ -407,12 +602,17 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         fechaTexto: cobro.fechaTexto,
         metodo: cobro.metodo ?? "",
         referencia: cobro.referencia ?? "",
+        plazo: cobro.plazo ?? false,
+        vencimiento: cobro.vencimiento ?? null,
+        inventados: cobro.inventados ?? [],
+        confirmado: (cobro.inventados ?? []).length === 0,
         avisos: cobro.avisos,
       })),
     );
     setResultado(null);
     setFase("revision");
     void cargarClientes();
+    void cargarCuentas();
   }
 
   async function aplicarTodo() {
@@ -426,12 +626,12 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     const indice = new Map<string, string>();
 
     for (const cliente of clientes.filter((fila) => fila.incluir)) {
-      if (cliente.accion === "elegir") {
-        errores.push(`Cliente «${cliente.nombre}»: quedó sin elegir (vincular o crear).`);
-        continue;
-      }
       if (cliente.accion === "vincular") {
         vinculados.clientes += 1;
+        continue;
+      }
+      if (cliente.inventados.length > 0 && !cliente.confirmado) {
+        errores.push(`Cliente «${cliente.nombre}»: hay datos marcados sin confirmar (${cliente.inventados.join(", ")}).`);
         continue;
       }
       const result = await adminSend<{ client?: { id?: string } }>(
@@ -457,6 +657,10 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     }
 
     for (const evento of eventos.filter((fila) => fila.incluir)) {
+      if (evento.inventados.length > 0 && !evento.confirmado) {
+        errores.push(`Evento «${evento.nombre}»: hay datos marcados sin confirmar (${evento.inventados.join(", ")}).`);
+        continue;
+      }
       const clienteId = evento.clienteId || indice.get(normalizarBusqueda(evento.clienteNombre ?? "")) || "";
       if (!clienteId) {
         errores.push(`Evento «${evento.nombre}»: falta el cliente (elegilo o creá el cliente primero).`);
@@ -480,12 +684,29 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     }
 
     for (const producto of productos.filter((fila) => fila.incluir)) {
-      if (producto.accion === "elegir") {
-        errores.push(`Producto «${producto.nombre}»: quedó sin elegir (vincular o crear).`);
-        continue;
-      }
       if (producto.accion === "vincular") {
         vinculados.productos += 1;
+        // Editar precios de un ítem existente exige el switch explícito (#128).
+        if (producto.actualizarPrecios && producto.existenteId) {
+          const result = await adminSend(
+            "/api/admin/inventory",
+            {
+              kind: "prices",
+              id: producto.existenteId,
+              listPrice: producto.precioLista.trim() || undefined,
+              wholesalePrice: producto.precioMayorista.trim() || undefined,
+              minimumPrice: producto.precioMinimo.trim() || undefined,
+            },
+            "POST",
+            { idempotencyKey: true },
+          );
+          if (result.ok) advertencias.push(`Precios actualizados en «${producto.existenteNombre ?? producto.nombre}».`);
+          else errores.push(`Precios de «${producto.nombre}»: ${result.error}`);
+        }
+        continue;
+      }
+      if (producto.inventados.length > 0 && !producto.confirmado) {
+        errores.push(`Producto «${producto.nombre}»: hay datos marcados sin confirmar (${producto.inventados.join(", ")}).`);
         continue;
       }
       const cantidad = Math.min(100_000, Math.max(1, Math.floor(aNumero(producto.cantidad)) || 1));
@@ -513,6 +734,14 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
     for (const cobro of cobros.filter((fila) => fila.incluir)) {
       const etiqueta = cobro.clienteNombre ?? "sin cliente";
+      if (cobro.plazo) {
+        errores.push(`Cobro de «${etiqueta}»: es a crédito/plazo y no se registra en esta carga.`);
+        continue;
+      }
+      if (cobro.inventados.length > 0 && !cobro.confirmado) {
+        errores.push(`Cobro de «${etiqueta}»: hay datos marcados sin confirmar (${cobro.inventados.join(", ")}).`);
+        continue;
+      }
       if (!puedeCobrar) {
         errores.push(`Cobro de «${etiqueta}»: tu rol no puede registrar cobros (los registra Finanzas).`);
         continue;
@@ -527,6 +756,70 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         errores.push(`Cobro de «${etiqueta}»: falta el monto.`);
         continue;
       }
+      const cuenta = cobro.cuentaId || undefined;
+
+      // Cobro dividido en partes (issue #128): cada parte es un pago.
+      if (cobro.partes && cobro.partes.length > 0) {
+        const partes = cobro.partes;
+        const suma = sumaPartes(partes.map((parte) => aNumero(parte.monto)));
+        if (suma !== monto) {
+          errores.push(`Cobro de «${etiqueta}»: las partes suman ${formatMoney(suma)} y el total es ${formatMoney(monto)}.`);
+          continue;
+        }
+        for (const parte of partes) {
+          const montoParte = aNumero(parte.monto);
+          if (montoParte <= 0) {
+            errores.push(`Cobro de «${etiqueta}»: una parte quedó sin monto.`);
+            continue;
+          }
+          const pendiente = parteEsPendiente(parte.fecha, hoy);
+          if (pendiente) {
+            const metodoPlazo = METODOS_PLAZO.includes(cobro.metodo) ? cobro.metodo : "";
+            if (!metodoPlazo) {
+              errores.push(`Cobro de «${etiqueta}»: el saldo a plazo necesita método (transferencia, efectivo o cheque).`);
+              continue;
+            }
+            const result = await adminSend(
+              "/api/admin/finance",
+              {
+                kind: "client",
+                clientId: clienteId,
+                amount: montoParte,
+                status: "PENDING",
+                method: metodoPlazo,
+                dueAt: parte.fecha,
+                treasuryAccountId: cuenta,
+              },
+              "POST",
+              { idempotencyKey: true },
+            );
+            if (result.ok) {
+              creados.cobros += 1;
+              advertencias.push(`Saldo de «${etiqueta}»: ${formatMoney(montoParte)} a cobrar el ${parte.fecha}.`);
+            } else {
+              errores.push(`Saldo de «${etiqueta}»: ${result.error}`);
+            }
+            continue;
+          }
+          const result = await adminSend(
+            "/api/admin/finance",
+            {
+              kind: "client",
+              clientId: clienteId,
+              amount: montoParte,
+              method: cobro.metodo || undefined,
+              reference: cobro.referencia.trim() || undefined,
+              treasuryAccountId: cuenta,
+            },
+            "POST",
+            { idempotencyKey: true },
+          );
+          if (result.ok) creados.cobros += 1;
+          else errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
+        }
+        continue;
+      }
+
       const result = await adminSend(
         "/api/admin/finance",
         {
@@ -535,6 +828,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           amount: monto,
           method: cobro.metodo || undefined,
           reference: cobro.referencia.trim() || undefined,
+          treasuryAccountId: cuenta,
         },
         "POST",
         { idempotencyKey: true },
@@ -682,9 +976,17 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
           {clientes.length > 0 ? (
             <section className="admin-ia-section" aria-label={`Clientes detectados (${clientes.length})`}>
-              <h3 className="admin-ia-section-title">
-                {IA_TIPO_LABEL.clientes} <span>{clientes.length}</span>
-              </h3>
+              <div className="admin-ia-section-head">
+                <h3 className="admin-ia-section-title">
+                  {IA_TIPO_LABEL.clientes} <span>{clientes.length}</span>
+                </h3>
+                <AdminButton icon="plus" title="Agregar cliente a mano" aria-label="Agregar cliente" onClick={agregarCliente}>
+                  Agregar
+                </AdminButton>
+              </div>
+              {cartera && cartera.clientes === 0 ? (
+                <AdminNote tone="warn">No hay clientes cargados en esta empresa: lo detectado se crearía de cero.</AdminNote>
+              ) : null}
               {clientes.map((cliente) => (
                 <article key={cliente.clave} className="admin-ia-card" data-off={!cliente.incluir}>
                   <header className="admin-ia-card-head">
@@ -697,17 +999,48 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       />
                       <span className="admin-ia-card-title">{cliente.nombre}</span>
                     </span>
-                    <SwitchField
-                      label="Incluir"
-                      checked={cliente.incluir}
-                      onChange={(incluir) => actualizarCliente(cliente.clave, { incluir })}
-                    />
+                    <span className="admin-ia-card-tools">
+                      <SwitchField
+                        label="Incluir"
+                        checked={cliente.incluir}
+                        onChange={(incluir) => actualizarCliente(cliente.clave, { incluir })}
+                      />
+                      <AdminButton
+                        icon="copy"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${cliente.nombre}`}
+                        onClick={() => setClientes((actuales) => [...actuales, duplicarRegistro(cliente, "cliente")])}
+                      />
+                      <AdminButton
+                        icon="trash"
+                        title="Quitar"
+                        aria-label={`Quitar ${cliente.nombre}`}
+                        onClick={() => setClientes((actuales) => actuales.filter((fila) => fila.clave !== cliente.clave))}
+                      />
+                    </span>
                   </header>
                   {cliente.avisos.length > 0 ? <AdminNote tone="warn">{cliente.avisos.join(" ")}</AdminNote> : null}
+                  {cliente.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">
+                        {`No está en el texto: ${cliente.inventados.join(" · ")}.`}
+                        {cliente.accion === "vincular" ? " Al vincular no se aplican." : ""}
+                      </AdminNote>
+                      {cliente.accion !== "vincular" ? (
+                        <div className="admin-ia-grid">
+                          <SwitchField
+                            label="Confirmo los datos marcados"
+                            checked={cliente.confirmado}
+                            onChange={(confirmado) => actualizarCliente(cliente.clave, { confirmado })}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
-                      options={opcionesDeAccion(cliente.candidatos, cliente.accion === "elegir")}
+                      options={opcionesDeAccion(cliente.candidatos)}
                       value={seleccionDeAccion(cliente)}
                       onChange={(valor) => elegirAccionCliente(cliente, valor)}
                       hint={
@@ -715,7 +1048,6 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                           ? `Candidatos: ${cliente.candidatos.map((fila) => `${fila.nombre} (${fila.confianza} %)`).join(" · ")}`
                           : undefined
                       }
-                      error={cliente.accion === "elegir" ? "Elegí si es un existente o creá uno nuevo." : null}
                       disabled={!cliente.incluir}
                     />
                   </div>
@@ -773,21 +1105,52 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
           {eventos.length > 0 ? (
             <section className="admin-ia-section" aria-label={`Eventos detectados (${eventos.length})`}>
-              <h3 className="admin-ia-section-title">
-                {IA_TIPO_LABEL.eventos} <span>{eventos.length}</span>
-              </h3>
+              <div className="admin-ia-section-head">
+                <h3 className="admin-ia-section-title">
+                  {IA_TIPO_LABEL.eventos} <span>{eventos.length}</span>
+                </h3>
+                <AdminButton icon="plus" title="Agregar evento a mano" aria-label="Agregar evento" onClick={agregarEvento}>
+                  Agregar
+                </AdminButton>
+              </div>
               {eventos.map((evento) => (
                 <article key={evento.clave} className="admin-ia-card" data-off={!evento.incluir}>
                   <header className="admin-ia-card-head">
                     <span className="admin-ia-card-title">{evento.nombre}</span>
-                    <SwitchField
-                      label="Incluir"
-                      checked={evento.incluir}
-                      disabled={!evento.clienteId}
-                      onChange={(incluir) => actualizarEvento(evento.clave, { incluir })}
-                    />
+                    <span className="admin-ia-card-tools">
+                      <SwitchField
+                        label="Incluir"
+                        checked={evento.incluir}
+                        disabled={!evento.clienteId}
+                        onChange={(incluir) => actualizarEvento(evento.clave, { incluir })}
+                      />
+                      <AdminButton
+                        icon="copy"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${evento.nombre}`}
+                        onClick={() => setEventos((actuales) => [...actuales, duplicarRegistro(evento, "evento")])}
+                      />
+                      <AdminButton
+                        icon="trash"
+                        title="Quitar"
+                        aria-label={`Quitar ${evento.nombre}`}
+                        onClick={() => setEventos((actuales) => actuales.filter((fila) => fila.clave !== evento.clave))}
+                      />
+                    </span>
                   </header>
-                  {evento.avisos.length > 0 ? <AdminNote tone="warn">{evento.avisos.join(" ")}</AdminNote> : null}
+                  {avisosVigentes(evento.avisos, evento.clienteId).length > 0 ? <AdminNote tone="warn">{avisosVigentes(evento.avisos, evento.clienteId).join(" ")}</AdminNote> : null}
+                  {evento.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">{`No está en el texto: ${evento.inventados.join(" · ")}.`}</AdminNote>
+                      <div className="admin-ia-grid">
+                        <SwitchField
+                          label="Confirmo los datos marcados"
+                          checked={evento.confirmado}
+                          onChange={(confirmado) => actualizarEvento(evento.clave, { confirmado })}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <TextField
                       label="Nombre"
@@ -836,9 +1199,17 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
           {productos.length > 0 ? (
             <section className="admin-ia-section" aria-label={`Productos detectados (${productos.length})`}>
-              <h3 className="admin-ia-section-title">
-                {IA_TIPO_LABEL.productos} <span>{productos.length}</span>
-              </h3>
+              <div className="admin-ia-section-head">
+                <h3 className="admin-ia-section-title">
+                  {IA_TIPO_LABEL.productos} <span>{productos.length}</span>
+                </h3>
+                <AdminButton icon="plus" title="Agregar producto a mano" aria-label="Agregar producto" onClick={agregarProducto}>
+                  Agregar
+                </AdminButton>
+              </div>
+              {cartera && cartera.productos === 0 ? (
+                <AdminNote tone="warn">No hay productos cargados en Inventario: lo detectado se crearía de cero.</AdminNote>
+              ) : null}
               {productos.map((producto) => (
                 <article key={producto.clave} className="admin-ia-card" data-off={!producto.incluir}>
                   <header className="admin-ia-card-head">
@@ -850,17 +1221,48 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       />
                       <span className="admin-ia-card-title">{producto.nombre}</span>
                     </span>
-                    <SwitchField
-                      label="Incluir"
-                      checked={producto.incluir}
-                      onChange={(incluir) => actualizarProducto(producto.clave, { incluir })}
-                    />
+                    <span className="admin-ia-card-tools">
+                      <SwitchField
+                        label="Incluir"
+                        checked={producto.incluir}
+                        onChange={(incluir) => actualizarProducto(producto.clave, { incluir })}
+                      />
+                      <AdminButton
+                        icon="copy"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${producto.nombre}`}
+                        onClick={() => setProductos((actuales) => [...actuales, duplicarRegistro(producto, "producto")])}
+                      />
+                      <AdminButton
+                        icon="trash"
+                        title="Quitar"
+                        aria-label={`Quitar ${producto.nombre}`}
+                        onClick={() => setProductos((actuales) => actuales.filter((fila) => fila.clave !== producto.clave))}
+                      />
+                    </span>
                   </header>
                   {producto.avisos.length > 0 ? <AdminNote tone="warn">{producto.avisos.join(" ")}</AdminNote> : null}
+                  {producto.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">
+                        {`No está en el texto: ${producto.inventados.join(" · ")}.`}
+                        {producto.accion === "vincular" ? " Al vincular no se aplican." : ""}
+                      </AdminNote>
+                      {producto.accion !== "vincular" ? (
+                        <div className="admin-ia-grid">
+                          <SwitchField
+                            label="Confirmo los datos marcados"
+                            checked={producto.confirmado}
+                            onChange={(confirmado) => actualizarProducto(producto.clave, { confirmado })}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Acción"
-                      options={opcionesDeAccion(producto.candidatos, producto.accion === "elegir")}
+                      options={opcionesDeAccion(producto.candidatos)}
                       value={seleccionDeAccion(producto)}
                       onChange={(valor) => elegirAccionProducto(producto, valor)}
                       hint={
@@ -868,15 +1270,42 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                           ? `Candidatos: ${producto.candidatos.map((fila) => `${fila.nombre} (${fila.confianza} %)`).join(" · ")}`
                           : undefined
                       }
-                      error={producto.accion === "elegir" ? "Elegí si es un ítem existente o creá uno nuevo." : null}
                       disabled={!producto.incluir}
                     />
                   </div>
                   {producto.accion === "vincular" ? (
-                    <p className="admin-ia-match">
-                      Se vincula a <strong>{producto.existenteNombre ?? "el ítem existente"}</strong>
-                      {producto.confianza !== null ? ` (${producto.confianza} %)` : ""}: no se crea un producto nuevo.
-                    </p>
+                    <>
+                      <p className="admin-ia-match">
+                        Se vincula a <strong>{producto.existenteNombre ?? "el ítem existente"}</strong>
+                        {producto.confianza !== null ? ` (${producto.confianza} %)` : ""}: no se crea un producto nuevo.
+                      </p>
+                      <div className="admin-ia-grid">
+                        <SwitchField
+                          label="Actualizar los precios del producto"
+                          checked={producto.actualizarPrecios}
+                          onChange={(actualizarPrecios) => actualizarProducto(producto.clave, { actualizarPrecios })}
+                          disabled={!producto.incluir}
+                        />
+                        <MoneyField
+                          label="Precio de lista"
+                          value={producto.precioLista}
+                          onChange={(precioLista) => actualizarProducto(producto.clave, { precioLista })}
+                          disabled={!producto.incluir || !producto.actualizarPrecios}
+                        />
+                        <MoneyField
+                          label="Precio mayorista"
+                          value={producto.precioMayorista}
+                          onChange={(precioMayorista) => actualizarProducto(producto.clave, { precioMayorista })}
+                          disabled={!producto.incluir || !producto.actualizarPrecios}
+                        />
+                        <MoneyField
+                          label="Precio mínimo"
+                          value={producto.precioMinimo}
+                          onChange={(precioMinimo) => actualizarProducto(producto.clave, { precioMinimo })}
+                          disabled={!producto.incluir || !producto.actualizarPrecios}
+                        />
+                      </div>
+                    </>
                   ) : (
                     <div className="admin-ia-grid">
                       <TextField
@@ -925,30 +1354,68 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
 
           {cobros.length > 0 ? (
             <section className="admin-ia-section" aria-label={`Cobros detectados (${cobros.length})`}>
-              <h3 className="admin-ia-section-title">
-                {IA_TIPO_LABEL.cobros} <span>{cobros.length}</span>
-              </h3>
+              <div className="admin-ia-section-head">
+                <h3 className="admin-ia-section-title">
+                  {IA_TIPO_LABEL.cobros} <span>{cobros.length}</span>
+                </h3>
+                <AdminButton icon="plus" title="Agregar cobro a mano" aria-label="Agregar cobro" onClick={agregarCobro}>
+                  Agregar
+                </AdminButton>
+              </div>
               {cobros.map((cobro) => (
                 <article key={cobro.clave} className="admin-ia-card" data-off={!cobro.incluir}>
                   <header className="admin-ia-card-head">
                     <span className="admin-ia-card-title">{`Cobro de «${cobro.clienteNombre ?? "sin cliente"}»`}</span>
-                    <SwitchField
-                      label="Registrar"
-                      checked={cobro.incluir}
-                      disabled={!puedeCobrar || !cobro.clienteId || aNumero(cobro.monto) <= 0}
-                      onChange={(incluir) => actualizarCobro(cobro.clave, { incluir })}
-                    />
+                    <span className="admin-ia-card-tools">
+                      <SwitchField
+                        label="Registrar"
+                        checked={cobro.incluir && !cobro.plazo}
+                        disabled={!puedeCobrar || cobro.plazo || !cobro.clienteId || aNumero(cobro.monto) <= 0}
+                        onChange={(incluir) => actualizarCobro(cobro.clave, { incluir })}
+                      />
+                      <AdminButton
+                        icon="copy"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${cobro.clienteNombre ?? "sin cliente"}`}
+                        onClick={() => setCobros((actuales) => [...actuales, duplicarRegistro(cobro, "cobro")])}
+                      />
+                      <AdminButton
+                        icon="trash"
+                        title="Quitar"
+                        aria-label={`Quitar ${cobro.clienteNombre ?? "sin cliente"}`}
+                        onClick={() => setCobros((actuales) => actuales.filter((fila) => fila.clave !== cobro.clave))}
+                      />
+                    </span>
                   </header>
                   {!puedeCobrar ? (
                     <AdminNote tone="warn">Tu rol no puede registrar cobros: los registra Finanzas. El cobro queda solo como aviso.</AdminNote>
                   ) : null}
-                  {cobro.avisos.length > 0 ? <AdminNote tone="warn">{cobro.avisos.join(" ")}</AdminNote> : null}
+                  {cobro.plazo ? (
+                    <AdminNote tone="warn">
+                      {cobro.vencimiento
+                        ? `A crédito/plazo: vence el ${cobro.vencimiento}. No se registra como cobrado en esta carga.`
+                        : "A crédito/plazo: no se registra como cobrado en esta carga."}
+                    </AdminNote>
+                  ) : null}
+                  {cobro.inventados.length > 0 ? (
+                    <>
+                      <AdminNote tone="warn">{`No está en el texto: ${cobro.inventados.join(" · ")}.`}</AdminNote>
+                      <div className="admin-ia-grid">
+                        <SwitchField
+                          label="Confirmo los datos marcados"
+                          checked={cobro.confirmado}
+                          onChange={(confirmado) => actualizarCobro(cobro.clave, { confirmado })}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                  {avisosVigentes(cobro.avisos, cobro.clienteId).length > 0 ? <AdminNote tone="warn">{avisosVigentes(cobro.avisos, cobro.clienteId).join(" ")}</AdminNote> : null}
                   <div className="admin-ia-grid">
                     <SelectField
                       label="Cliente"
                       options={opcionesDeClienteCobro(cobro)}
                       value={cobro.clienteId}
-                      onChange={(clienteId) => actualizarCobro(cobro.clave, { clienteId, incluir: Boolean(clienteId) && aNumero(cobro.monto) > 0 })}
+                      onChange={(clienteId) => actualizarCobro(cobro.clave, { clienteId, incluir: Boolean(clienteId) && !cobro.plazo && aNumero(cobro.monto) > 0 })}
                       disabled={cargandoClientes || !puedeCobrar}
                       error={!cobro.clienteId ? "Elegí el cliente del cobro." : null}
                     />
@@ -956,7 +1423,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       label="Monto"
                       hint={cobro.montoTexto ? `En el texto: ${cobro.montoTexto}` : "No vino el monto en el texto"}
                       value={cobro.monto}
-                      onChange={(monto) => actualizarCobro(cobro.clave, { monto, incluir: Boolean(cobro.clienteId) && aNumero(monto) > 0 })}
+                      onChange={(monto) => actualizarCobro(cobro.clave, { monto, incluir: Boolean(cobro.clienteId) && !cobro.plazo && aNumero(monto) > 0 })}
                       disabled={!puedeCobrar}
                     />
                     <SelectField
@@ -966,6 +1433,14 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       onChange={(metodo) => actualizarCobro(cobro.clave, { metodo })}
                       disabled={!puedeCobrar}
                     />
+                    <SelectField
+                      label="Cuenta de la empresa"
+                      options={cuentaOpciones}
+                      value={cobro.cuentaId}
+                      onChange={(cuentaId) => actualizarCobro(cobro.clave, { cuentaId })}
+                      hint={cargandoCuentas ? "Cargando cuentas…" : cuentas.length === 0 ? "No hay cuentas de tesorería: se registra sin cuenta." : undefined}
+                      disabled={!puedeCobrar || cargandoCuentas}
+                    />
                     <TextField
                       label="Referencia"
                       value={cobro.referencia}
@@ -974,6 +1449,57 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                       disabled={!puedeCobrar}
                     />
                   </div>
+                  {!cobro.plazo ? (
+                    <div className="admin-ia-split">
+                      <div className="admin-ia-split-head">
+                        <span className="admin-ia-split-title">
+                          {cobro.partes ? `Dividido en ${cobro.partes.length} partes` : "En una sola vez"}
+                        </span>
+                        {cobro.partes ? (
+                          <AdminButton icon="plus" onClick={() => agregarParte(cobro)} disabled={!puedeCobrar}>
+                            Agregar parte
+                          </AdminButton>
+                        ) : (
+                          <AdminButton onClick={() => dividirCobro(cobro, 2)} disabled={!puedeCobrar || aNumero(cobro.monto) <= 0}>
+                            Dividir en 2 partes
+                          </AdminButton>
+                        )}
+                      </div>
+                      {cobro.partes ? (
+                        <>
+                          {cobro.partes.map((parte) => (
+                            <div key={parte.clave} className="admin-ia-split-row">
+                              <MoneyField
+                                label="Monto de la parte"
+                                value={parte.monto}
+                                onChange={(monto) => actualizarParte(cobro, parte.clave, { monto })}
+                                disabled={!puedeCobrar}
+                              />
+                              <DateField
+                                label="Fecha"
+                                value={parte.fecha}
+                                onChange={(fecha) => actualizarParte(cobro, parte.clave, { fecha })}
+                                hint={parteEsPendiente(parte.fecha, hoy) ? "Queda a cobrar ese día (saldo)" : "Se registra ahora"}
+                                disabled={!puedeCobrar}
+                              />
+                              <AdminButton
+                                icon="trash"
+                                title="Quitar la parte"
+                                aria-label="Quitar parte"
+                                onClick={() => quitarParte(cobro, parte.clave)}
+                                disabled={!puedeCobrar}
+                              />
+                            </div>
+                          ))}
+                          <p className="admin-ia-match">
+                            {sumaPartes(cobro.partes.map((parte) => aNumero(parte.monto))) === aNumero(cobro.monto)
+                              ? `Las partes suman ${formatMoney(aNumero(cobro.monto))}. Las que tienen fecha futura quedan a cobrar (saldo).`
+                              : `Las partes suman ${formatMoney(sumaPartes(cobro.partes.map((parte) => aNumero(parte.monto))))} y el total es ${formatMoney(aNumero(cobro.monto))}: ajustá los montos.`}
+                          </p>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {cobro.fechaTexto || cobro.fecha ? (
                     <p className="admin-ia-match">
                       {`Fecha en el texto: «${cobro.fechaTexto ?? "—"}»`}

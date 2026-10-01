@@ -110,6 +110,7 @@ test("normalizarAnalisis valida con Zod y normaliza cada tipo", () => {
     existenteNombre: null,
     confianza: null,
     candidatos: [],
+    inventados: [],
     avisos: [],
   });
   assert.equal(salida.eventos[0].inicio, "2026-12-20");
@@ -190,7 +191,7 @@ test("el match de clientes ignora acentos y mayúsculas", () => {
   assert.equal(candidatosDeCliente({ nombre: "Nadie" }, CARTERA).length, 0);
 });
 
-test("un evento con cliente único se resuelve; ambiguo o desconocido queda con aviso", () => {
+test("un evento con cliente único se resuelve; el dudoso queda preseleccionado y el desconocido con aviso", () => {
   const analisis = normalizarAnalisis(
     {
       eventos: [
@@ -205,9 +206,9 @@ test("un evento con cliente único se resuelve; ambiguo o desconocido queda con 
   const resuelto = asignarExistentes(analisis, { clientes: CARTERA, productos: [] });
   assert.equal(resuelto.eventos[0].clienteId, "c1");
   assert.equal(resuelto.eventos[0].candidatos[0]?.confianza, 92);
-  assert.equal(resuelto.eventos[1].clienteId, null);
-  assert.ok(resuelto.eventos[1].candidatos.length >= 2, "ofrece los candidatos para elegir");
-  assert.ok(resuelto.eventos[1].avisos.some((aviso) => aviso.includes("varios clientes")));
+  assert.equal(resuelto.eventos[1].clienteId, "c3", "el mejor candidato queda preseleccionado (issue #127)");
+  assert.ok(resuelto.eventos[1].candidatos.length >= 2, "ofrece los candidatos para cambiar");
+  assert.ok(resuelto.eventos[1].avisos.some((aviso) => aviso.includes("Sugerido")));
   assert.ok(resuelto.eventos[2].avisos.some((aviso) => aviso.includes("No encontramos")));
   assert.ok(resuelto.eventos[3].avisos.some((aviso) => aviso.includes("Sin cliente")));
 });

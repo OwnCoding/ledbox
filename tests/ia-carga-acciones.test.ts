@@ -161,24 +161,31 @@ test("un candidato claro se propone como vincular; nunca se duplica", () => {
   assert.equal(resuelto.productos[0].existenteId, "p1");
 });
 
-test("dos clientes parecidos no se resuelven a ciegas: hay que elegir", () => {
+test("dos clientes parecidos: el mejor queda preseleccionado con aviso", () => {
   const analisis = normalizarAnalisis({ clientes: [{ nombre: "María González" }] }, ["clientes"]);
   const resuelto = asignarExistentes(analisis, { clientes: CARTERA_CLIENTES, productos: [] });
   const cliente = resuelto.clientes[0];
-  assert.equal(cliente.accion, "elegir", "con match ambiguo la persona decide");
-  assert.equal(cliente.existenteId, null);
-  assert.ok(cliente.candidatos.length >= 2);
-  assert.ok(cliente.avisos.some((aviso) => aviso.includes("Elegí si es")));
+  assert.equal(cliente.accion, "vincular", "el mejor candidato se preselecciona (issue #127)");
+  assert.equal(cliente.existenteId, "c2", "exacto primero");
+  assert.ok(cliente.candidatos.length >= 2, "los demás quedan para cambiar");
+  assert.equal(cliente.avisos.some((aviso) => aviso.includes("Sugerido")), false, "un exacto no lleva aviso");
+  // Confianza media: el mejor queda preseleccionado y avisa que es sugerencia.
+  const dudoso = asignarExistentes(normalizarAnalisis({ clientes: [{ nombre: "Pérez" }] }, ["clientes"]), {
+    clientes: CARTERA_CLIENTES,
+    productos: [],
+  });
+  assert.equal(dudoso.clientes[0].accion, "vincular");
+  assert.ok(dudoso.clientes[0].avisos.some((aviso) => aviso.includes("Sugerido")));
 });
 
-test("sin candidatos se crea; el match de confianza media exige elección", () => {
+test("sin candidatos se crea; el match de confianza media se preselecciona", () => {
   const analisis = normalizarAnalisis({ clientes: [{ nombre: "Cliente Nuevo" }, { nombre: "Pérez" }] }, ["clientes"]);
   const resuelto = asignarExistentes(analisis, { clientes: CARTERA_CLIENTES, productos: [] });
   assert.equal(resuelto.clientes[0].accion, "crear");
   assert.equal(resuelto.clientes[0].candidatos.length, 0);
-  assert.equal(resuelto.clientes[1].accion, "elegir");
-  assert.ok(resuelto.clientes[1].candidatos.length >= 1, "el apellido suelto deja candidatos para elegir");
-  assert.ok(resuelto.clientes[1].avisos.some((aviso) => aviso.includes("Elegí si es")));
+  assert.equal(resuelto.clientes[1].accion, "vincular", "el apellido suelto preselecciona al mejor");
+  assert.ok(resuelto.clientes[1].candidatos.length >= 1, "el apellido suelto deja candidatos para cambiar");
+  assert.ok(resuelto.clientes[1].avisos.some((aviso) => aviso.includes("Sugerido")));
 });
 
 // ── Cobros (issue #122 §2) ──────────────────────────────────────────────────

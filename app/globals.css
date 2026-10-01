@@ -3565,3 +3565,9 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-ia-match strong { color: var(--a-text-strong); }
 .admin-ia-contexto { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .admin-ia-contexto .admin-avatar, .admin-ia-contexto .admin-item-thumb { flex: 0 0 auto; }
+.admin-ia-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-ia-card-tools { display: inline-flex; align-items: center; gap: 6px; }
+.admin-ia-split { display: grid; gap: 8px; padding-top: 6px; border-top: 1px dashed var(--a-line); }
+.admin-ia-split-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-ia-split-title { color: var(--a-muted-2); font-size: 12px; font-weight: 600; }
+.admin-ia-split-row { display: grid; grid-template-columns: minmax(9rem, 1fr) minmax(9rem, 1fr) auto; gap: 8px; align-items: start; }

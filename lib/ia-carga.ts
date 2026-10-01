@@ -45,25 +45,20 @@ export const IA_TIPO_LABEL: Record<IaTipo, string> = {
 
 /**
  * Acción de un registro detectado. La arquitectura deja lugar a más acciones
- * (hoy: crear, vincular a un existente, elegir cuando la confianza es media y
- * registrar un cobro).
+ * (hoy: crear, vincular a un existente y registrar un cobro). Con confianza
+ * media (60–89 %) el mejor candidato queda **preseleccionado** y la persona
+ * puede cambiarlo (issues #125 y #127).
  */
-export type IaAccion = "crear" | "vincular" | "elegir" | "registrar_pago";
+export type IaAccion = "crear" | "vincular" | "registrar_pago";
 
 export const IA_ACCION_LABEL: Record<IaAccion, string> = {
   crear: "Crear nuevo",
   vincular: "Vincular a existente",
-  elegir: "Elegir existente",
   registrar_pago: "Registrar cobro",
 };
 
-/** La acción que la persona debe resolver en el preview (confianza media). */
-export function esAccionPendiente(accion: IaAccion): boolean {
-  return accion === "elegir";
-}
-
-/** Confianza media: hay candidato, pero lo elige la persona (issue #125). */
-export type IaAccionExistente = Extract<IaAccion, "crear" | "vincular" | "elegir">;
+/** Acciones de un registro que puede existir o crearse. */
+export type IaAccionExistente = Extract<IaAccion, "crear" | "vincular">;
 
 /** Candidato existente para vincular: id, nombre, confianza y foto si la hay. */
 export type IaCandidato = {
@@ -86,13 +81,15 @@ export type IaCliente = {
   ruc: string | null;
   telefono: string | null;
   correo: string | null;
-  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  /** `vincular` con el candidato preseleccionado (≥ 60 %) o `crear` sin candidatos. */
   accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
   confianza: number | null;
-  /** Candidatos con confianza y foto (hasta 8). */
+  /** Candidatos con confianza y foto (hasta 8), para cambiar la sugerencia. */
   candidatos: IaCandidato[];
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -111,6 +108,8 @@ export type IaEvento = {
   fin: string | null;
   lugar: string | null;
   ciudad: string | null;
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -125,12 +124,14 @@ export type IaProducto = {
   precioLista: number | null;
   precioMayorista: number | null;
   precioMinimo: number | null;
-  /** `vincular` con candidato claro (≥ 90 %), `elegir` con confianza media (60–89 %) o `crear`. */
+  /** `vincular` con el candidato preseleccionado (≥ 60 %) o `crear` sin candidatos. */
   accion: IaAccionExistente;
   existenteId: string | null;
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -155,8 +156,47 @@ export type IaCobro = {
   /** Método canónico de `PAYMENT_METHODS` o `null`. */
   metodo: string | null;
   referencia: string | null;
+  /**
+   * ¿Es a crédito/plazo? (issue #126): no se registra como cobrado; si se
+   * conocen los días, `vencimiento` trae la fecha estimada.
+   */
+  plazo: boolean;
+  /** Vencimiento estimado del cobro a plazo (`YYYY-MM-DD`); `null` si no se pudo. */
+  vencimiento: string | null;
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
+
+// ── División de cobros en partes (issue #128) ───────────────────────────────
+
+/** Reparte un monto entero en partes iguales (el resto se reparte de a 1). */
+export function dividirMonto(total: number, partes: number): number[] {
+  const cantidad = Math.max(1, Math.floor(partes));
+  const entero = Math.max(0, Math.floor(total));
+  const base = Math.floor(entero / cantidad);
+  const resto = entero - base * cantidad;
+  return Array.from({ length: cantidad }, (_, indice) => base + (indice < resto ? 1 : 0));
+}
+
+/** Suma de las partes de un cobro. */
+export function sumaPartes(partes: number[]): number {
+  return partes.reduce((suma, parte) => suma + parte, 0);
+}
+
+/**
+ * ¿La parte queda a cobrar? Una fecha futura es un saldo a plazo; hoy, una
+ * fecha pasada o sin fecha se registran como cobrados.
+ */
+export function parteEsPendiente(fecha: string | null | undefined, hoy: string): boolean {
+  const dia = String(fecha ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(dia) && dia > hoy;
+}
+
+/** Día de Asunción de hoy (`YYYY-MM-DD`) para el preview del panel. */
+export function hoyDelPanel(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Asuncion" }).format(ahora);
+}
 
 /** Resultado de una pasada: lo detectado por tipo (los no pedidos van vacíos). */
 export type IaAnalisis = {
@@ -166,4 +206,6 @@ export type IaAnalisis = {
   cobros: IaCobro[];
   /** Notas globales de la pasada (registros descartados, recortes). */
   avisos: string[];
+  /** Diagnóstico de la cartera comparada (issue #126): 0 = no hay nada cargado. */
+  cartera: { clientes: number; productos: number };
 };
