@@ -64,7 +64,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   if (await isDemoOrganizationId(budget.organizationId)) return jsonError("Modo demo: solo lectura", 403);
 
   const openExpected = budget.expectedPayments.filter(
-    (expected) => expected.status === "AWAITING" || expected.status === "PROOF",
+    (expected) => expected.status === "AWAITING" || expected.status === "PROOF" || expected.status === "PARTIAL",
   );
   const upload = portalProofUpload({
     status: budget.status,
