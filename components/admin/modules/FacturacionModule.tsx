@@ -180,7 +180,7 @@ export function FacturacionModule() {
   const [query, setQuery] = useState("");
 
   const fiscal = useAdminResource<AdminFiscalPayload>(`/api/admin/fiscal?month=${month}`, (payload) => ({
-    profile: payload.fiscalProfile ?? { ruc: null, razonSocial: null, timbrado: null, establecimiento: null, direccion: null },
+    profile: payload.fiscalProfile ?? { ruc: null, razonSocial: null, nombreFantasia: null, timbrado: null, establecimiento: null, direccion: null },
     month: payload.month ?? month,
     period: payload.fiscalPeriod ?? null,
     summary: payload.fiscalSummary ?? EMPTY_SUMMARY,
@@ -219,7 +219,14 @@ export function FacturacionModule() {
   // Datos fiscales. `timbrado` queda en el estado aunque el formulario ya no lo
   // pida (issue #114): el valor cargado viaja intacto al guardar —no se pierde
   // nada— y el campo puede volver cuando haya un timbrado autorizado por la DNIT.
-  const [profileForm, setProfileForm] = useState({ ruc: "", razonSocial: "", timbrado: "", establecimiento: "", direccion: "" });
+  const [profileForm, setProfileForm] = useState({
+    ruc: "",
+    razonSocial: "",
+    nombreFantasia: "",
+    timbrado: "",
+    establecimiento: "",
+    direccion: "",
+  });
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState("");
 
@@ -246,6 +253,7 @@ export function FacturacionModule() {
     setProfileForm({
       ruc: profile.ruc ?? "",
       razonSocial: profile.razonSocial ?? "",
+      nombreFantasia: profile.nombreFantasia ?? "",
       timbrado: profile.timbrado ?? "",
       establecimiento: profile.establecimiento ?? "",
       direccion: profile.direccion ?? "",
@@ -1144,6 +1152,15 @@ export function FacturacionModule() {
               maxLength={160}
               disabled={!canProfile}
               placeholder="LedBox S.A."
+            />
+            <TextField
+              label="Nombre fantasía"
+              value={profileForm.nombreFantasia}
+              onChange={(value) => setProfileForm({ ...profileForm, nombreFantasia: value })}
+              maxLength={120}
+              disabled={!canProfile}
+              placeholder="LedBox"
+              hint="El nombre comercial que ven tus clientes; la razón social es la legal."
             />
             {/* Timbrado (issue #114): fuera del formulario mientras no haya un
                 timbrado autorizado por la DNIT. Sigue en el perfil y el payload

@@ -9,7 +9,7 @@
 El módulo `/facturacion` del panel es un **registro fiscal interno** serio, no la
 factura electrónica de SIFEN:
 
-- **Datos fiscales de la empresa** (RUC, razón social, establecimiento y
+- **Datos fiscales de la empresa** (RUC, razón social, nombre fantasía, establecimiento y
   dirección) editables por OWNER/ADMIN; son el encabezado del imprimible. El
   **timbrado** quedó fuera del formulario mientras no haya uno autorizado por la
   DNIT (issue #114): la base y el payload lo conservan y el campo puede volver

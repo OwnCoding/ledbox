@@ -44,6 +44,16 @@ export default async function FacturaImprimiblePage({ params }: { params: Promis
   if (!invoice) notFound();
 
   const fiscal = parseFiscalDetails(invoice.organization.fiscalDetails);
+  // Nombre fantasía (issue #116): va grande en el encabezado, con la razón
+  // social y el RUC como línea legal debajo; sin fantasía cae a la razón social
+  // y, si tampoco hay, al nombre de la organización (nunca se inventa).
+  const fiscalName = fiscal.nombreFantasia || fiscal.razonSocial || auth.context.organization.name;
+  const fiscalLegal = [
+    fiscal.nombreFantasia ? fiscal.razonSocial : null,
+    fiscal.ruc ? `RUC ${fiscal.ruc}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const issuedAt = formatDate(invoice.issuedAt);
   const reference = `Nº ${invoiceNumberLabel(invoice.number)}`;
   // En papel siempre el logo claro (issue #22); sin logo queda el monograma LB.
@@ -62,6 +72,8 @@ export default async function FacturaImprimiblePage({ params }: { params: Promis
           title="Factura · registro interno"
           reference={reference}
           organization={auth.context.organization.name}
+          companyName={fiscalName}
+          companyLegal={fiscalLegal || null}
           issuedAt={issuedAt}
           meta={`Estado: ${invoiceStatusLabel(invoice.status)} · ${invoiceConditionLabel(invoice.condition)}`}
           logo={logo}

@@ -13,6 +13,8 @@ export function PrintHeader({
   title,
   reference,
   organization,
+  companyName,
+  companyLegal,
   issuedAt,
   meta,
   logo,
@@ -20,11 +22,20 @@ export function PrintHeader({
   title: string;
   reference: string | null;
   organization: string;
+  /**
+   * Nombre fantasía del emisor (issue #116): va grande como nombre principal de
+   * la hoja. Sin él se muestra el nombre de la organización como siempre.
+   */
+  companyName?: string | null;
+  /** Línea legal debajo del nombre (razón social y RUC); opcional. */
+  companyLegal?: string | null;
   issuedAt: string;
   meta?: string | null;
   /** Logo de la empresa (issue #22): en papel siempre la variante clara; `null` deja el monograma `LB`. */
   logo?: string | null;
 }) {
+  const name = companyName?.trim() || organization;
+  const legal = companyLegal?.trim() || null;
   return (
     <header className="lbprint-head">
       <div className="lbprint-brand">
@@ -39,7 +50,8 @@ export function PrintHeader({
           <span className="lbprint-wordmark">
             LEDBOX<span>.</span>
           </span>
-          <span className="lbprint-company">{organization}</span>
+          <span className={companyName?.trim() ? "lbprint-company-name" : "lbprint-company"}>{name}</span>
+          {legal ? <span className="lbprint-company-legal">{legal}</span> : null}
         </span>
       </div>
       <div className="lbprint-head-doc">

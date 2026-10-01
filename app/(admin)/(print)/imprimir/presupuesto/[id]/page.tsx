@@ -16,6 +16,7 @@ import { qrSvg } from "@/lib/qr";
 import { loadOrganizationLogos } from "@/lib/server/branding";
 import { parsePaymentDetails, paymentPlanOf } from "@/lib/server/budget-portal";
 import { db } from "@/lib/server/db";
+import { parseFiscalDetails } from "@/lib/server/fiscal";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { PrintBankData } from "../../../_components/PrintBankData";
 import { PrintAmount, PrintEmpty, PrintField, PrintFooter, PrintHeader, PrintSection } from "../../../_components/PrintParts";
@@ -57,7 +58,7 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
       // Solo los cobros cobrados (issue #16): un cobro a plazo pendiente no es
       // plata cobrada y no se imprime como pago del presupuesto.
       payments: { where: { status: "RECEIVED" }, orderBy: { paidAt: "asc" } },
-      organization: { select: { paymentDetails: true } },
+      organization: { select: { paymentDetails: true, fiscalDetails: true } },
     },
   });
   if (!budget) notFound();
@@ -70,6 +71,10 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
   const portalQr = portalUrl ? await qrSvg(portalUrl, 168) : null;
   const plan = paymentPlanOf(budget);
   const details = parsePaymentDetails(budget.organization.paymentDetails);
+  // Nombre fantasía (issue #116): la empresa se presenta con su nombre comercial
+  // en la hoja; sin fantasía cae al nombre de la organización (como antes).
+  const fiscal = parseFiscalDetails(budget.organization.fiscalDetails);
+  const companyName = fiscal.nombreFantasia || fiscal.razonSocial || null;
   // En papel siempre el logo claro (issue #22); sin logo queda el monograma LB.
   const logos = await loadOrganizationLogos(auth.context.organizationId);
   const logo = logos.light ? organizationLogoUrl("light", logos.light.updatedAt) : null;
@@ -83,6 +88,7 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
           title="Presupuesto"
           reference={reference}
           organization={auth.context.organization.name}
+          companyName={companyName}
           issuedAt={issuedAt}
           meta={`Estado: ${budgetStatusLabel(budget.status)}`}
           logo={logo}

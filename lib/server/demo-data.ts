@@ -82,6 +82,7 @@ function hasPaymentDetails(value: unknown): boolean {
 export const DEMO_FISCAL_DETAILS = {
   ruc: "80012345-6",
   razonSocial: "LedBox Demo S.A.",
+  nombreFantasia: "LedBox Demo",
   timbrado: "12345678",
   establecimiento: "Casa central",
   direccion: "Av. Mcal. López 1234, Asunción",

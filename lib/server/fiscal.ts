@@ -22,6 +22,9 @@ import { dayStart } from "./notifications";
 export const FISCAL_FIELDS = [
   { key: "ruc", label: "RUC", max: 20 },
   { key: "razonSocial", label: "Razón social", max: 160 },
+  // Nombre comercial (issue #116): la cara de la empresa en el imprimible; la
+  // razón social sigue siendo el nombre legal. Aditivo: perfiles viejos en null.
+  { key: "nombreFantasia", label: "Nombre fantasía", max: 120 },
   { key: "timbrado", label: "Timbrado", max: 30 },
   { key: "establecimiento", label: "Establecimiento", max: 60 },
   { key: "direccion", label: "Dirección", max: 160 },
@@ -30,6 +33,7 @@ export const FISCAL_FIELDS = [
 export type FiscalProfile = {
   ruc: string | null;
   razonSocial: string | null;
+  nombreFantasia: string | null;
   timbrado: string | null;
   establecimiento: string | null;
   direccion: string | null;
@@ -38,6 +42,7 @@ export type FiscalProfile = {
 export const EMPTY_FISCAL_PROFILE: FiscalProfile = {
   ruc: null,
   razonSocial: null,
+  nombreFantasia: null,
   timbrado: null,
   establecimiento: null,
   direccion: null,
