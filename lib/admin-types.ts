@@ -66,7 +66,9 @@ export type AdminIconName =
   /** Firma del cliente (issue #79): solicitud, firma y auditoría. */
   | "pen"
   /** Colapsar/expandir el sidebar de escritorio (solo íconos). */
-  | "panel-left";
+  | "panel-left"
+  /** Carga con IA (issue #120): asistente de pegado y revisión. */
+  | "sparkles";
 
 export type AdminSessionUser = {
   id: string;
@@ -1897,6 +1899,8 @@ export const AUDIT_ENTITIES = [
   "SignatureRequest",
   // Alerta de operación del sistema (issue #43): respaldo vencido o fallido.
   "System",
+  // Carga con IA (issue #120): análisis de un texto por el proveedor externo.
+  "IaCarga",
   "PlanChangeRequest",
   "Invoice",
   "PurchaseInvoice",

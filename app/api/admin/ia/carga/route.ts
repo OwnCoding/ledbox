@@ -1,0 +1,117 @@
+import { randomUUID } from "node:crypto";
+import { db } from "@/lib/server/db";
+import { recordAudit } from "@/lib/server/audit";
+import { jsonError, readJson } from "@/lib/server/http";
+import { rateLimit, rateLimitResponse } from "@/lib/server/rate-limit";
+import { requireAdminContext } from "@/lib/server/tenancy";
+import {
+  IaError,
+  analizarCarga,
+  asignarClientes,
+  iaConfig,
+  iaProviderDeConfig,
+  tiposPermitidos,
+} from "@/lib/server/ia-carga";
+import { IA_RATE_LIMIT, IA_TEXTO_MAX } from "@/lib/ia-carga";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/**
+ * «Carga con IA» (issue #120): análisis de un texto pegado.
+ *
+ * - `GET`: estado de configuración y tipos que el rol puede crear (lo consulta
+ *   el diálogo al abrir; sin `IA_API_KEY` avisa claro y no rompe nada).
+ * - `POST`: manda el texto al proveedor configurado y devuelve los registros
+ *   detectados y normalizados para la vista previa. **No crea nada**: el panel
+ *   confirma con los endpoints existentes (permisos, aislamiento y auditoría
+ *   iguales). Rate-limit por organización; el texto no se persiste.
+ */
+
+/** Tipos que el rol puede crear; `null` cuando no puede usar el asistente. */
+async function contextoDelAsistente() {
+  const auth = await requireAdminContext();
+  if (!auth.ok) return { ok: false as const, response: auth.response };
+  const tipos = tiposPermitidos(auth.context.role);
+  if (tipos.length === 0) {
+    return {
+      ok: false as const,
+      response: jsonError("Tu rol no puede crear clientes, eventos ni productos.", 403),
+    };
+  }
+  return { ok: true as const, auth, tipos };
+}
+
+export async function GET() {
+  const asistente = await contextoDelAsistente();
+  if (!asistente.ok) return asistente.response;
+  const config = iaConfig();
+  return Response.json({
+    configurada: Boolean(config),
+    modelo: config?.modelo ?? null,
+    tipos: asistente.tipos,
+  });
+}
+
+export async function POST(request: Request) {
+  const asistente = await contextoDelAsistente();
+  if (!asistente.ok) return asistente.response;
+  const { auth, tipos } = asistente;
+
+  const limited = await rateLimit(`ia-carga:${auth.context.organizationId}`, IA_RATE_LIMIT);
+  if (!limited.allowed) return rateLimitResponse(limited.retryAfter);
+
+  const config = iaConfig();
+  if (!config) {
+    return jsonError(
+      "La IA no está configurada en el servidor: pedile a Owncoding que cargue IA_API_KEY (o desactivá la función).",
+      503,
+      "ia_no_configurada",
+    );
+  }
+
+  const body = (await readJson(request)) as Record<string, unknown> | null;
+  const texto = typeof body?.texto === "string" ? body.texto.trim() : "";
+  if (!texto) return jsonError("Pegá el texto que querés cargar.", 400);
+  if (texto.length > IA_TEXTO_MAX) {
+    return jsonError(`El texto supera el máximo de ${IA_TEXTO_MAX.toLocaleString("es-PY")} caracteres.`, 400);
+  }
+
+  let analisis;
+  try {
+    analisis = await analizarCarga({ texto, tipos, proveedor: iaProviderDeConfig(config) });
+  } catch (error) {
+    if (error instanceof IaError) return jsonError(error.message, 502, "ia_proveedor");
+    throw error;
+  }
+
+  // Match de eventos contra la cartera de la empresa (mismo aislamiento que el
+  // resto del panel: solo clientes de la organización activa).
+  const clientes = await db.client.findMany({
+    where: { organizationId: auth.context.organizationId, active: true },
+    orderBy: { name: "asc" },
+    take: 1000,
+    select: { id: true, name: true, company: true },
+  });
+  const registros = asignarClientes(analisis, clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.name, empresa: cliente.company })));
+
+  // Traza de la transferencia al encargado (Ley 7593/2025, docs/PRIVACIDAD.md
+  // T10): se auditan los conteos y el modelo, nunca el texto pegado.
+  await recordAudit({
+    context: auth.context,
+    action: "send",
+    entity: "IaCarga",
+    entityId: randomUUID(),
+    summary: `Analizó un texto con la IA (${registros.clientes.length} clientes, ${registros.eventos.length} eventos, ${registros.productos.length} productos)`,
+    detail: {
+      fields: {
+        modelo: config.modelo,
+        clientes: registros.clientes.length,
+        eventos: registros.eventos.length,
+        productos: registros.productos.length,
+      },
+    },
+  });
+
+  return Response.json({ registros });
+}
