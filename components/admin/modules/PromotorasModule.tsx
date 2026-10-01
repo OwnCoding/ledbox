@@ -15,6 +15,8 @@ import { canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import { PROMOTER_AVAILABILITIES, type AdminPromoterRow } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
 import { AdminAvatar } from "../AdminAvatar";
+import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import {
   AdminBadge,
   AdminButton,
@@ -51,6 +53,9 @@ const AVAILABILITY_FILTERS = [
 /** Nota de disponibilidad: mismo criterio que la API (`backend` revalida). */
 const MAX_AVAILABILITY_NOTE = 300;
 
+/** Vistas de promotoras (issue #118): lista densa y cuadrícula de tarjetas. */
+const PROMOTORAS_VIEWS = ["list", "grid"] as const;
+
 export function PromotorasModule() {
   const { role } = useAdminSession();
   // El catálogo combinado trae proveedores, inventario y promotoras; esta
@@ -66,6 +71,7 @@ export function PromotorasModule() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
+  const [view, setView] = useAdminModuleView("promotoras", PROMOTORAS_VIEWS);
 
   // Editor de disponibilidad (issue #24): badge en la lista + estado editable.
   const [editing, setEditing] = useState<AdminPromoterRow | null>(null);
@@ -184,6 +190,7 @@ export function PromotorasModule() {
           label="Filtrar por disponibilidad"
           options={AVAILABILITY_FILTERS}
         />
+        <AdminViewSwitch view={view} onChange={setView} label="Vista de promotoras" views={PROMOTORAS_VIEWS} />
         {writable ? (
           <AdminButton
             variant="primary"
@@ -282,6 +289,65 @@ export function PromotorasModule() {
       >
         {rows.length === 0 ? (
           <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá el filtro de disponibilidad." />
+        ) : view === "grid" ? (
+          <AdminCardGrid label="Promotoras" cards={rows.map((promoter): AdminCardData => {
+            const detail = promoterAvailabilityDetail(promoter);
+            const unavailable = promoter.availability === "UNAVAILABLE" && Boolean(promoter.unavailableUntil);
+            return {
+              id: promoter.id,
+              title: (
+                <>
+                  <AdminAvatar name={promoter.name} src={promoter.photoUrl} size={22} />
+                  <span className="admin-item-name">{promoter.name}</span>
+                </>
+              ),
+              titleTooltip: detail ? `${promoter.name} · ${detail}` : promoter.name,
+              subtitle: promoter.specialties || null,
+              badges: [
+                {
+                  label: promoterAvailabilityLabel(promoter.availability),
+                  tone: promoterAvailabilityTone(promoter.availability),
+                  title: detail || promoterAvailabilityLabel(promoter.availability),
+                },
+                {
+                  label: promoter.active ? "Activa" : "Inactiva",
+                  tone: promoter.active ? "ok" : "neutral",
+                  title: promoter.active ? "Puede tomar tareas" : "No puede tomar tareas",
+                },
+              ],
+              fields: [
+                { label: "Teléfono", value: promoter.phone || "—", title: promoter.phone || "Sin teléfono" },
+                { label: "Correo", value: promoter.email || "—", title: promoter.email || "Sin correo" },
+                {
+                  label: "Especialidades",
+                  value: promoter.specialties || "—",
+                  title: promoter.specialties || "Sin especialidades cargadas",
+                },
+                ...(unavailable
+                  ? [{
+                      label: "No disponible hasta",
+                      value: formatDateShort(promoter.unavailableUntil),
+                      title: `No disponible hasta el ${formatDate(promoter.unavailableUntil)}`,
+                    }]
+                  : []),
+                { label: "Alta", value: formatDate(promoter.createdAt), title: formatDate(promoter.createdAt) },
+              ],
+              footer: (
+                <span className="admin-actions">
+                  <AdminWhatsappLink phone={promoter.phone} name={promoter.name} />
+                  {promoter.email ? <AdminIconLink href={`mailto:${promoter.email}`} icon="mail" label={`Enviar correo a ${promoter.name}`} /> : null}
+                  {writable ? (
+                    <AdminButton
+                      icon="edit"
+                      title={`Editar disponibilidad: ${promoter.name}`}
+                      aria-label={`Editar disponibilidad: ${promoter.name}`}
+                      onClick={() => startAvailabilityEdit(promoter)}
+                    />
+                  ) : null}
+                </span>
+              ),
+            };
+          })} />
         ) : (
           <AdminTable
             view="promotoras"
