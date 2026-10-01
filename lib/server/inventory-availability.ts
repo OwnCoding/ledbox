@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { InventoryStatus } from "@prisma/client";
+import type { InventoryStatus, Prisma } from "@prisma/client";
 import { db } from "./db";
 import { recordAudit, type AuditContext } from "./audit";
 
@@ -24,6 +24,20 @@ export const BLOCKED_INVENTORY_STATUSES: readonly InventoryStatus[] = ["MAINTENA
 
 /** Máximo de asignaciones que se cargan para calcular disponibilidad. */
 export const MAX_AVAILABILITY_ASSIGNMENTS = 500;
+
+/**
+ * Contador de unidades en mantenimiento (issue #112): una unidad en
+ * mantenimiento o retirada no está libre. Va como `_count` de la relación
+ * `units` para no traer las unidades enteras al calcular disponibilidad.
+ */
+export const MAINTENANCE_UNITS_SELECT = {
+  units: { where: { status: "MAINTENANCE" } },
+} satisfies Prisma.InventoryItemCountOutputTypeSelect;
+
+/** Unidades en mantenimiento de un ítem con `_count` (0 si no vino el conteo). */
+export function maintenanceUnits(item: { _count?: { units?: number } | null }): number {
+  return item._count?.units ?? 0;
+}
 
 export const EVENT_RANGE_SELECT = {
   id: true,
@@ -58,6 +72,8 @@ export type AvailabilityItem = {
   name: string;
   quantity: number;
   status: InventoryStatus;
+  /** Unidades en mantenimiento (issue #112): se descuentan del stock libre. */
+  maintenance: number;
 };
 
 export type AvailabilityConflict = {
@@ -75,6 +91,8 @@ export type RangeAvailability = {
   status: InventoryStatus;
   total: number;
   committed: number;
+  /** Unidades en mantenimiento del ítem (issue #112). */
+  maintenance: number;
   available: number;
   blocked: boolean;
   startsAt: Date;
@@ -204,13 +222,17 @@ export function buildAvailability(
     });
   const committed = conflicts.reduce((sum, conflict) => sum + conflict.quantity, 0);
   const blocked = BLOCKED_INVENTORY_STATUSES.includes(item.status);
+  // El stock libre descuenta las unidades en mantenimiento (issue #112): no se
+  // pueden asignar aunque el ítem esté disponible.
+  const usable = Math.max(0, item.quantity - item.maintenance);
   return {
     inventoryId: item.id,
     name: item.name,
     status: item.status,
     total: item.quantity,
     committed,
-    available: blocked ? 0 : Math.max(0, item.quantity - committed),
+    maintenance: item.maintenance,
+    available: blocked ? 0 : Math.max(0, usable - committed),
     blocked,
     startsAt,
     endsAt,
@@ -262,6 +284,7 @@ export async function findSubstitutes(options: {
     orderBy: { name: "asc" },
     take: 100,
     omit: { imageData: true },
+    include: { _count: { select: MAINTENANCE_UNITS_SELECT } },
   });
   if (candidates.length === 0) return [];
   const rows = await db.eventInventory.findMany({
@@ -276,7 +299,7 @@ export async function findSubstitutes(options: {
   return candidates
     .flatMap((candidate) => {
       const availability = buildAvailability(
-        candidate,
+        { ...candidate, maintenance: maintenanceUnits(candidate) },
         rows.filter((row) => row.inventoryId === candidate.id),
         options.startsAt,
         options.endsAt,
@@ -372,7 +395,15 @@ type LinkedItem = {
   name: string;
   quantity: number;
   inventoryId: string;
-  inventory: { id: string; name: string; sku: string | null; category: string; quantity: number; status: InventoryStatus };
+  inventory: {
+    id: string;
+    name: string;
+    sku: string | null;
+    category: string;
+    quantity: number;
+    status: InventoryStatus;
+    _count: { units: number };
+  };
 };
 
 /**
@@ -434,7 +465,17 @@ export async function reserveBudgetInventory(options: {
             name: true,
             quantity: true,
             inventoryId: true,
-            inventory: { select: { id: true, name: true, sku: true, category: true, quantity: true, status: true } },
+            inventory: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                category: true,
+                quantity: true,
+                status: true,
+                _count: { select: MAINTENANCE_UNITS_SELECT },
+              },
+            },
           },
         },
       },
@@ -526,7 +567,7 @@ export async function reserveBudgetInventory(options: {
 
       const availability = await availabilityForRange({
         organizationId: options.organizationId,
-        item: group.inventory,
+        item: { ...group.inventory, maintenance: maintenanceUnits(group.inventory) },
         startsAt: range.startsAt,
         endsAt: range.endsAt,
         excludeId: existing?.id ?? null,

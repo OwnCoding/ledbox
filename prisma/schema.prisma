@@ -160,6 +160,7 @@ model Organization {
   suppliers         Supplier[]
   supplierJobs      SupplierJob[]
   inventoryItems    InventoryItem[]
+  inventoryUnits    InventoryUnit[]
   promoters         Promoter[]
   auditLogs         AuditLog[]
   treasuryAccounts  TreasuryAccount[]
@@ -1587,6 +1588,11 @@ model InventoryItem {
   imageMime          String?
   kind               InventoryKind    @default(REUSABLE)
   status             InventoryStatus  @default(AVAILABLE)
+  /// «Visible en la web» (issue #111): la landing es estática hoy; el flag queda
+  /// listo para el catálogo dinámico. Por defecto, nada se publica solo.
+  visibleOnWeb       Boolean          @default(false)
+  /// Cantidad = unidades activas (issue #112): se sincroniza con `units`
+  /// (las retiradas no cuentan) para no romper los contratos existentes.
   quantity           Int              @default(1)
   replacementCost    Int              @default(0)
   dailyCost          Int              @default(0)
@@ -1611,10 +1617,39 @@ model InventoryItem {
   organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assignments        EventInventory[]
   budgetItems        BudgetItem[]
+  units              InventoryUnit[]
 
   @@unique([organizationId, sku])
   @@index([status, category])
   @@index([organizationId, name])
+}
+
+/// Unidad física del ítem (issue #112): cada una con su código de inventario
+/// (único por empresa, autogenerado y editable), su estado y su costo, para
+/// saber cuál es cuál. `quantity` del ítem refleja las unidades activas.
+model InventoryUnit {
+  id             String              @id
+  organizationId String
+  inventoryId    String
+  /// Código de inventario legible y único por empresa (ej.: KIO-01).
+  code           String
+  status         InventoryUnitStatus @default(AVAILABLE)
+  /// Costo que tuvo la unidad (interno), en guaraníes enteros.
+  purchaseCost   Int                 @default(0)
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventory      InventoryItem       @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([inventoryId, status])
+}
+
+enum InventoryUnitStatus {
+  AVAILABLE
+  MAINTENANCE
+  RETIRED
 }
 
 model EventInventory {

@@ -17,9 +17,14 @@ import { canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import { csvBool, csvFilename, downloadCsv, type CsvBlock } from "@/lib/admin-export";
 import {
   FIELD_LIMITS,
+  FIELD_MESSAGES,
   inventoryImageError,
   inventoryImageValid,
+  inventoryPriceValue,
   inventoryPriceWarning,
+  inventoryUnitCodeError,
+  inventoryUnitCodeValid,
+  normalizeInventoryUnitCode,
   readInventoryPriceValues,
   type InventoryPriceValues,
 } from "@/lib/field-rules";
@@ -29,6 +34,7 @@ import type {
   AdminInventoryItemRow,
   AdminInventoryRow,
   AdminInventorySubstitute,
+  AdminInventoryUnitRow,
 } from "@/lib/admin-types";
 import type { PreparedInventoryPhoto } from "@/lib/inventory-image";
 import { useAdminSession } from "../AdminShell";
@@ -38,6 +44,7 @@ import {
   AdminCell,
   AdminCountdown,
   AdminDataState,
+  AdminDialog,
   AdminEmpty,
   AdminFormPanel,
   AdminKpi,
@@ -48,7 +55,7 @@ import {
   AdminTable,
   AdminToolbar,
 } from "../AdminUI";
-import { AttachmentInput, Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
+import { AttachmentInput, Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
 import { adminApiGet, adminApiUpload, adminSend, useAdminResource } from "@/lib/admin-api";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
@@ -72,6 +79,11 @@ const STATUS_OPTIONS = [
 
 const STATUS_PICK_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "ALL");
 
+/** Estados de una unidad física (issue #112): disponible, en mantenimiento o retirada. */
+const UNIT_STATUS_PICK_OPTIONS = STATUS_PICK_OPTIONS.filter(
+  (option) => option.value === "AVAILABLE" || option.value === "MAINTENANCE" || option.value === "RETIRED",
+);
+
 /** Vistas del inventario (issue #57): lista densa y cuadrícula de tarjetas. */
 const INVENTARIO_VIEWS = ["list", "grid"] as const;
 
@@ -80,6 +92,8 @@ const EMPTY_FORM = {
   category: "",
   inventoryKind: "REUSABLE",
   quantity: "1",
+  /** «Visible en la web» (issue #111): arranca apagado, nada se publica solo. */
+  visibleOnWeb: false,
   imageUrl: "",
   listPrice: "",
   listFromDays: "0",
@@ -90,7 +104,7 @@ const EMPTY_FORM = {
   minimumPrice: "",
 };
 
-/** Precios del formulario de edición (issues #90 y #110), en el contrato de `MoneyField`. */
+/** Precios de los formularios (issues #90 y #110), en el contrato de `MoneyField`. */
 const EMPTY_PRICES = {
   listPrice: "",
   listFromDays: "0",
@@ -100,6 +114,46 @@ const EMPTY_PRICES = {
   wholesaleFromPrice: "",
   minimumPrice: "",
 };
+
+/** Ítem completo en edición (issue #111): datos, costos, notas, foto y precios. */
+const EMPTY_EDIT = {
+  name: "",
+  category: "",
+  inventoryKind: "REUSABLE",
+  status: "AVAILABLE",
+  replacementCost: "",
+  dailyCost: "",
+  notes: "",
+  visibleOnWeb: false,
+  imageUrl: "",
+  ...EMPTY_PRICES,
+};
+
+type InventoryEditForm = typeof EMPTY_EDIT;
+
+/** El formulario de edición con los valores actuales del ítem. */
+function editFormFromItem(item: AdminInventoryItemRow): InventoryEditForm {
+  return {
+    name: item.name,
+    category: item.category,
+    inventoryKind: item.kind,
+    status: item.status,
+    replacementCost: item.replacementCost > 0 ? String(item.replacementCost) : "",
+    dailyCost: item.dailyCost > 0 ? String(item.dailyCost) : "",
+    notes: item.notes ?? "",
+    visibleOnWeb: item.visibleOnWeb,
+    // La caja de la URL manual no precarga la ruta de la foto subida: son cosas
+    // distintas (la subida se cambia o se quita con sus botones).
+    imageUrl: item.imageUploaded ? "" : item.imageUrl ?? "",
+    listPrice: item.listPrice > 0 ? String(item.listPrice) : "",
+    listFromDays: String(item.listFromDays),
+    listFromPrice: item.listFromPrice > 0 ? String(item.listFromPrice) : "",
+    wholesalePrice: item.wholesalePrice > 0 ? String(item.wholesalePrice) : "",
+    wholesaleFromDays: String(item.wholesaleFromDays),
+    wholesaleFromPrice: item.wholesaleFromPrice > 0 ? String(item.wholesaleFromPrice) : "",
+    minimumPrice: item.minimumPrice > 0 ? String(item.minimumPrice) : "",
+  };
+}
 
 /**
  * Precio de venta listo para mostrar: Gs formateado o «—» cuando todavía no
@@ -253,6 +307,76 @@ function PriceFrontFields({
 }
 
 /**
+ * Bloque de foto del ítem (issue #109, editable desde #111): URL manual o
+ * archivo subido (uno de los dos), con vista previa en la caja uniforme y
+ * «Quitar foto». Lo comparten el alta y la edición; cada una maneja su estado
+ * con los callbacks.
+ */
+function PhotoFields({
+  urlValue,
+  onUrlChange,
+  previewUrl,
+  hasPhoto,
+  onSelectFile,
+  onClearPhoto,
+  error,
+  disabled,
+}: {
+  urlValue: string;
+  onUrlChange: (value: string) => void;
+  previewUrl: string | null;
+  hasPhoto: boolean;
+  onSelectFile: (file: File | null) => void;
+  onClearPhoto: () => void;
+  error: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="admin-form-group admin-form-group--photo">
+      <span className="admin-form-group-title">Foto</span>
+      <TextField
+        label="Imagen (URL)"
+        maxLength={FIELD_LIMITS.image}
+        value={urlValue}
+        onChange={onUrlChange}
+        placeholder="Ej.: /assets/products/pantalla-led.png"
+        hint="Ruta interna (/assets/…) o URL http(s). Opcional."
+        inputMode="url"
+        autoCapitalize="none"
+      />
+      <AttachmentInput
+        label="Subir foto"
+        accept="image/jpeg,image/png,image/webp"
+        maxBytes={10 * 1024 * 1024}
+        hint="JPG, PNG o WebP; se comprime en el navegador (hasta 2 MB)."
+        disabled={disabled}
+        error={error}
+        onSelect={onSelectFile}
+      />
+      <div className="admin-field">
+        <span className="admin-field-label">Vista previa</span>
+        <span className="admin-photo-preview">
+          <span className="admin-image-preview">
+            <InventoryThumb item={{ imageUrl: previewUrl }} size={64} />
+          </span>
+          {hasPhoto ? (
+            <AdminButton
+              icon="trash"
+              type="button"
+              title="Quitar la foto del ítem"
+              aria-label="Quitar la foto del ítem"
+              onClick={onClearPhoto}
+            >
+              Quitar foto
+            </AdminButton>
+          ) : null}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Miniatura del ítem (issue #86): la imagen del producto con fallback al ícono
  * del módulo. Nunca queda un cuadro roto: si la URL no carga, vuelve al ícono
  * (misma mecánica que el avatar único del panel).
@@ -332,11 +456,25 @@ export function InventarioModule() {
   /** Categorías creadas en esta sesión del formulario (se suman a las existentes). */
   const [categoryExtras, setCategoryExtras] = useState<string[]>([]);
 
-  // Edición de precios de venta del ítem abierto (issue #90).
-  const [priceItem, setPriceItem] = useState<AdminInventoryItemRow | null>(null);
-  const [priceForm, setPriceForm] = useState(EMPTY_PRICES);
-  const [priceBusy, setPriceBusy] = useState(false);
-  const [priceError, setPriceError] = useState("");
+  // Edición del ítem abierto (issues #90, #110 y #111): datos, costos, notas,
+  // foto y precios, todo en un solo formulario.
+  const [editItem, setEditItem] = useState<AdminInventoryItemRow | null>(null);
+  const [editForm, setEditForm] = useState<InventoryEditForm>(EMPTY_EDIT);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editPendingPhoto, setEditPendingPhoto] = useState<PreparedInventoryPhoto | null>(null);
+  /** La foto subida del ítem se quita al guardar (issue #111). */
+  const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const [editPhotoError, setEditPhotoError] = useState("");
+
+  // Unidades físicas del ítem abierto (issue #112): alta, estado y edición.
+  const [unitBusyId, setUnitBusyId] = useState("");
+  const [unitError, setUnitError] = useState("");
+  const [unitNotice, setUnitNotice] = useState("");
+  const [unitDialog, setUnitDialog] = useState<AdminInventoryUnitRow | null>(null);
+  const [unitForm, setUnitForm] = useState({ code: "", status: "AVAILABLE", purchaseCost: "", notes: "" });
+  const [unitDialogBusy, setUnitDialogBusy] = useState(false);
+  const [unitDialogError, setUnitDialogError] = useState("");
   /** El aviso del alta (por ejemplo, precios incoherentes) se muestra en tono warn. */
   const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
 
@@ -400,9 +538,9 @@ export function InventarioModule() {
   }, [form]);
 
   const editPriceWarning = useMemo(() => {
-    const prices = readInventoryPriceValues(priceForm);
+    const prices = readInventoryPriceValues(editForm);
     return prices.ok ? priceWarningFor(prices.values) : null;
-  }, [priceForm]);
+  }, [editForm]);
 
   const selectedPriceWarning = selected ? inventoryPriceWarning(selected) : null;
 
@@ -422,6 +560,15 @@ export function InventarioModule() {
   const manualImage = inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null;
   const photoPreview = pendingPhoto?.dataUrl ?? manualImage;
   const hasPhoto = Boolean(pendingPhoto) || Boolean(form.imageUrl.trim());
+
+  // Foto en edición (issue #111): la nueva elegida manda; si no, la manual; si
+  // no, la subida del ítem (salvo que se haya pedido quitarla).
+  const editManualImage = inventoryImageValid(editForm.imageUrl.trim()) ? editForm.imageUrl.trim() : null;
+  const editPhotoPreview =
+    editPendingPhoto?.dataUrl ??
+    editManualImage ??
+    (!editPhotoRemoved && editItem?.imageUploaded ? editItem.imageUrl : null);
+  const editHasPhoto = Boolean(editPendingPhoto) || Boolean(editForm.imageUrl.trim()) || Boolean(editPhotoPreview);
 
   // Disponibilidad del ítem abierto en el rango pedido + sustitutos sugeridos.
   useEffect(() => {
@@ -480,6 +627,7 @@ export function InventarioModule() {
       category: form.category || "General",
       inventoryKind: form.inventoryKind,
       quantity: Number(form.quantity) || 1,
+      visibleOnWeb: form.visibleOnWeb,
       imageUrl: image,
       listPrice: prices.values.listPrice ?? 0,
       listFromDays: prices.values.listFromDays ?? 0,
@@ -546,41 +694,102 @@ export function InventarioModule() {
     setForm((current) => ({ ...current, imageUrl: "" }));
   }
 
-  /** Abre la edición de precios del ítem con los valores actuales. */
-  function openPrices(item: AdminInventoryItemRow) {
+  /** Abre la edición completa del ítem con los valores actuales (issue #111). */
+  function openEditItem(item: AdminInventoryItemRow) {
     setShowForm(false);
     setFormError("");
-    setPriceError("");
+    setEditError("");
+    setEditPhotoError("");
     setNotice("");
     setNoticeTone("ok");
-    setPriceItem(item);
-    setPriceForm({
-      listPrice: item.listPrice > 0 ? String(item.listPrice) : "",
-      listFromDays: String(item.listFromDays),
-      listFromPrice: item.listFromPrice > 0 ? String(item.listFromPrice) : "",
-      wholesalePrice: item.wholesalePrice > 0 ? String(item.wholesalePrice) : "",
-      wholesaleFromDays: String(item.wholesaleFromDays),
-      wholesaleFromPrice: item.wholesaleFromPrice > 0 ? String(item.wholesaleFromPrice) : "",
-      minimumPrice: item.minimumPrice > 0 ? String(item.minimumPrice) : "",
-    });
+    setEditItem(item);
+    setEditForm(editFormFromItem(item));
+    setEditPendingPhoto(null);
+    setEditPhotoRemoved(false);
   }
 
-  /** Guarda los precios de venta del ítem abierto (issues #90 y #110). */
-  async function submitPrices(event: React.FormEvent<HTMLFormElement>) {
+  /** Elige y comprime la foto de la edición en el navegador (issue #111). */
+  async function selectEditPhoto(file: File | null) {
+    if (!file) return;
+    setEditPhotoError("");
+    setEditBusy(true);
+    try {
+      const { prepareInventoryPhoto } = await import("@/lib/inventory-image");
+      const result = await prepareInventoryPhoto(file);
+      if (!result.ok) {
+        setEditPhotoError(result.error);
+        return;
+      }
+      setEditPendingPhoto(result.photo);
+      setEditPhotoRemoved(false);
+      setEditForm((current) => ({ ...current, imageUrl: "" }));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  /** Saca la foto en la edición: la nueva, la URL manual o la subida. */
+  function clearEditPhoto() {
+    setEditPendingPhoto(null);
+    setEditPhotoError("");
+    setEditForm((current) => ({ ...current, imageUrl: "" }));
+    // La subida se borra recién al guardar, avisando que estaba puesta.
+    setEditPhotoRemoved(Boolean(editItem?.imageUploaded));
+  }
+
+  /** Guarda el ítem completo: datos, precios y foto (issues #90, #110 y #111). */
+  async function submitEditItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!priceItem) return;
-    setPriceError("");
+    if (!editItem) return;
+    setEditError("");
     setNotice("");
     setNoticeTone("ok");
-    const prices = readInventoryPriceValues(priceForm);
-    if (!prices.ok) {
-      setPriceError(prices.error);
+    if (!editForm.name.trim()) {
+      setEditError("Ingresá el nombre del artículo.");
       return;
     }
-    setPriceBusy(true);
-    const result = await adminSend<AdminApiResponse>("/api/admin/inventory", {
+    const image = editForm.imageUrl.trim();
+    const imageError = inventoryImageError(image);
+    if (imageError) {
+      setEditError(imageError);
+      return;
+    }
+    const prices = readInventoryPriceValues(editForm);
+    if (!prices.ok) {
+      setEditError(prices.error);
+      return;
+    }
+    const replacementCost = inventoryPriceValue(editForm.replacementCost);
+    const dailyCost = inventoryPriceValue(editForm.dailyCost);
+    if (replacementCost === false || dailyCost === false) {
+      setEditError(FIELD_MESSAGES.price);
+      return;
+    }
+
+    setEditBusy(true);
+    // Datos del ítem (issue #111) y después precios (issues #90 y #110).
+    const itemResult = await adminSend<{ inventory?: { id?: string } }>("/api/admin/inventory", {
+      kind: "item",
+      id: editItem.id,
+      name: editForm.name,
+      category: editForm.category || "General",
+      inventoryKind: editForm.inventoryKind,
+      status: editForm.status,
+      replacementCost: replacementCost ?? 0,
+      dailyCost: dailyCost ?? 0,
+      notes: editForm.notes,
+      visibleOnWeb: editForm.visibleOnWeb,
+      imageUrl: image,
+    });
+    if (!itemResult.ok) {
+      setEditBusy(false);
+      setEditError(itemResult.error);
+      return;
+    }
+
+    const priceResult = await adminSend<AdminApiResponse>("/api/admin/inventory", {
       kind: "prices",
-      id: priceItem.id,
+      id: editItem.id,
       listPrice: prices.values.listPrice ?? 0,
       listFromDays: prices.values.listFromDays ?? 0,
       listFromPrice: prices.values.listFromPrice ?? 0,
@@ -589,22 +798,114 @@ export function InventarioModule() {
       wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
       minimumPrice: prices.values.minimumPrice ?? 0,
     });
-    setPriceBusy(false);
+    const warnings: string[] = [];
+    if (!priceResult.ok) warnings.push(`Los precios no se guardaron: ${priceResult.error}`);
+    else if (typeof priceResult.data.warning === "string" && priceResult.data.warning) warnings.push(priceResult.data.warning);
+
+    // Foto (issue #109): se cambia subiendo la nueva o se quita la subida.
+    if (editPendingPhoto) {
+      const photoForm = new FormData();
+      photoForm.append("file", editPendingPhoto.blob, editPendingPhoto.fileName);
+      const upload = await adminApiUpload(`/api/admin/inventory/${editItem.id}/image`, photoForm);
+      if (!upload.ok) warnings.push(`La foto no se pudo subir: ${upload.error}`);
+    } else if (editPhotoRemoved && editItem.imageUploaded) {
+      const removed = await adminSend(`/api/admin/inventory/${editItem.id}/image`, {}, "DELETE");
+      if (!removed.ok) warnings.push(`La foto no se pudo quitar: ${removed.error}`);
+    }
+    setEditBusy(false);
+
+    setNotice(`Ítem «${editForm.name}» guardado.${warnings.length ? ` ${warnings.join(" ")}` : ""}`);
+    setNoticeTone(warnings.length ? "warn" : "ok");
+    setEditItem(null);
+    setEditForm(EMPTY_EDIT);
+    setEditPendingPhoto(null);
+    setEditPhotoRemoved(false);
+    setEditPhotoError("");
+    resources.reload();
+  }
+
+  /** Agrega una unidad al ítem abierto (issue #112): código autogenerado. */
+  async function addInventoryUnit(item: AdminInventoryItemRow) {
+    setUnitBusyId(item.id);
+    setUnitError("");
+    setUnitNotice("");
+    const result = await adminSend<{ unit?: AdminInventoryUnitRow }>("/api/admin/inventory", {
+      kind: "unit",
+      inventoryId: item.id,
+    });
+    setUnitBusyId("");
     if (!result.ok) {
-      setPriceError(result.error);
+      setUnitError(result.error);
       return;
     }
-    const warning = typeof result.data.warning === "string" ? result.data.warning : "";
-    setNotice(`Precios de «${priceItem.name}» guardados.${warning ? ` ${warning}` : ""}`);
-    setNoticeTone(warning ? "warn" : "ok");
-    setPriceItem(null);
-    setPriceForm(EMPTY_PRICES);
+    setUnitNotice(`Unidad «${result.data.unit?.code ?? "nueva"}» agregada a «${item.name}».`);
+    resources.reload();
+  }
+
+  /** Cambia el estado de una unidad: mantenimiento y retiro ajustan el stock libre. */
+  async function changeUnitStatus(unit: AdminInventoryUnitRow, next: string) {
+    setUnitBusyId(unit.id);
+    setUnitError("");
+    setUnitNotice("");
+    const result = await adminSend("/api/admin/inventory", { kind: "unit-update", id: unit.id, status: next });
+    setUnitBusyId("");
+    if (!result.ok) {
+      setUnitError(result.error);
+      return;
+    }
+    setUnitNotice(`Unidad «${unit.code}» pasó a ${inventoryStatusLabel(next)}.`);
+    resources.reload();
+  }
+
+  function openUnitDialog(unit: AdminInventoryUnitRow) {
+    setUnitError("");
+    setUnitNotice("");
+    setUnitDialogError("");
+    setUnitDialog(unit);
+    setUnitForm({
+      code: unit.code,
+      status: unit.status,
+      purchaseCost: unit.purchaseCost > 0 ? String(unit.purchaseCost) : "",
+      notes: unit.notes ?? "",
+    });
+  }
+
+  /** Guarda el código, el estado, el costo y las notas de una unidad. */
+  async function submitUnitDialog(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!unitDialog) return;
+    setUnitDialogError("");
+    const code = normalizeInventoryUnitCode(unitForm.code);
+    if (!inventoryUnitCodeValid(code)) {
+      setUnitDialogError(FIELD_MESSAGES.unitCode);
+      return;
+    }
+    const cost = inventoryPriceValue(unitForm.purchaseCost);
+    if (cost === false) {
+      setUnitDialogError(FIELD_MESSAGES.price);
+      return;
+    }
+    setUnitDialogBusy(true);
+    const result = await adminSend("/api/admin/inventory", {
+      kind: "unit-update",
+      id: unitDialog.id,
+      code,
+      status: unitForm.status,
+      purchaseCost: cost ?? 0,
+      notes: unitForm.notes,
+    });
+    setUnitDialogBusy(false);
+    if (!result.ok) {
+      setUnitDialogError(result.error);
+      return;
+    }
+    setUnitNotice(`Unidad «${code}» guardada.`);
+    setUnitDialog(null);
     resources.reload();
   }
 
   /** CSV del inventario filtrado: cantidades y costos reales de cada ítem. */
-  function exportInventory() {
-    const units = rows.reduce((sum, item) => sum + item.quantity, 0);
+  function exportInventory() {    const units = rows.reduce((sum, item) => sum + item.quantity, 0);
     const available = rows.reduce(
       (sum, item) => sum + (rangeActive ? (item.availability.range?.available ?? 0) : item.availability.availableNow),
       0,
@@ -736,7 +1037,7 @@ export function InventarioModule() {
             icon="plus"
             onClick={() => {
               setFormError("");
-              setPriceItem(null);
+              setEditItem(null);
               setShowForm((open) => !open);
             }}
             aria-expanded={showForm}
@@ -804,55 +1105,31 @@ export function InventarioModule() {
               maxLength={6}
               value={form.quantity}
               onChange={(value) => setForm({ ...form, quantity: value })}
+              hint="Se crean las unidades con código automático."
+            />
+            <SwitchField
+              label="Visible en la web"
+              checked={form.visibleOnWeb}
+              onChange={(checked) => setForm({ ...form, visibleOnWeb: checked })}
+              hint="Para el catálogo público."
             />
           </div>
 
           {/* Foto (issue #109): URL manual o archivo subido (uno de los dos). */}
-          <div className="admin-form-group admin-form-group--photo">
-            <span className="admin-form-group-title">Foto</span>
-            <TextField
-              label="Imagen (URL)"
-              maxLength={FIELD_LIMITS.image}
-              value={form.imageUrl}
-              onChange={(value) => {
-                setPendingPhoto(null);
-                setPhotoError("");
-                setForm({ ...form, imageUrl: value });
-              }}
-              placeholder="Ej.: /assets/products/pantalla-led.png"
-              hint="Ruta interna (/assets/…) o URL http(s). Opcional."
-              inputMode="url"
-              autoCapitalize="none"
-            />
-            <AttachmentInput
-              label="Subir foto"
-              accept="image/jpeg,image/png,image/webp"
-              maxBytes={10 * 1024 * 1024}
-              hint="JPG, PNG o WebP; se comprime en el navegador (hasta 2 MB)."
-              disabled={busy || photoBusy}
-              error={photoError}
-              onSelect={(file) => void selectPhotoFile(file)}
-            />
-            <div className="admin-field">
-              <span className="admin-field-label">Vista previa</span>
-              <span className="admin-photo-preview">
-                <span className="admin-image-preview">
-                  <InventoryThumb item={{ imageUrl: photoPreview }} size={64} />
-                </span>
-                {hasPhoto ? (
-                  <AdminButton
-                    icon="trash"
-                    type="button"
-                    title="Quitar la foto elegida"
-                    aria-label="Quitar la foto elegida"
-                    onClick={clearPhoto}
-                  >
-                    Quitar foto
-                  </AdminButton>
-                ) : null}
-              </span>
-            </div>
-          </div>
+          <PhotoFields
+            urlValue={form.imageUrl}
+            onUrlChange={(value) => {
+              setPendingPhoto(null);
+              setPhotoError("");
+              setForm({ ...form, imageUrl: value });
+            }}
+            previewUrl={photoPreview}
+            hasPhoto={hasPhoto}
+            onSelectFile={(file) => void selectPhotoFile(file)}
+            onClearPhoto={clearPhoto}
+            error={photoError}
+            disabled={busy || photoBusy}
+          />
 
           {/* Precios por frente (issue #110): normal, umbral «desde X días» y
               precio desde esos días; el mínimo es el piso de venta. */}
@@ -886,40 +1163,161 @@ export function InventarioModule() {
         </AdminFormPanel>
       ) : null}
 
-      {writable && priceItem ? (
+      {writable && editItem ? (
         <AdminFormPanel
-          title={`Precios de venta · ${priceItem.name}`}
-          submitLabel="Guardar precios"
-          onSubmit={submitPrices}
-          onCancel={() => setPriceItem(null)}
-          busy={priceBusy}
-          status={priceError}
-          statusNote={!priceError && editPriceWarning ? <AdminNote tone="warn">{editPriceWarning}</AdminNote> : undefined}
+          title={`Editar ítem · ${editForm.name || editItem.name}`}
+          submitLabel="Guardar cambios"
+          onSubmit={submitEditItem}
+          onCancel={() => setEditItem(null)}
+          onEscape={() => setEditItem(null)}
+          busy={editBusy}
+          status={editError}
+          statusNote={!editError && editPriceWarning ? <AdminNote tone="warn">{editPriceWarning}</AdminNote> : undefined}
         >
+          {/* Datos del ítem (issue #111): todo editable menos la cantidad (#112). */}
+          <div className="admin-form-group admin-form-group--item-edit">
+            <span className="admin-form-group-title">Ítem</span>
+            <TextField
+              label="Artículo"
+              required
+              maxLength={120}
+              value={editForm.name}
+              onChange={(value) => setEditForm({ ...editForm, name: value })}
+              placeholder="Ej.: Pantalla LED P3.9 500×500"
+            />
+            <Combobox
+              label="Categoría"
+              value={editForm.category}
+              onChange={(value) => setEditForm({ ...editForm, category: value })}
+              options={categoryChoices}
+              placeholder="Ej.: Pantallas"
+              emptyLabel="Sin categorías cargadas."
+              hint="Buscá o creá una nueva."
+              onCreate={(query) => {
+                if (!query) return;
+                setCategoryExtras((current) => (current.includes(query) ? current : [...current, query]));
+                setEditForm((current) => ({ ...current, category: query }));
+              }}
+              createLabel={(query) => (query ? `Crear categoría «${query}»` : "Crear categoría")}
+            />
+            <SelectField
+              label="Tipo"
+              value={editForm.inventoryKind}
+              onChange={(value) => setEditForm({ ...editForm, inventoryKind: value })}
+              options={[
+                { value: "REUSABLE", label: "Reutilizable" },
+                { value: "CONSUMABLE", label: "Consumible" },
+                { value: "DISPOSABLE", label: "Descartable" },
+              ]}
+            />
+            <SelectField
+              label="Estado"
+              value={editForm.status}
+              onChange={(value) => setEditForm({ ...editForm, status: value })}
+              options={STATUS_PICK_OPTIONS}
+            />
+            <SwitchField
+              label="Visible en la web"
+              checked={editForm.visibleOnWeb}
+              onChange={(checked) => setEditForm({ ...editForm, visibleOnWeb: checked })}
+              hint="Para el catálogo público."
+            />
+          </div>
+
+          {/* Las unidades físicas (issue #112) se gestionan en el detalle: acá
+              solo se resume cuántas hay, para no duplicar la lista. */}
+          <div className="admin-form-group admin-form-group--wide">
+            <span className="admin-form-group-title">Unidades</span>
+            <p className="admin-note">
+              <span>
+                {formatNumber(editItem.units.length)} unidad{editItem.units.length === 1 ? "" : "es"} · código, estado y
+                costo se gestionan en el detalle del ítem.
+              </span>
+              <AdminButton
+                icon="info"
+                type="button"
+                title="Ver el detalle con las unidades"
+                onClick={() => {
+                  setSelectedId(editItem.id);
+                  setEditItem(null);
+                }}
+              >
+                Ver unidades
+              </AdminButton>
+            </p>
+          </div>
+
+          {/* Foto (issues #109 y #111): se cambia subiendo otra o se quita. */}
+          <PhotoFields
+            urlValue={editForm.imageUrl}
+            onUrlChange={(value) => {
+              setEditPendingPhoto(null);
+              setEditPhotoError("");
+              setEditPhotoRemoved(false);
+              setEditForm({ ...editForm, imageUrl: value });
+            }}
+            previewUrl={editPhotoPreview}
+            hasPhoto={editHasPhoto}
+            onSelectFile={(file) => void selectEditPhoto(file)}
+            onClearPhoto={clearEditPhoto}
+            error={editPhotoError}
+            disabled={editBusy}
+          />
+
+          {/* Costos internos (issue #111): no son precios de venta. */}
+          <div className="admin-form-group admin-form-group--costs">
+            <span className="admin-form-group-title">Costos internos</span>
+            <MoneyField
+              label="Reposición"
+              value={editForm.replacementCost}
+              onChange={(value) => setEditForm({ ...editForm, replacementCost: value })}
+              hint="Lo que cuesta reponer la unidad."
+            />
+            <MoneyField
+              label="Costo diario"
+              value={editForm.dailyCost}
+              onChange={(value) => setEditForm({ ...editForm, dailyCost: value })}
+              hint="Costo interno por día de uso."
+            />
+          </div>
+
+          <div className="admin-form-group admin-form-group--wide">
+            <span className="admin-form-group-title">Notas</span>
+            <TextAreaField
+              label="Notas internas"
+              maxLength={FIELD_LIMITS.notes}
+              rows={3}
+              wide
+              value={editForm.notes}
+              onChange={(value) => setEditForm({ ...editForm, notes: value })}
+              placeholder="Estado del equipo, accesorios, ubicación en depósito…"
+            />
+          </div>
+
           <PriceFrontFields
             title="Precio cliente final"
-            normalValue={priceForm.listPrice}
-            daysValue={priceForm.listFromDays}
-            fromValue={priceForm.listFromPrice}
-            onNormal={(value) => setPriceForm({ ...priceForm, listPrice: value })}
-            onDays={(value) => setPriceForm({ ...priceForm, listFromDays: value })}
-            onFrom={(value) => setPriceForm({ ...priceForm, listFromPrice: value })}
+            normalValue={editForm.listPrice}
+            daysValue={editForm.listFromDays}
+            fromValue={editForm.listFromPrice}
+            onNormal={(value) => setEditForm({ ...editForm, listPrice: value })}
+            onDays={(value) => setEditForm({ ...editForm, listFromDays: value })}
+            onFrom={(value) => setEditForm({ ...editForm, listFromPrice: value })}
           />
           <PriceFrontFields
             title="Precio mayorista"
-            normalValue={priceForm.wholesalePrice}
-            daysValue={priceForm.wholesaleFromDays}
-            fromValue={priceForm.wholesaleFromPrice}
-            onNormal={(value) => setPriceForm({ ...priceForm, wholesalePrice: value })}
-            onDays={(value) => setPriceForm({ ...priceForm, wholesaleFromDays: value })}
-            onFrom={(value) => setPriceForm({ ...priceForm, wholesaleFromPrice: value })}
+            normalValue={editForm.wholesalePrice}
+            daysValue={editForm.wholesaleFromDays}
+            fromValue={editForm.wholesaleFromPrice}
+            onNormal={(value) => setEditForm({ ...editForm, wholesalePrice: value })}
+            onDays={(value) => setEditForm({ ...editForm, wholesaleFromDays: value })}
+            onFrom={(value) => setEditForm({ ...editForm, wholesaleFromPrice: value })}
           />
           <div className="admin-form-group admin-form-group--min">
             <span className="admin-form-group-title">Precio mínimo</span>
             <MoneyField
               label="Piso de venta"
-              value={priceForm.minimumPrice}
-              onChange={(value) => setPriceForm({ ...priceForm, minimumPrice: value })}
+              value={editForm.minimumPrice}
+              onChange={(value) => setEditForm({ ...editForm, minimumPrice: value })}
               hint="Piso de venta del ítem."
             />
           </div>
@@ -998,9 +1396,9 @@ export function InventarioModule() {
                     {writable ? (
                       <AdminButton
                         icon="edit"
-                        title={`Editar precios: ${item.name}`}
-                        aria-label={`Editar precios: ${item.name}`}
-                        onClick={() => openPrices(item)}
+                        title={`Editar ítem: ${item.name}`}
+                        aria-label={`Editar ítem: ${item.name}`}
+                        onClick={() => openEditItem(item)}
                       />
                     ) : null}
                     <AdminButton
@@ -1115,9 +1513,9 @@ export function InventarioModule() {
                       {writable ? (
                         <AdminButton
                           icon="edit"
-                          title={`Editar precios: ${item.name}`}
-                          aria-label={`Editar precios: ${item.name}`}
-                          onClick={() => openPrices(item)}
+                          title={`Editar ítem: ${item.name}`}
+                          aria-label={`Editar ítem: ${item.name}`}
+                          onClick={() => openEditItem(item)}
                         />
                       ) : null}
                       <AdminButton
@@ -1148,9 +1546,9 @@ export function InventarioModule() {
               {writable ? (
                 <AdminButton
                   icon="edit"
-                  title={`Editar precios: ${selected.name}`}
-                  aria-label={`Editar precios: ${selected.name}`}
-                  onClick={() => openPrices(selected)}
+                  title={`Editar ítem: ${selected.name}`}
+                  aria-label={`Editar ítem: ${selected.name}`}
+                  onClick={() => openEditItem(selected)}
                 />
               ) : null}
               <AdminButton
@@ -1195,7 +1593,98 @@ export function InventarioModule() {
               <dd>{priceText(selected.minimumPrice)}</dd>
             </div>
           </dl>
+          {/* «Visible en la web» (issue #111): la landing es estática hoy; el
+              flag queda listo para el catálogo dinámico. */}
+          <p className="admin-note">
+            <AdminBadge
+              tone={selected.visibleOnWeb ? "ok" : undefined}
+              title="Cuando el catálogo de la landing sea dinámico, este ítem se publica o no según este estado."
+            >
+              {selected.visibleOnWeb ? "Visible en la web" : "No visible en la web"}
+            </AdminBadge>
+          </p>
           {selectedPriceWarning ? <AdminNote tone="warn">{selectedPriceWarning}</AdminNote> : null}
+
+          {/* Unidades físicas (issue #112): código, estado y costo por unidad. */}
+          <section className="admin-unit-block" aria-label={`Unidades de ${selected.name}`}>
+            <header className="admin-unit-head">
+              <span className="admin-form-group-title">
+                Unidades · {formatNumber(selected.units.length)}
+                {selected.availability.maintenanceNow > 0
+                  ? ` · ${formatNumber(selected.availability.maintenanceNow)} en mantenimiento`
+                  : ""}
+              </span>
+              {writable ? (
+                <AdminButton
+                  icon="plus"
+                  type="button"
+                  busy={unitBusyId === selected.id}
+                  title="Agregar una unidad con código automático"
+                  onClick={() => void addInventoryUnit(selected)}
+                >
+                  Agregar unidad
+                </AdminButton>
+              ) : null}
+            </header>
+            {unitNotice ? <AdminNote tone="ok">{unitNotice}</AdminNote> : null}
+            {unitError ? <AdminNote tone="error">{unitError}</AdminNote> : null}
+            {selected.units.length === 0 ? (
+              <AdminNote>
+                Sin unidades cargadas: agregá la primera para poder asignar «{selected.name}» a un evento.
+              </AdminNote>
+            ) : (
+              <AdminTable
+                view="inventario-unidades"
+                label={`Unidades de ${selected.name}`}
+                columns={[
+                  { label: "Código" },
+                  { label: "Estado" },
+                  { label: "Costo", end: true },
+                  { label: "Acciones", end: true },
+                ]}
+              >
+                {selected.units.map((unit) => (
+                  <AdminRow key={unit.id}>
+                    <AdminCell title={unit.notes ? `${unit.code} · ${unit.notes}` : unit.code}>
+                      <span className="admin-code">{unit.code}</span>
+                    </AdminCell>
+                    <AdminCell title={writable ? `Cambiar estado de ${unit.code}` : inventoryStatusLabel(unit.status)}>
+                      {writable ? (
+                        <AdminSelect
+                          className="admin-filter admin-filter--cell"
+                          value={unit.status}
+                          disabled={unitBusyId === unit.id}
+                          onChange={(value) => void changeUnitStatus(unit, value)}
+                          label={`Cambiar estado de la unidad ${unit.code}`}
+                          title={`Cambiar estado de la unidad ${unit.code}`}
+                          options={UNIT_STATUS_PICK_OPTIONS}
+                          tone={statusTone(unit.status)}
+                        />
+                      ) : (
+                        <AdminBadge tone={statusTone(unit.status)}>{inventoryStatusLabel(unit.status)}</AdminBadge>
+                      )}
+                    </AdminCell>
+                    <AdminCell end title={unit.purchaseCost > 0 ? formatMoney(unit.purchaseCost) : "Sin costo cargado"}>
+                      {unit.purchaseCost > 0 ? formatMoney(unit.purchaseCost) : "—"}
+                    </AdminCell>
+                    <AdminCell end className="admin-cell--actions">
+                      <span className="admin-actions">
+                        {writable ? (
+                          <AdminButton
+                            icon="edit"
+                            title={`Editar la unidad ${unit.code}`}
+                            aria-label={`Editar la unidad ${unit.code}`}
+                            onClick={() => openUnitDialog(unit)}
+                          />
+                        ) : null}
+                      </span>
+                    </AdminCell>
+                  </AdminRow>
+                ))}
+              </AdminTable>
+            )}
+          </section>
+
           {rangeActive ? (
             rangeLoading ? (
               <AdminNote>Calculando la disponibilidad del rango…</AdminNote>
@@ -1353,6 +1842,57 @@ export function InventarioModule() {
             </AdminTable>
           )}
         </AdminPanel>
+      ) : null}
+
+      {unitDialog ? (
+        <AdminDialog title={`Unidad ${unitDialog.code}`} icon="inventory" onClose={() => setUnitDialog(null)}>
+          <p className="admin-dialog-text">
+            El código es único en la empresa; el estado y el costo son de esta unidad.
+          </p>
+          <form className="admin-form" onSubmit={(event) => void submitUnitDialog(event)}>
+            <TextField
+              label="Código"
+              required
+              maxLength={FIELD_LIMITS.unitCode}
+              value={unitForm.code}
+              onChange={(value) => setUnitForm({ ...unitForm, code: normalizeInventoryUnitCode(value) })}
+              hint="Letras, números, guiones y guiones bajos."
+              error={unitForm.code && !inventoryUnitCodeValid(unitForm.code) ? FIELD_MESSAGES.unitCode : null}
+              autoCapitalize="characters"
+            />
+            <SelectField
+              label="Estado"
+              value={unitForm.status}
+              onChange={(value) => setUnitForm({ ...unitForm, status: value })}
+              options={UNIT_STATUS_PICK_OPTIONS}
+            />
+            <MoneyField
+              label="Costo que tuvo"
+              value={unitForm.purchaseCost}
+              onChange={(value) => setUnitForm({ ...unitForm, purchaseCost: value })}
+              hint="Costo interno de esta unidad."
+            />
+            <TextAreaField
+              label="Notas"
+              maxLength={400}
+              rows={3}
+              wide
+              value={unitForm.notes}
+              onChange={(value) => setUnitForm({ ...unitForm, notes: value })}
+              placeholder="Detalles de la unidad: accesorios, estado, reparaciones…"
+            />
+            {unitDialogError ? <AdminNote tone="error">{unitDialogError}</AdminNote> : null}
+            <div className="admin-dialog-foot">
+              <span className="admin-dialog-spacer" />
+              <AdminButton icon="close" type="button" onClick={() => setUnitDialog(null)} disabled={unitDialogBusy}>
+                Cancelar
+              </AdminButton>
+              <AdminButton variant="primary" icon="check" type="submit" busy={unitDialogBusy}>
+                Guardar unidad
+              </AdminButton>
+            </div>
+          </form>
+        </AdminDialog>
       ) : null}
     </div>
   );

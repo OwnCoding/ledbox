@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { Prisma } from "@prisma/client";
 import { formatDate, formatMoney, formatNumber } from "@/lib/admin-format";
+import { inventoryUnitPrefix } from "@/lib/field-rules";
 import { fiscalSummaryOf, grossToNet, shiftMonthKey, taxTotalsOf, type InvoiceTaxTypeValue } from "@/lib/fiscal";
 import type { MessageTemplateCategoryValue } from "@/lib/admin-types";
 import { statementRowFingerprint } from "@/lib/bank-statement";
@@ -2483,6 +2484,27 @@ async function seedDemoData(organizationId: string, base: Date): Promise<void> {
     ...org,
     createdAt: at(base, -150, 9, 0),
   }));
+  // ── Unidades físicas (issue #112): cada equipo con su código, su costo y una
+  // en mantenimiento, como cierra la historia de la Expo (tótem dañado). ──
+  const unitCounters = new Map<string, number>();
+  const inventoryUnitsData: Prisma.InventoryUnitUncheckedCreateInput[] = INVENTORY.flatMap((item) => {
+    const prefix = inventoryUnitPrefix(item.name);
+    return Array.from({ length: Math.max(1, item.quantity) }, (_, index) => {
+      const sequence = (unitCounters.get(prefix) ?? 0) + 1;
+      unitCounters.set(prefix, sequence);
+      const inMaintenance = item.id === "demo_inv_totem" && index === 0;
+      return {
+        id: `demo_unit_${item.id.replace(/^demo_inv_/, "")}_${index + 1}`,
+        organizationId,
+        inventoryId: item.id,
+        code: `${prefix}-${String(sequence).padStart(2, "0")}`,
+        status: inMaintenance ? "MAINTENANCE" : "AVAILABLE",
+        purchaseCost: item.replacementCost ?? 0,
+        notes: inMaintenance ? "Volvió con el marco doblado (ver la devolución de la Expo)." : null,
+        createdAt: at(base, -150, 9, 0),
+      };
+    });
+  });
   const assignmentsData: Prisma.EventInventoryUncheckedCreateInput[] = [
     { id: "demo_asg_activacion_p5", eventId: inProgress.id, inventoryId: "demo_inv_led_p5", quantity: 12, startsAt: inProgress.setupAt, endsAt: atDay(inProgress.strikeAt, 0, 12), checkedOut: true, checkedIn: false, checkedOutAt: atDay(inProgress.setupAt, 0, 8, 20), conditionOut: "Bueno" },
     { id: "demo_asg_proximo_p3", eventId: next.id, inventoryId: "demo_inv_led_p3", quantity: 20, startsAt: next.setupAt, endsAt: atDay(next.strikeAt, 0, 14), checkedOut: false, checkedIn: false },
@@ -2896,6 +2918,7 @@ async function seedDemoData(organizationId: string, base: Date): Promise<void> {
       await tx.paymentReminderLog.createMany({ data: reminderLogsData });
       await tx.organizationLogo.createMany({ data: logosData });
       await tx.inventoryItem.createMany({ data: inventoryData });
+      await tx.inventoryUnit.createMany({ data: inventoryUnitsData });
       await tx.eventInventory.createMany({ data: assignmentsData });
       await tx.budgetChangeRequest.createMany({ data: changeRequestsData });
       await tx.lead.createMany({ data: leadsData });
