@@ -110,6 +110,7 @@ test("normalizarAnalisis valida con Zod y normaliza cada tipo", () => {
     existenteNombre: null,
     confianza: null,
     candidatos: [],
+    inventados: [],
     avisos: [],
   });
   assert.equal(salida.eventos[0].inicio, "2026-12-20");
