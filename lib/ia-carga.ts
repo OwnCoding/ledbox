@@ -93,6 +93,8 @@ export type IaCliente = {
   confianza: number | null;
   /** Candidatos con confianza y foto (hasta 8). */
   candidatos: IaCandidato[];
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -111,6 +113,8 @@ export type IaEvento = {
   fin: string | null;
   lugar: string | null;
   ciudad: string | null;
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -131,6 +135,8 @@ export type IaProducto = {
   existenteNombre: string | null;
   confianza: number | null;
   candidatos: IaCandidato[];
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -155,6 +161,15 @@ export type IaCobro = {
   /** Método canónico de `PAYMENT_METHODS` o `null`. */
   metodo: string | null;
   referencia: string | null;
+  /**
+   * ¿Es a crédito/plazo? (issue #126): no se registra como cobrado; si se
+   * conocen los días, `vencimiento` trae la fecha estimada.
+   */
+  plazo: boolean;
+  /** Vencimiento estimado del cobro a plazo (`YYYY-MM-DD`); `null` si no se pudo. */
+  vencimiento: string | null;
+  /** Campos que no aparecen en el texto pegado (issue #126); exigen confirmación. */
+  inventados: string[];
   avisos: string[];
 };
 
@@ -166,4 +181,6 @@ export type IaAnalisis = {
   cobros: IaCobro[];
   /** Notas globales de la pasada (registros descartados, recortes). */
   avisos: string[];
+  /** Diagnóstico de la cartera comparada (issue #126): 0 = no hay nada cargado. */
+  cartera: { clientes: number; productos: number };
 };

@@ -194,7 +194,9 @@ export function instruccionesIa(): string {
     "- `tipo` de cliente: FINAL para personas/empresas que alquilan, RESELLER para mayoristas o revendedores.",
     "- Fechas futuras (eventos) en YYYY-MM-DD; precios de producto en guaraníes (si vienen con separadores o «mil», copialos tal cual).",
     "- `cantidad` es un entero mayor o igual a 1 (para productos).",
-    "- Los cobros («Fulano me pagó 750 mil», «me transfirió Juan»): `cliente` obligatorio; `monto` y `fecha` copialos TAL CUAL aparecen (no conviertas «750 mil» ni «ayer»); `metodo` (transferencia/efectivo/tarjeta/cheque) y `referencia` si aparecen.",
+    "- Los cobros («Fulano me pagó 750 mil», «me transfirió Juan»): `cliente` obligatorio; `monto` y `fecha` copialos TAL CUAL aparecen (no conviertas «750 mil» ni «ayer»); `metodo` (transferencia/efectivo/tarjeta/cheque) y `referencia` (número de transferencia o cheque) si aparecen.",
+    "- Si el pago es a crédito, plazo o fiado («a crédito 7 días», «a 30 días», «me debe»), NO está cobrado: completá `plazoDias` con los días y dejá `fecha` vacía. El plazo jamás va en `referencia`.",
+    "- No inventes RUC, teléfonos, correos, fechas, montos, SKU ni referencias: si no están en el texto, van null.",
     "- Un mismo texto puede traer varios hechos: devolvé cada uno en su tipo, agrupados, sin duplicarlos.",
     "- A un cliente mencionado solo en un cobro o evento no lo repitas en `clientes` salvo que el texto lo describa (empresa, contacto, etc.).",
     `- Como máximo ${IA_REGISTROS_MAX} registros por tipo; no repitas registros.`,
@@ -251,6 +253,8 @@ const cobroEsquema = z.object({
   fecha: textoOpcional(60),
   metodo: textoOpcional(40),
   referencia: textoOpcional(120),
+  /** Pago a crédito/plazo: días hasta el vencimiento (issue #126). */
+  plazoDias: z.coerce.number().int().min(1).max(3650).nullable().catch(null).optional(),
 });
 
 /** Forma de la respuesta cruda: los arreglos de cada tipo (los no pedidos se ignoran). */
@@ -467,6 +471,104 @@ export function metodoDePago(valor: string | null | undefined): string | null {
   );
 }
 
+
+// ── Verificación contra el texto pegado (issue #126) ────────────────────────
+// El modelo puede completar datos que no estaban en el texto (RUC, teléfonos,
+// fechas). Acá se comparan los escalares extraídos contra el texto pegado para
+// marcarlos y exigir confirmación en el preview.
+
+/** Contexto del texto pegado para verificar que un escalar no fue inventado. */
+export type VerificadorTexto = { texto: string; compacto: string; digitos: string };
+
+export function crearVerificador(texto: string): VerificadorTexto {
+  const normalizado = normalizarBusqueda(texto);
+  return {
+    texto: normalizado,
+    compacto: normalizado.replace(/[^a-z0-9]/g, ""),
+    digitos: normalizado.replace(/\D/g, ""),
+  };
+}
+
+/** Forma compacta de un valor: sin acentos, minúsculas y sin separadores. */
+function compactoParaVerificar(valor: string | null | undefined): string {
+  return normalizarBusqueda(String(valor ?? "")).replace(/[^a-z0-9]/g, "");
+}
+
+/** ¿El valor aparece literalmente en el texto? (correo, SKU, referencia, monto). */
+export function estaEnTexto(valor: string | null | undefined, verificador: VerificadorTexto): boolean {
+  const compacto = compactoParaVerificar(valor);
+  if (!compacto) return true;
+  return verificador.compacto.includes(compacto);
+}
+
+/** ¿Los dígitos del valor aparecen en el texto? (RUC, teléfono). */
+export function digitosEnTexto(valor: string | null | undefined, verificador: VerificadorTexto): boolean {
+  const digitos = String(valor ?? "").replace(/\D/g, "");
+  if (!digitos) return true;
+  if (verificador.digitos.includes(digitos)) return true;
+  // Los teléfonos guardados llevan +595: alcanza con la parte nacional.
+  return digitos.length >= 8 && verificador.digitos.includes(digitos.slice(-8));
+}
+
+/**
+ * ¿Algún token significativo del valor aparece en el texto? (nombres, empresas
+ * y lugares: el modelo puede completar el nombre, pero no inventarlo entero).
+ */
+export function mencionaEnTexto(valor: string | null | undefined, verificador: VerificadorTexto): boolean {
+  const tokens = normalizarBusqueda(String(valor ?? ""))
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  if (tokens.length === 0) return true;
+  return tokens.some((token) => verificador.compacto.includes(token));
+}
+
+/**
+ * Fecha explicada por el texto: el valor crudo, sus componentes (día/mes/año) o
+ * una palabra relativa («mañana», «jueves»). Evita falsos positivos por el
+ * cambio de formato (el modelo devuelve ISO y el texto traía `dd/mm/aaaa`).
+ */
+export function fechaEnTexto(
+  valorCrudo: string | null | undefined,
+  iso: string | null,
+  verificador: VerificadorTexto,
+  hoy?: string,
+): boolean {
+  const crudo = String(valorCrudo ?? "").trim();
+  if (!crudo && !iso) return true;
+  if (crudo && estaEnTexto(crudo, verificador)) return true;
+  if (!iso) return false;
+  const [anio, mes, dia] = iso.split("-");
+  if (
+    verificador.digitos.includes(dia) &&
+    verificador.digitos.includes(mes) &&
+    (verificador.digitos.includes(anio) || verificador.digitos.includes(anio.slice(2)))
+  ) {
+    return true;
+  }
+  // Relativos consistentes: «mañana» solo explica hoy+1, etc. (issue #126).
+  const base = hoy && diaValido(hoy) ? hoy : hoyAsuncion();
+  const relativos: Array<[RegExp, number]> = [
+    [/\bpasado manana\b/, 2],
+    [/\bmanana\b/, 1],
+    [/\bhoy\b/, 0],
+    [/\bayer\b/, -1],
+    [/\banteayer\b/, -2],
+  ];
+  for (const [patron, delta] of relativos) {
+    if (patron.test(verificador.texto) && iso === sumarDias(base, delta)) return true;
+  }
+  // Día de la semana nombrado y fecha a ≤7 días de hoy.
+  const DIAS = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+  const objetivo = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  const nombrado = DIAS.some((nombre, indice) => indice === objetivo && verificador.texto.includes(nombre));
+  if (nombrado) {
+    const distancia = Math.abs((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${base}T00:00:00Z`)) / 86_400_000);
+    if (distancia <= 7) return true;
+  }
+  return false;
+}
+
 // ── Normalización ───────────────────────────────────────────────────────────
 
 /** Tipo de cliente: mayorista/revendedor → `RESELLER`; el resto, final. */
@@ -474,7 +576,7 @@ function tipoDeCliente(valor: string | null | undefined): "FINAL" | "RESELLER" {
   return /reseller|mayorista|reventa|revendedor/i.test(String(valor ?? "")) ? "RESELLER" : "FINAL";
 }
 
-export function normalizarCliente(datos: z.infer<typeof clienteEsquema>): IaCliente {
+export function normalizarCliente(datos: z.infer<typeof clienteEsquema>, verificador?: VerificadorTexto): IaCliente {
   const avisos: string[] = [];
   const ruc = rucDocument(datos.ruc);
   if (ruc && !rucValid(ruc)) avisos.push("RUC/C.I.: revisá el formato (80012345-6).");
@@ -484,6 +586,16 @@ export function normalizarCliente(datos: z.infer<typeof clienteEsquema>): IaClie
   const correoBruto = String(datos.correo ?? "").trim();
   const correo = correoBruto ? normalizeEmail(correoBruto) : "";
   if (correo && !emailValid(correo)) avisos.push("Correo: revisá la dirección.");
+  // Escalares que no están en el texto pegado (issue #126): se marcan.
+  const inventados: string[] = [];
+  if (verificador) {
+    if (!mencionaEnTexto(datos.nombre, verificador)) inventados.push(`nombre «${datos.nombre}»`);
+    const empresa = String(datos.empresa ?? "").trim();
+    if (empresa && !mencionaEnTexto(empresa, verificador)) inventados.push(`empresa «${empresa}»`);
+    if (ruc && !digitosEnTexto(ruc, verificador)) inventados.push(`RUC ${ruc}`);
+    if (telefonoBruto && !digitosEnTexto(telefonoBruto, verificador)) inventados.push(`teléfono ${telefonoBruto}`);
+    if (correoBruto && !estaEnTexto(correoBruto, verificador)) inventados.push(`correo ${correoBruto}`);
+  }
   return {
     nombre: datos.nombre,
     empresa: String(datos.empresa ?? "").trim() || null,
@@ -496,16 +608,29 @@ export function normalizarCliente(datos: z.infer<typeof clienteEsquema>): IaClie
     existenteNombre: null,
     confianza: null,
     candidatos: [],
+    inventados,
     avisos,
   };
 }
 
-export function normalizarEvento(datos: z.infer<typeof eventoEsquema>, hoy?: string): IaEvento {
+export function normalizarEvento(datos: z.infer<typeof eventoEsquema>, hoy?: string, verificador?: VerificadorTexto): IaEvento {
   const avisos: string[] = [];
   const inicio = fechaDeTexto(datos.inicio, { hoy, modo: "futuro" });
   if (datos.inicio && !inicio) avisos.push("Fecha de inicio: no pudimos leerla.");
   const fin = fechaDeTexto(datos.fin, { hoy, modo: "futuro" });
   if (datos.fin && !fin) avisos.push("Fecha de fin: no pudimos leerla.");
+  const inventados: string[] = [];
+  if (verificador) {
+    if (!mencionaEnTexto(datos.nombre, verificador)) inventados.push(`nombre «${datos.nombre}»`);
+    const clienteNombre = String(datos.cliente ?? "").trim();
+    if (clienteNombre && !mencionaEnTexto(clienteNombre, verificador)) inventados.push(`cliente «${clienteNombre}»`);
+    const lugar = String(datos.lugar ?? "").trim();
+    if (lugar && !mencionaEnTexto(lugar, verificador)) inventados.push(`lugar «${lugar}»`);
+    const ciudad = String(datos.ciudad ?? "").trim();
+    if (ciudad && !mencionaEnTexto(ciudad, verificador)) inventados.push(`ciudad «${ciudad}»`);
+    if (!fechaEnTexto(datos.inicio, inicio, verificador, hoy)) inventados.push(`fecha de inicio «${datos.inicio}»`);
+    if (!fechaEnTexto(datos.fin, fin, verificador, hoy)) inventados.push(`fecha de fin «${datos.fin}»`);
+  }
   return {
     nombre: datos.nombre,
     clienteNombre: String(datos.cliente ?? "").trim() || null,
@@ -515,14 +640,23 @@ export function normalizarEvento(datos: z.infer<typeof eventoEsquema>, hoy?: str
     fin,
     lugar: String(datos.lugar ?? "").trim() || null,
     ciudad: String(datos.ciudad ?? "").trim() || null,
+    inventados,
     avisos,
   };
 }
 
-export function normalizarProducto(datos: z.infer<typeof productoEsquema>): IaProducto {
+export function normalizarProducto(datos: z.infer<typeof productoEsquema>, verificador?: VerificadorTexto): IaProducto {
   const cantidad = datos.cantidad ?? 1;
   const avisos: string[] = [];
   if (!datos.cantidad) avisos.push("Cantidad asumida: 1.");
+  const inventados: string[] = [];
+  if (verificador) {
+    if (!mencionaEnTexto(datos.nombre, verificador)) inventados.push(`nombre «${datos.nombre}»`);
+    const sku = String(datos.sku ?? "").trim();
+    if (sku && !estaEnTexto(sku, verificador)) inventados.push(`SKU ${sku}`);
+    const categoria = String(datos.categoria ?? "").trim();
+    if (categoria && !mencionaEnTexto(categoria, verificador)) inventados.push(`categoría «${categoria}»`);
+  }
   // Los precios se resuelven con la misma inteligencia que los cobros:
   // «1.500.000», «850 mil» o un número directo; lo ilegible queda en null.
   const precio = (valor: unknown, etiqueta: string): number | null => {
@@ -544,19 +678,61 @@ export function normalizarProducto(datos: z.infer<typeof productoEsquema>): IaPr
     existenteNombre: null,
     confianza: null,
     candidatos: [],
+    inventados,
     avisos,
   };
 }
 
-export function normalizarCobro(datos: z.infer<typeof cobroEsquema>, hoy?: string): IaCobro {
+/** ¿El texto es solo una duración? («7 días», «a 30 d») — nunca es una referencia. */
+function diasDeDuracion(valor: string | null | undefined): number | null {
+  const match = String(valor ?? "").trim().match(/^(?:a\s+)?(\d{1,3})\s*(?:d[ií]as?|d)$/i);
+  return match ? Number(match[1]) : null;
+}
+
+/** Palabras que marcan un pago diferido (no cobrado). */
+const PLAZO_PALABRAS = /\b(credito|crédito|plazo|fiado|fiada|debe|adeuda)\b/i;
+
+export function normalizarCobro(datos: z.infer<typeof cobroEsquema>, hoy?: string, verificador?: VerificadorTexto): IaCobro {
   const avisos: string[] = [];
+  const metodoBruto = String(datos.metodo ?? "").trim();
+  const referenciaBruta = String(datos.referencia ?? "").trim();
+  const fechaBruta = String(datos.fecha ?? "").trim();
   const montoTexto = datos.monto === null || datos.monto === undefined ? null : String(datos.monto).trim() || null;
   const monto = montoDeTexto(datos.monto);
   if (!montoTexto) avisos.push("Sin monto: escribilo para poder registrar el cobro.");
   else if (monto === null || monto <= 0) avisos.push("Monto: no pudimos leerlo, revisalo.");
-  const fechaTexto = String(datos.fecha ?? "").trim() || null;
+
+  // «a crédito 7 días» es un plazo, no un cobro (issue #126): no se registra y
+  // «7 días» jamás es la referencia; si se conocen los días, se estima el
+  // vencimiento para que el preview diga qué pasaría.
+  const diasReferencia = diasDeDuracion(referenciaBruta);
+  const plazoDias = datos.plazoDias ?? diasReferencia;
+  const contexto = `${metodoBruto} ${referenciaBruta} ${fechaBruta}`;
+  const esPlazo = Boolean(datos.plazoDias) || PLAZO_PALABRAS.test(contexto) || diasReferencia !== null;
+  const vencimiento = esPlazo && plazoDias ? sumarDias(hoy && diaValido(hoy) ? hoy : hoyAsuncion(), plazoDias) : null;
+  if (esPlazo) {
+    avisos.push(
+      vencimiento
+        ? `A crédito/plazo: no está cobrado; vence el ${vencimiento}. No se registra en esta carga.`
+        : "A crédito/plazo: no está cobrado. No se registra en esta carga.",
+    );
+  }
+
+  const fechaTexto = esPlazo ? null : fechaBruta || null;
   const fecha = fechaTexto ? fechaDeTexto(fechaTexto, { hoy, modo: "pasado" }) : null;
   if (fechaTexto && !fecha) avisos.push("Fecha: no pudimos leerla; el cobro se sella con la fecha del registro.");
+  const referencia = diasDeDuracion(referenciaBruta) !== null ? null : referenciaBruta || null;
+  const metodo = PLAZO_PALABRAS.test(metodoBruto) ? null : metodoDePago(metodoBruto);
+
+  const inventados: string[] = [];
+  if (verificador) {
+    if (!mencionaEnTexto(datos.cliente, verificador)) inventados.push(`cliente «${datos.cliente}»`);
+    if (montoTexto && !estaEnTexto(montoTexto, verificador)) inventados.push(`monto ${montoTexto}`);
+    if (fechaTexto && !fechaEnTexto(fechaTexto, fecha, verificador, hoy)) inventados.push(`fecha «${fechaTexto}»`);
+    if (referencia && !estaEnTexto(referencia, verificador)) inventados.push(`referencia «${referencia}»`);
+    if (metodoBruto && !mencionaEnTexto(metodoBruto, verificador)) inventados.push(`método «${metodoBruto}»`);
+  }
+
   return {
     accion: "registrar_pago",
     clienteNombre: datos.cliente,
@@ -566,8 +742,11 @@ export function normalizarCobro(datos: z.infer<typeof cobroEsquema>, hoy?: strin
     montoTexto,
     fecha,
     fechaTexto,
-    metodo: metodoDePago(datos.metodo),
-    referencia: String(datos.referencia ?? "").trim() || null,
+    metodo,
+    referencia,
+    plazo: esPlazo,
+    vencimiento,
+    inventados,
     avisos,
   };
 }
@@ -578,16 +757,29 @@ export function normalizarCobro(datos: z.infer<typeof cobroEsquema>, hoy?: strin
  * recorta a `IA_REGISTROS_MAX` por tipo y solo presta atención a los tipos
  * pedidos.
  */
-export function normalizarAnalisis(datos: unknown, tipos: IaTipo[], opciones: { hoy?: string } = {}): IaAnalisis {
+export function normalizarAnalisis(
+  datos: unknown,
+  tipos: IaTipo[],
+  opciones: { hoy?: string; texto?: string } = {},
+): IaAnalisis {
   const fuente = analisisEsquema.safeParse(datos);
   if (!fuente.success) throw new IaError("La IA devolvió una respuesta con forma inesperada.");
-  const salida: IaAnalisis = { clientes: [], eventos: [], productos: [], cobros: [], avisos: [] };
+  const salida: IaAnalisis = {
+    clientes: [],
+    eventos: [],
+    productos: [],
+    cobros: [],
+    avisos: [],
+    cartera: { clientes: 0, productos: 0 },
+  };
+  // Con el texto pegado se verifica cada escalar (issue #126).
+  const verificador = typeof opciones.texto === "string" ? crearVerificador(opciones.texto) : undefined;
   let descartados = 0;
 
   if (tipos.includes("clientes")) {
     for (const bruto of fuente.data.clientes.slice(0, IA_REGISTROS_MAX * 2)) {
       const parsed = clienteEsquema.safeParse(bruto);
-      if (parsed.success) salida.clientes.push(normalizarCliente(parsed.data));
+      if (parsed.success) salida.clientes.push(normalizarCliente(parsed.data, verificador));
       else descartados += 1;
     }
     if (fuente.data.clientes.length > IA_REGISTROS_MAX) salida.avisos.push(`Clientes: se recortó a ${IA_REGISTROS_MAX}.`);
@@ -597,7 +789,7 @@ export function normalizarAnalisis(datos: unknown, tipos: IaTipo[], opciones: { 
   if (tipos.includes("eventos")) {
     for (const bruto of fuente.data.eventos.slice(0, IA_REGISTROS_MAX * 2)) {
       const parsed = eventoEsquema.safeParse(bruto);
-      if (parsed.success) salida.eventos.push(normalizarEvento(parsed.data, opciones.hoy));
+      if (parsed.success) salida.eventos.push(normalizarEvento(parsed.data, opciones.hoy, verificador));
       else descartados += 1;
     }
     if (fuente.data.eventos.length > IA_REGISTROS_MAX) salida.avisos.push(`Eventos: se recortó a ${IA_REGISTROS_MAX}.`);
@@ -607,7 +799,7 @@ export function normalizarAnalisis(datos: unknown, tipos: IaTipo[], opciones: { 
   if (tipos.includes("productos")) {
     for (const bruto of fuente.data.productos.slice(0, IA_REGISTROS_MAX * 2)) {
       const parsed = productoEsquema.safeParse(bruto);
-      if (parsed.success) salida.productos.push(normalizarProducto(parsed.data));
+      if (parsed.success) salida.productos.push(normalizarProducto(parsed.data, verificador));
       else descartados += 1;
     }
     if (fuente.data.productos.length > IA_REGISTROS_MAX) salida.avisos.push(`Productos: se recortó a ${IA_REGISTROS_MAX}.`);
@@ -617,7 +809,7 @@ export function normalizarAnalisis(datos: unknown, tipos: IaTipo[], opciones: { 
   if (tipos.includes("cobros")) {
     for (const bruto of fuente.data.cobros.slice(0, IA_REGISTROS_MAX * 2)) {
       const parsed = cobroEsquema.safeParse(bruto);
-      if (parsed.success) salida.cobros.push(normalizarCobro(parsed.data, opciones.hoy));
+      if (parsed.success) salida.cobros.push(normalizarCobro(parsed.data, opciones.hoy, verificador));
       else descartados += 1;
     }
     if (fuente.data.cobros.length > IA_REGISTROS_MAX) salida.avisos.push(`Cobros: se recortó a ${IA_REGISTROS_MAX}.`);
@@ -644,21 +836,86 @@ export function similitudTexto(a: string | null | undefined, b: string | null | 
   const B = claveComparacion(b);
   if (!A || !B) return 0;
   if (A === B) return 100;
+  // Tolerancia a espacios (issue #126): «noe ces» ≈ «NoeCes BTL…»; la variante
+  // compacta no auto-vincula (techo 84 = banda «elegir») salvo igualdad exacta.
+  const compactoA = A.replace(/ /g, "");
+  const compactoB = B.replace(/ /g, "");
+  if (compactoA.length >= 4 && compactoA === compactoB) return 100;
+  let puntaje = 0;
   if (A.length >= 4 && B.length >= 4 && (A.includes(B) || B.includes(A))) {
     // Contenido con una sola palabra («perez» dentro de «juan perez») es una
     // pista dudosa, no un match claro: se ofrecen opciones en vez de vincular.
     const corto = A.length <= B.length ? A : B;
-    return corto.split(" ").length >= 2 ? 92 : 78;
+    puntaje = corto.split(" ").length >= 2 ? 92 : 78;
+  } else {
+    const tokensA = new Set(A.split(" "));
+    const tokensB = new Set(B.split(" "));
+    let comunes = 0;
+    for (const token of tokensA) if (tokensB.has(token)) comunes += 1;
+    puntaje = Math.round((2 * comunes * 100) / (tokensA.size + tokensB.size));
+    const [primeroA] = A.split(" ");
+    const [primeroB] = B.split(" ");
+    if (primeroA && primeroB && primeroA === primeroB) puntaje += 6;
   }
-  const tokensA = new Set(A.split(" "));
-  const tokensB = new Set(B.split(" "));
-  let comunes = 0;
-  for (const token of tokensA) if (tokensB.has(token)) comunes += 1;
-  let puntaje = Math.round((2 * comunes * 100) / (tokensA.size + tokensB.size));
-  const [primeroA] = A.split(" ");
-  const [primeroB] = B.split(" ");
-  if (primeroA && primeroA === primeroB) puntaje += 6;
+  if (
+    compactoA.length >= 4 &&
+    compactoB.length >= 4 &&
+    (compactoB.startsWith(compactoA) || compactoA.startsWith(compactoB))
+  ) {
+    puntaje = Math.max(puntaje, 84);
+  }
+  // Typos de una letra en nombres largos («kiosco» ↔ «kiosko»): el par vale
+  // 0.85 (no auto-vincula un nombre de una sola palabra), issue #126.
+  puntaje = Math.max(puntaje, similitudConTolerancia(A, B));
   return Math.min(100, puntaje);
+}
+
+/** Distancia de edición acotada (corta temprano cuando supera 1). */
+function distanciaCorta(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  let previa = Array.from({ length: b.length + 1 }, (_, indice) => indice);
+  for (let i = 1; i <= a.length; i += 1) {
+    const actual = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      actual[j] = Math.min(
+        previa[j] + 1,
+        actual[j - 1] + 1,
+        previa[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previa = actual;
+  }
+  return previa[b.length];
+}
+
+/** Puntaje por tokens con tolerancia a una letra cambiada (peso 0.85). */
+function similitudConTolerancia(A: string, B: string): number {
+  const tokensA = A.split(" ");
+  const tokensB = B.split(" ");
+  const usados = new Set<number>();
+  let peso = 0;
+  for (const tokenA of tokensA) {
+    let mejor = 0;
+    let indice = -1;
+    tokensB.forEach((tokenB, posicion) => {
+      if (usados.has(posicion)) return;
+      const valor =
+        tokenA === tokenB
+          ? 1
+          : tokenA.length >= 5 && tokenB.length >= 5 && distanciaCorta(tokenA, tokenB) <= 1
+            ? 0.85
+            : 0;
+      if (valor > mejor) {
+        mejor = valor;
+        indice = posicion;
+      }
+    });
+    if (indice >= 0) {
+      usados.add(indice);
+      peso += mejor;
+    }
+  }
+  return Math.round((peso * 100) / Math.max(tokensA.length, tokensB.length));
 }
 
 /** Clave del RUC/C.I.: solo dígitos (sin guion). */
@@ -805,8 +1062,12 @@ export type CarteraExistente = { clientes: ClienteCartera[]; productos: Producto
  */
 export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistente): IaAnalisis {
   const clientes = analisis.clientes.map((cliente) => {
+    // Los escalares marcados como inventados no se usan para vincular (issue
+    // #126): un RUC que no estaba en el texto no puede resolver el match.
+    const rucConfiable = cliente.inventados.some((campo) => campo.startsWith("RUC")) ? null : cliente.ruc;
+    const telefonoConfiable = cliente.inventados.some((campo) => campo.startsWith("teléfono")) ? null : cliente.telefono;
     const candidatos = candidatosDeCliente(
-      { nombre: cliente.nombre, empresa: cliente.empresa, ruc: cliente.ruc, telefono: cliente.telefono },
+      { nombre: cliente.nombre, empresa: cliente.empresa, ruc: rucConfiable, telefono: telefonoConfiable },
       cartera.clientes,
     );
     const [top] = candidatos;
@@ -839,8 +1100,11 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
   });
 
   const productos = analisis.productos.map((producto) => {
+    // Igual que con los clientes: lo marcado como inventado no matchea.
+    const skuConfiable = producto.inventados.some((campo) => campo.startsWith("SKU")) ? null : producto.sku;
+    const categoriaConfiable = producto.inventados.some((campo) => campo.startsWith("categoría")) ? null : producto.categoria;
     const candidatos = candidatosDeProducto(
-      { nombre: producto.nombre, sku: producto.sku, categoria: producto.categoria },
+      { nombre: producto.nombre, sku: skuConfiable, categoria: categoriaConfiable },
       cartera.productos,
     );
     const [top] = candidatos;
@@ -934,7 +1198,14 @@ export function asignarExistentes(analisis: IaAnalisis, cartera: CarteraExistent
     };
   });
 
-  return { ...analisis, clientes, productos, eventos, cobros };
+  return {
+    ...analisis,
+    clientes,
+    productos,
+    eventos,
+    cobros,
+    cartera: { clientes: cartera.clientes.length, productos: cartera.productos.length },
+  };
 }
 
 // ── Orquestador ─────────────────────────────────────────────────────────────
@@ -957,5 +1228,5 @@ export async function analizarCarga({
 }): Promise<IaAnalisis> {
   const contenido = await proveedor.analizar(mensajesDeCarga(texto, tipos), { maxTokens: IA_TOKENS_MAX });
   const datos = parsearSalidaIa(contenido);
-  return normalizarAnalisis(datos, tipos, { hoy });
+  return normalizarAnalisis(datos, tipos, { hoy, texto });
 }
