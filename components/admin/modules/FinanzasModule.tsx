@@ -83,7 +83,7 @@ import {
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
-import { DateField, MoneyField, NumberField, SearchField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
+import { Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { BudgetProofDialog } from "./PresupuestosModule";
 import { ConciliacionBancaria } from "./ConciliacionBancaria";
@@ -634,11 +634,12 @@ function ExpectedReviewDialog({
 
         {confirming ? (
           <div className="admin-expected-form">
-            <SelectField
+            <Combobox
               label="Cuenta de tesorería"
               hint="Donde entró la plata: mueve el disponible"
               value={accountId}
               onChange={setAccountId}
+              placeholder="Buscá la cuenta…"
               options={
                 accounts.length > 0
                   ? accounts.map((account) => ({
@@ -1848,30 +1849,34 @@ export function FinanzasModule() {
           busy={busy}
           status={formError}
         >
-          <SelectField
+          <Combobox
             label="Cliente"
             required
             value={form.clientId}
             onChange={(value) => setForm({ ...form, clientId: value, budgetId: "" })}
-            options={[
-              {
-                value: "",
-                label: clients.loading ? "Cargando clientes…" : clients.error ? "No pudimos cargar los clientes" : "Elegí un cliente…",
-              },
-              ...(clients.data ?? []).map((client) => ({ value: client.id, label: client.company || client.name })),
-            ]}
+            placeholder="Buscá por nombre o empresa…"
+            emptyLabel={clients.loading ? "Cargando clientes…" : clients.error ? "No pudimos cargar los clientes." : "No hay clientes cargados."}
+            options={(clients.data ?? []).map((client) => {
+              const company = client.company?.trim() || "";
+              return {
+                value: client.id,
+                label: company || client.name,
+                description: company && company !== client.name ? client.name : undefined,
+              };
+            })}
           />
-          <SelectField
+          <Combobox
             label="Presupuesto"
             hint="Opcional"
             value={form.budgetId}
             onChange={(value) => setForm({ ...form, budgetId: value })}
+            placeholder="Buscá el presupuesto…"
             options={[
               { value: "", label: "Sin presupuesto" },
               ...clientBudgets.map((budget) => ({ value: budget.id, label: `${budget.title} · ${formatMoney(budget.total)}` })),
             ]}
           />
-          <SelectField
+          <Combobox
             label="Cuenta de tesorería"
             hint={
               activeAccounts.length > 0
@@ -1882,6 +1887,7 @@ export function FinanzasModule() {
             }
             value={form.treasuryAccountId || defaultAccountId}
             onChange={(value) => setForm({ ...form, treasuryAccountId: value })}
+            placeholder="Buscá la cuenta…"
             options={
               accountOptions.length > 0
                 ? accountOptions
@@ -2420,10 +2426,11 @@ export function FinanzasModule() {
                 onChange={(value) => setPayJob({ ...payJob, amount: value })}
               />
             </span>
-            <SelectField
+            <Combobox
               ariaLabel="Cuenta del pago"
               value={payJob.accountId || defaultAccountId}
               onChange={(value) => setPayJob({ ...payJob, accountId: value })}
+              placeholder="Cuenta…"
               options={accountOptions.length > 0 ? accountOptions : [{ value: "", label: "Sin cuentas de tesorería" }]}
             />
             <DateField
@@ -2779,26 +2786,25 @@ export function FinanzasModule() {
               onChange={(value) => setMovementForm({ ...movementForm, direction: value })}
               options={DIRECTION_OPTIONS}
             />
-            <SelectField
+            <Combobox
               label={movementForm.direction === "TRANSFER" ? "Cuenta origen" : "Cuenta"}
               required
               value={movementForm.accountId || defaultAccountId}
               onChange={(value) => setMovementForm({ ...movementForm, accountId: value })}
+              placeholder="Buscá la cuenta…"
               options={
                 accountOptions.length > 0 ? accountOptions : [{ value: "", label: "Sin cuentas de tesorería" }]
               }
             />
             {movementForm.direction === "TRANSFER" ? (
-              <SelectField
+              <Combobox
                 label="Cuenta destino"
                 required
                 hint="Ej.: un cheque cobrado en efectivo va de Cheques a Efectivo"
                 value={movementForm.counterAccountId}
                 onChange={(value) => setMovementForm({ ...movementForm, counterAccountId: value })}
-                options={[
-                  { value: "", label: "Elegí la cuenta destino…" },
-                  ...accountOptions.filter((option) => option.value !== (movementForm.accountId || defaultAccountId)),
-                ]}
+                placeholder="Buscá la cuenta destino…"
+                options={accountOptions.filter((option) => option.value !== (movementForm.accountId || defaultAccountId))}
               />
             ) : null}
             <MoneyField
@@ -2975,16 +2981,18 @@ export function FinanzasModule() {
               onChange={(value) => setExpenseForm({ ...expenseForm, category: value })}
               options={CATEGORY_OPTIONS}
             />
-            <SelectField
+            <Combobox
               ariaLabel="Cuenta del gasto"
               value={expenseForm.accountId || defaultAccountId}
               onChange={(value) => setExpenseForm({ ...expenseForm, accountId: value })}
+              placeholder="Cuenta…"
               options={accountOptions.length > 0 ? accountOptions : [{ value: "", label: "Sin cuentas de tesorería" }]}
             />
-            <SelectField
+            <Combobox
               ariaLabel="Proyecto del gasto"
               value={expenseForm.eventId}
               onChange={(value) => setExpenseForm({ ...expenseForm, eventId: value })}
+              placeholder="Proyecto…"
               options={projectOptions}
             />
             <AdminButton
@@ -3003,10 +3011,11 @@ export function FinanzasModule() {
                   value={expenseForm.date}
                   onChange={(value) => setExpenseForm({ ...expenseForm, date: value })}
                 />
-                <SelectField
+                <Combobox
                   ariaLabel="Proveedor del gasto"
                   value={expenseForm.supplierId}
                   onChange={(value) => setExpenseForm({ ...expenseForm, supplierId: value })}
+                  placeholder="Proveedor…"
                   options={supplierOptions}
                 />
                 <SelectField

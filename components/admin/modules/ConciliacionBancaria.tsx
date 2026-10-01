@@ -53,7 +53,7 @@ import {
   AdminSelect,
   AdminTable,
 } from "../AdminUI";
-import { DateField, SelectField, TextAreaField, TextField } from "../AdminFields";
+import { Combobox, DateField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { AdminIcon } from "../AdminIcons";
 
 /**
@@ -829,10 +829,11 @@ function ImportStatementDialog({
   return (
     <AdminDialog title="Importar extracto del banco" size="wide" icon="bank" onClose={onClose}>
       <div className="admin-import-grid">
-        <SelectField
+        <Combobox
           label="Cuenta de tesorería"
           required
           hint="La cuenta bancaria a la que pertenece el extracto"
+          placeholder="Buscá la cuenta…"
           value={accountId}
           onChange={(value) => {
             setAccountId(value);
