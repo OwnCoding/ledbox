@@ -9,8 +9,11 @@
 El módulo `/facturacion` del panel es un **registro fiscal interno** serio, no la
 factura electrónica de SIFEN:
 
-- **Datos fiscales de la empresa** (RUC, razón social, timbrado, establecimiento
-  y dirección) editables por OWNER/ADMIN; son el encabezado del imprimible.
+- **Datos fiscales de la empresa** (RUC, razón social, establecimiento y
+  dirección) editables por OWNER/ADMIN; son el encabezado del imprimible. El
+  **timbrado** quedó fuera del formulario mientras no haya uno autorizado por la
+  DNIT (issue #114): la base y el payload lo conservan y el campo puede volver
+  con ese dato.
 - **Facturas de venta** (`Invoice` + `InvoiceItem`) con:
   - numeración correlativa **por empresa**, atómica y sin huecos
     (`InvoiceSequence`, un `UPDATE … RETURNING` dentro de la transacción de la
@@ -51,8 +54,9 @@ pública es de solo lectura.
 - **No lleva contabilidad**: no hay asientos, retenciones ni estados contables.
 - **No emite notas de crédito/débito** ni autofacturas, exportaciones o
   documentos especiales del régimen electrónico.
-- El «timbrado» y el «establecimiento» que carga la empresa son **datos de
-  encabezado** del registro interno: la app no los valida contra la DNIT.
+- El «establecimiento» que carga la empresa es un **dato de encabezado** del
+  registro interno: la app no lo valida contra la DNIT. El «timbrado» sale del
+  formulario mientras no exista uno autorizado (#114) y vuelve con ese dato.
 
 ## 3. Qué falta para SIFEN (checklist técnico)
 
