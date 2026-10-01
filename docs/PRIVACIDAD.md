@@ -39,6 +39,7 @@
 | T7 | Finanzas, tesorería y conciliación bancaria | Clientes, proveedores y pagadores de extractos | `ClientPayment`, `TreasuryMovement`, `Expense`, `Invoice`, `PurchaseInvoice`, `BankStatement`, `BankStatementRow` |
 | T8 | Seguridad, trazabilidad y correo | Actores del sistema y destinatarios de correo | `AuditLog`, `MailLog`, `RateLimitBucket`, `IdempotencyKey`, `PaymentReminderLog` |
 | T9 | Respaldos de la base | (copia de todo lo anterior) | Volumen `/data/backups` del servidor |
+| T10 | Carga con IA (asistente del panel, opcional) | Textos pegados por el equipo (pueden traer datos de clientes, contactos, eventos y productos) | Nada propio: el texto no se persiste; los registros confirmados van a T1/T2/T6 |
 
 Todas las tablas viven en el **PostgreSQL de producción** (Owncoding Hub / Coolify); los binarios
 (avatares, logos, adjuntos, comprobantes y firma) viven en la **misma base**, servidos solo con
@@ -153,6 +154,18 @@ sesión o con el link/token correspondiente. Los respaldos son archivos gzip en 
 | Retención | 30 días (`BACKUP_RETENTION_DAYS`) con un mínimo de 7 archivos (`BACKUP_MIN_KEEP`) |
 | Borrado/anonimización | Ciclo automático del script; restauración probada (22-09-2026, `docs/OPERACION.md` §2). Un respaldo hereda la retención de los datos que contiene |
 
+### T10 · Carga con IA (asistente del panel, opcional)
+
+| Campo | Detalle |
+| --- | --- |
+| Datos | El **texto pegado** por un miembro con permiso de escritura (puede contener nombres, teléfonos, correos, RUC, fechas y precios de clientes o contactos) y los registros que la IA propone, que la persona revisa y edita antes de crear |
+| Finalidad | Ordenar texto libre en registros del panel (clientes, eventos, productos) y ahorrar carga manual |
+| Base legal | Ejecución del contrato / interés legítimo de operación; el dato ya es de la empresa y no se usa para otra finalidad |
+| Dónde vive | **El texto no se guarda en EventOS**: viaja al proveedor de IA configurado por entorno (`IA_API_KEY`/`IA_MODELO`/`IA_BASE_URL`, API compatible con `chat/completions`) y vuelve solo con la estructura propuesta. Los registros **confirmados** se guardan en T1/T2/T6 como cualquier alta del panel. La llamada queda auditada en `AuditLog` (`IaCarga`, solo conteos y modelo; nunca el texto) |
+| Quién accede | Miembros con `clients.write`/`events.write`/`inventory.write` (OWNER/ADMIN/OPERATIONS); VIEWER y FINANCE no usan el asistente. El proveedor actúa como **encargado** y recibe solo lo pegado |
+| Retención | El texto no se persiste en EventOS; el proveedor puede retener las peticiones según su propia política (evaluar sus garantías — B8) |
+| Borrado/anonimización | No hay nada que borrar del lado de EventOS; apagar la función es quitar `IA_API_KEY` (el panel avisa y no envía nada) |
+
 ### 2.2 Retención y purga — una sola tabla
 
 Plazos que Operación propone como política (los aprueba el dueño). Mientras no exista el job de
@@ -172,6 +185,7 @@ purga (§3.5, B4), la conservación real es indefinida y no se borra nada autom�
 | `IdempotencyKey` | 7 días | Purga automática | **Implementado** (`lib/server/idempotency.ts`) |
 | `RateLimitBucket` | 24 h | Purga | Job pendiente (B4) |
 | Respaldos | 30 días (mínimo 7) | Borrado por retención | **Implementado** (`scripts/backup.mjs`) |
+| Texto pegado en «Carga con IA» | No se retiene en EventOS | — | **Implementado** (no se persiste; T10) |
 
 ## 3. Medidas técnicas y organizativas vigentes
 
@@ -218,6 +232,10 @@ purga (§3.5, B4), la conservación real es indefinida y no se borra nada autom�
   datos reales).
 - Correo transaccional con proveedor único (Resend; relay del ecosistema); cada intento queda en
   `MailLog` sin el cuerpo del mensaje.
+- **Carga con IA (opcional, T10):** el asistente del panel manda **solo el texto pegado por un
+  miembro** a un proveedor externo de IA configurable por entorno (`IA_API_KEY`/`IA_MODELO`/
+  `IA_BASE_URL`); el servidor no persiste ese texto ni envía datos de la base, y cada llamada queda
+  auditada sin el contenido. Sin clave configurada la función queda apagada con un aviso claro.
 
 ### 3.5 Brechas abiertas
 
@@ -231,6 +249,11 @@ purga (§3.5, B4), la conservación real es indefinida y no se borra nada autom�
 | B6 | Canal de privacidad sin habilitar y proceso sin publicar | Titular sin por dónde pedir | Habilitar el buzón de §4.1 y publicarlo con el aviso (B1) |
 | B7 | El panel no enmascara contactos según rol (el portal de firma sí) | Exposición innecesaria | Enmascarado compartido por rol en listados y fichas |
 | B8 | Transferencias internacionales no declaradas (infraestructura, correo, SSO, DNS/proxy) | Transparencia y garantías | Declararlas en el aviso público y evaluar las garantías del proveedor |
+
+> **Actualización 01-10-2026 (issue #120):** la transferencia al **proveedor de IA** del asistente
+> «Carga con IA» quedó declarada en la política pública (§5 Destinatarios) y registrada como
+> encargado en T10; B8 sigue abierta por la formalización de garantías del proveedor (contrato/DPA)
+> y por el resto de la cadena.
 
 > Las brechas se numeran acá y se citan en el checklist (§6). Al cerrar una, se actualiza este
 > documento en el mismo cambio.
