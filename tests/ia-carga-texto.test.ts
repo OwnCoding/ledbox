@@ -77,7 +77,7 @@ test("el producto matchea con minúsculas y con un typo («kiosco» ↔ «kiosko
   const candidatos = candidatosDeProducto({ nombre: "kiosco touch" }, CARTERA_PRODUCTOS);
   assert.equal(candidatos[0].id, "p1");
   assert.ok(candidatos[0].confianza >= 90);
-  assert.equal(similitudTexto("maria", "mario"), 85, "un nombre de una palabra con typo queda en banda elegir");
+  assert.equal(similitudTexto("maria", "mario"), 85, "un nombre de una palabra con typo queda en banda sugerida");
 });
 
 test("la cartera vacía se diagnostica en la respuesta (no se crea a ciegas)", () => {
@@ -94,13 +94,13 @@ test("la cartera vacía se diagnostica en la respuesta (no se crea a ciegas)", (
 
 // ── 2. Tolerancia a espacios: «noe ces» ≈ «noeces» ─────────────────────────
 
-test("«noe ces» encuentra al candidato de «noeces» sin auto-vincular", () => {
+test("«noe ces» encuentra al candidato de «noeces» (sugerido, cambiable)", () => {
   assert.equal(similitudTexto("noe ces", "NoeCes BTL experence"), 84);
-  assert.equal(similitudTexto("noeces", "NoeCes BTL experence"), 84, "el texto junto también queda en banda elegir");
+  assert.equal(similitudTexto("noeces", "NoeCes BTL experence"), 84, "el texto junto también queda en banda sugerida");
   const candidatos = candidatosDeCliente({ nombre: "noe ces" }, CARTERA_CLIENTES);
   assert.equal(candidatos[0].id, "c1");
   assert.equal(candidatos[0].confianza, 84);
-  assert.ok(candidatos[0].confianza >= 60 && candidatos[0].confianza < 90, "banda de elección, no de auto-vinculado");
+  assert.ok(candidatos[0].confianza >= 60 && candidatos[0].confianza < 90, "banda de sugerencia (60–89 %)");
   // El otro sentido del test: sin el candidato, crear.
   assert.equal(candidatosDeCliente({ nombre: "noe ces" }, []).length, 0);
 });
@@ -177,8 +177,8 @@ test("un RUC inventado no vincula a otro cliente", async () => {
   const resuelto = asignarExistentes(analisis, { clientes: cartera, productos: [] });
   assert.ok(resuelto.clientes[0].inventados.some((campo) => campo.startsWith("RUC")));
   assert.notEqual(resuelto.clientes[0].existenteId, "c2", "el RUC inventado no resuelve el match");
-  assert.equal(resuelto.clientes[0].accion, "elegir");
-  assert.equal(resuelto.clientes[0].candidatos[0].id, "c1");
+  assert.equal(resuelto.clientes[0].accion, "vincular", "el mejor candidato queda preseleccionado");
+  assert.equal(resuelto.clientes[0].existenteId, "c1");
 });
 
 test("un SKU o categoría inventados no suman al match del producto", () => {
@@ -201,6 +201,41 @@ test("un SKU o categoría inventados no suman al match del producto", () => {
   assert.notEqual(resuelto.productos[0].candidatos[0]?.id, "p2", "el SKU inventado no arrastra al 32\"");
 });
 
+// ── Typos de 1–2 letras y cadena cobro↔cliente (issue #127) ────────────────
+
+test("un typo de una letra («noeses») encuentra a «NoeCes» y queda preseleccionado", () => {
+  assert.equal(similitudTexto("noeses", "NoeCes BTL experence"), 78, "prefijo compacto con 1 letra de diferencia");
+  assert.ok(similitudTexto("juan peres", "Juan Pérez") >= 90, "dos palabras con un typo: vínculo claro");
+  const candidatos = candidatosDeCliente({ nombre: "noeses" }, CARTERA_CLIENTES);
+  assert.equal(candidatos[0]?.id, "c1");
+  assert.equal(candidatos[0]?.confianza, 78);
+  const resuelto = asignarExistentes(
+    normalizarAnalisis({ clientes: [{ nombre: "noeses" }] }, ["clientes"], { hoy: HOY, texto: "noeses me pagó 750.000" }),
+    { clientes: CARTERA_CLIENTES, productos: [] },
+  );
+  assert.equal(resuelto.clientes[0].accion, "vincular", "sin estado bloqueante: llega preseleccionado");
+  assert.equal(resuelto.clientes[0].existenteId, "c1");
+  assert.ok(resuelto.clientes[0].avisos.some((aviso) => aviso.includes("Sugerido")));
+});
+
+test("el cobro adopta al cliente preseleccionado sin repetir la pregunta", async () => {
+  const proveedor: IaProvider = proveedorFijo({
+    clientes: [{ nombre: "noe ces" }],
+    cobros: [{ cliente: "noe ces", monto: "750.000", fecha: "hoy" }],
+  });
+  const analisis = await analizarCarga({
+    texto: "noe ces me pagó 750.000 hoy",
+    tipos: ["clientes", "cobros"],
+    proveedor,
+    hoy: HOY,
+  });
+  const resuelto = asignarExistentes(analisis, { clientes: CARTERA_CLIENTES, productos: [] });
+  assert.equal(resuelto.clientes[0].accion, "vincular");
+  assert.equal(resuelto.cobros[0].clienteId, resuelto.clientes[0].existenteId, "el cobro adopta al cliente");
+  assert.equal(resuelto.cobros[0].inventados.length, 0);
+  assert.equal(resuelto.cobros[0].avisos.some((aviso) => aviso.toLowerCase().includes("elegí")), false, "sin doble pregunta");
+});
+
 // ── Los dos textos del dueño, de punta a punta ─────────────────────────────
 
 test("texto A: producto vinculado, cliente elegible, cobro a plazo marcado", async () => {
@@ -208,8 +243,9 @@ test("texto A: producto vinculado, cliente elegible, cobro a plazo marcado", asy
   assert.equal(resuelto.productos[0].accion, "vincular", "«kiosco touch» vincula «Kiosko Touch»");
   assert.equal(resuelto.productos[0].existenteId, "p1");
   assert.ok((resuelto.productos[0].confianza ?? 0) >= 90, "el typo queda en banda de vínculo");
-  assert.equal(resuelto.clientes[0].accion, "elegir", "«noe ces» ofrece el candidato sin auto-vincular");
-  assert.equal(resuelto.clientes[0].candidatos[0].nombre, "NoeCes BTL experence");
+  assert.equal(resuelto.clientes[0].accion, "vincular", "«noe ces» llega con el candidato preseleccionado");
+  assert.equal(resuelto.clientes[0].existenteId, "c1");
+  assert.ok(resuelto.clientes[0].avisos.some((aviso) => aviso.includes("Sugerido")));
   assert.equal(resuelto.cobros[0].plazo, true);
   assert.equal(resuelto.cobros[0].vencimiento, "2026-10-08");
   assert.equal(resuelto.cobros[0].referencia, null);
@@ -219,8 +255,8 @@ test("texto A: producto vinculado, cliente elegible, cobro a plazo marcado", asy
 test("texto B: mismo resultado que A", async () => {
   const resuelto = await analizarTexto(TEXTO_B);
   assert.equal(resuelto.productos[0].accion, "vincular");
-  assert.equal(resuelto.clientes[0].accion, "elegir");
-  assert.equal(resuelto.clientes[0].candidatos[0].nombre, "NoeCes BTL experence");
+  assert.equal(resuelto.clientes[0].accion, "vincular");
+  assert.equal(resuelto.clientes[0].existenteId, "c1");
   assert.equal(resuelto.cobros[0].plazo, true);
   assert.equal(resuelto.cobros[0].vencimiento, "2026-10-08");
 });
