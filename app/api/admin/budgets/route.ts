@@ -507,7 +507,7 @@ async function patchBudgetItems(params: {
       subtotal: true,
       total: true,
       client: { select: { name: true, company: true } },
-      items: { select: { id: true, name: true } },
+      items: { select: { id: true, name: true, inventoryId: true } },
     },
   });
   if (!budget) return jsonError("Budget not found.", 404);
@@ -531,10 +531,15 @@ async function patchBudgetItems(params: {
   const total = Math.max(0, subtotal - discount);
   const costEstimate = parsed.reduce((sum, item) => sum + item.quantity * item.days * item.costPrice, 0);
   const keepIds = new Set(parsed.flatMap((item) => (item.id ? [item.id] : [])));
+  // El vínculo con el inventario se conserva si el payload no lo manda (el
+  // diálogo de precios no edita ese vínculo): sin esto, guardar ítems
+  // desvinculaba el stock del #18 y la imagen del portal (#107).
+  const linksById = new Map(budget.items.map((item) => [item.id, item.inventoryId]));
 
   await db.$transaction(async (tx) => {
     await tx.budgetItem.deleteMany({ where: { budgetId: budget.id, id: { notIn: [...keepIds] } } });
     for (const item of parsed) {
+      const inventoryId = item.inventoryId ?? (item.id ? linksById.get(item.id) ?? null : null);
       const data = {
         name: item.name,
         quantity: item.quantity,
@@ -542,7 +547,7 @@ async function patchBudgetItems(params: {
         unitPrice: item.unitPrice,
         costPrice: item.costPrice,
         subtotal: item.subtotal,
-        inventoryId: item.inventoryId,
+        inventoryId,
       };
       if (item.id && existingIds.has(item.id)) {
         await tx.budgetItem.update({ where: { id: item.id }, data });
