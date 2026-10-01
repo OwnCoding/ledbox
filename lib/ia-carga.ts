@@ -168,6 +168,36 @@ export type IaCobro = {
   avisos: string[];
 };
 
+// ── División de cobros en partes (issue #128) ───────────────────────────────
+
+/** Reparte un monto entero en partes iguales (el resto se reparte de a 1). */
+export function dividirMonto(total: number, partes: number): number[] {
+  const cantidad = Math.max(1, Math.floor(partes));
+  const entero = Math.max(0, Math.floor(total));
+  const base = Math.floor(entero / cantidad);
+  const resto = entero - base * cantidad;
+  return Array.from({ length: cantidad }, (_, indice) => base + (indice < resto ? 1 : 0));
+}
+
+/** Suma de las partes de un cobro. */
+export function sumaPartes(partes: number[]): number {
+  return partes.reduce((suma, parte) => suma + parte, 0);
+}
+
+/**
+ * ¿La parte queda a cobrar? Una fecha futura es un saldo a plazo; hoy, una
+ * fecha pasada o sin fecha se registran como cobrados.
+ */
+export function parteEsPendiente(fecha: string | null | undefined, hoy: string): boolean {
+  const dia = String(fecha ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(dia) && dia > hoy;
+}
+
+/** Día de Asunción de hoy (`YYYY-MM-DD`) para el preview del panel. */
+export function hoyDelPanel(ahora: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Asuncion" }).format(ahora);
+}
+
 /** Resultado de una pasada: lo detectado por tipo (los no pedidos van vacíos). */
 export type IaAnalisis = {
   clientes: IaCliente[];
