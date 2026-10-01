@@ -29,6 +29,18 @@ test("los módulos con cuadrícula la ofrecen en el conmutador y recuerdan la vi
   }
 });
 
+test("promotoras suma lista y cuadrícula con las mismas acciones (issue #118)", () => {
+  const source = readFileSync(join(MODULES_DIR, "PromotorasModule.tsx"), "utf8");
+  assert.match(source, /useAdminModuleView\("promotoras", PROMOTORAS_VIEWS\)/, "falta la vista recordada de promotoras");
+  assert.match(source, /const PROMOTORAS_VIEWS = \["list", "grid"\]/, "las vistas tienen que ser lista y cuadrícula");
+  // Paridad de acciones entre la fila y la tarjeta (las mismas de siempre).
+  assert.equal((source.match(/<AdminWhatsappLink phone=\{promoter\.phone\}/g) ?? []).length, 2, "WhatsApp en fila y tarjeta");
+  assert.equal((source.match(/mailto:\$\{promoter\.email\}/g) ?? []).length, 2, "correo en fila y tarjeta");
+  assert.equal((source.match(/startAvailabilityEdit\(promoter\)/g) ?? []).length, 2, "editar disponibilidad en fila y tarjeta");
+  // Búsqueda y filtro compartidos por las dos vistas (mismo `rows`).
+  assert.match(source, /view === "grid" \? \(\n\s*<AdminCardGrid/, "la cuadrícula tiene que usar las filas filtradas");
+});
+
 /**
  * Conmutador solo con íconos (issue #89): el nombre de la vista vive en
  * `title`/`aria-label` y el estado en `aria-pressed`; el texto visible se
