@@ -1348,6 +1348,16 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .admin-panel { overflow: hidden; border: 1px solid var(--a-line); border-radius: var(--a-radius-lg); background: var(--a-panel); }
 .admin-panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--a-line); background: var(--a-accent-soft); }
+/* Cuerpo del panel (issue #121): el contenido directo lleva 12px —alineado con
+   el padding lateral del encabezado— así los formularios, grillas y bloques no
+   tocan el borde. Los hijos que ya traen el suyo y son regiones de borde a
+   borde (tablas, tableros, barras, KPI, notas, vacíos, bloques demo y
+   calendario) quedan excluidos: su contenido ya está separado y duplicar el
+   padding los correría de más. */
+.admin-panel > :not(.admin-table-wrap):not(.admin-board-wrap):not(.admin-toolbar):not(.admin-kpis):not(.admin-note):not(.admin-empty):not(.admin-demo-hero):not(.admin-demo-bar):not(.admin-cal-month) { padding: 12px; }
+/* Un campo en línea con pista o error reserva espacio abajo: pisa el padding
+   del cuerpo para no recortar el mensaje. */
+.admin-panel > .admin-inline-form:has(.admin-field-hint, .admin-field-error) { padding-bottom: 18px; }
 .admin-panel-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--a-text-strong); font: 700 12.5px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
 /* Chip del ícono de sección: mismo objeto en todos los módulos. */
 .admin-panel-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 20px; height: 20px; border: 1px solid color-mix(in srgb, var(--a-accent) 36%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--a-accent) 16%, transparent); color: var(--a-accent); }
