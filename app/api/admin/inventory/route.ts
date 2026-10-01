@@ -7,10 +7,8 @@ import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
-  FIELD_MESSAGES,
-  inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
+  readInventoryPriceValues,
 } from "@/lib/field-rules";
 import {
   BLOCKED_INVENTORY_STATUSES,
@@ -208,30 +206,46 @@ export async function POST(request: Request) {
   if (kind === "prices") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return jsonError("Falta el ítem de inventario.", 400);
-    const listPrice = inventoryPriceValue(body.listPrice);
-    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
-    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const minimumPrice = inventoryPriceValue(body.minimumPrice);
-    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
-    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
+    const prices = readInventoryPriceValues(body);
+    if (!prices.ok) return jsonError(prices.error, 400);
     const existing = await db.inventoryItem.findFirst({
       where: { id, organizationId },
-      select: { id: true, name: true, listPrice: true, wholesalePrice: true, minimumPrice: true, wholesaleFromDays: true },
+      select: {
+        id: true,
+        name: true,
+        listPrice: true,
+        listFromDays: true,
+        listFromPrice: true,
+        wholesalePrice: true,
+        wholesaleFromDays: true,
+        wholesaleFromPrice: true,
+        minimumPrice: true,
+      },
     });
     if (!existing) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
     // Los campos sin valor no cambian: es una edición parcial de precios.
     const inventory = await db.inventoryItem.update({
       where: { id: existing.id },
       data: {
-        listPrice: listPrice ?? undefined,
-        wholesalePrice: wholesalePrice ?? undefined,
-        minimumPrice: minimumPrice ?? undefined,
-        wholesaleFromDays: wholesaleFromDays ?? undefined,
+        listPrice: prices.values.listPrice ?? undefined,
+        listFromDays: prices.values.listFromDays ?? undefined,
+        listFromPrice: prices.values.listFromPrice ?? undefined,
+        wholesalePrice: prices.values.wholesalePrice ?? undefined,
+        wholesaleFromDays: prices.values.wholesaleFromDays ?? undefined,
+        wholesaleFromPrice: prices.values.wholesaleFromPrice ?? undefined,
+        minimumPrice: prices.values.minimumPrice ?? undefined,
       },
     });
-    const changes = auditChanges(existing, inventory, ["listPrice", "wholesalePrice", "minimumPrice", "wholesaleFromDays"]);
+    const priceFields = [
+      "listPrice",
+      "listFromDays",
+      "listFromPrice",
+      "wholesalePrice",
+      "wholesaleFromDays",
+      "wholesaleFromPrice",
+      "minimumPrice",
+    ] as const;
+    const changes = auditChanges(existing, inventory, priceFields);
     if (changes) {
       await recordAudit({
         context: auth.context,

@@ -1436,12 +1436,19 @@ export type AdminInventoryRow = {
   quantity: number;
   replacementCost: number;
   dailyCost: number;
-  /** Precios de venta en Gs (issue #90), 0 = sin cargar. */
+  /** Precios de venta en Gs (issues #90 y #110), 0 = sin cargar. Cada frente
+   *  tiene su precio normal y su regla «desde X días»; el mínimo es el piso. */
   listPrice: number;
+  /** Días desde los que aplica `listFromPrice` (final por duración); 0 = sin regla. */
+  listFromDays: number;
+  /** Precio final desde `listFromDays` días. */
+  listFromPrice: number;
   wholesalePrice: number;
-  minimumPrice: number;
-  /** Días desde los que aplica el mayorista; 0 = sin regla. */
+  /** Días desde los que aplica `wholesaleFromPrice` (umbral del mayorista). */
   wholesaleFromDays: number;
+  /** Precio mayorista desde `wholesaleFromDays` días. */
+  wholesaleFromPrice: number;
+  minimumPrice: number;
   notes: string | null;
   updatedAt: string;
 };

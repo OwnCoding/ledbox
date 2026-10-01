@@ -8,10 +8,9 @@ import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
   FIELD_MESSAGES,
   inventoryImageValid,
-  inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
   normalizeInventoryImage,
+  readInventoryPriceValues,
 } from "@/lib/field-rules";
 import { PROMOTER_AVAILABILITIES, type PromoterAvailabilityValue } from "@/lib/admin-types";
 
@@ -201,14 +200,8 @@ export async function POST(request: Request) {
     if (typeof body.name !== "string") return jsonError("Name is required.", 400);
     const imageUrl = readInventoryImage(body.imageUrl);
     if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
-    const listPrice = inventoryPriceValue(body.listPrice);
-    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
-    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const minimumPrice = inventoryPriceValue(body.minimumPrice);
-    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
-    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
+    const prices = readInventoryPriceValues(body);
+    if (!prices.ok) return jsonError(prices.error, 400);
     const inventory = await db.inventoryItem.create({
       data: {
         id: randomUUID(),
@@ -218,10 +211,13 @@ export async function POST(request: Request) {
         imageUrl,
         kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
         quantity: typeof body.quantity === "number" ? body.quantity : 1,
-        listPrice: listPrice ?? 0,
-        wholesalePrice: wholesalePrice ?? 0,
-        minimumPrice: minimumPrice ?? 0,
-        wholesaleFromDays: wholesaleFromDays ?? 0,
+        listPrice: prices.values.listPrice ?? 0,
+        listFromDays: prices.values.listFromDays ?? 0,
+        listFromPrice: prices.values.listFromPrice ?? 0,
+        wholesalePrice: prices.values.wholesalePrice ?? 0,
+        wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+        wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+        minimumPrice: prices.values.minimumPrice ?? 0,
       },
     });
     await recordAudit({
@@ -240,13 +236,16 @@ export async function POST(request: Request) {
           "sku",
           "imageUrl",
           "listPrice",
+          "listFromDays",
+          "listFromPrice",
           "wholesalePrice",
-          "minimumPrice",
           "wholesaleFromDays",
+          "wholesaleFromPrice",
+          "minimumPrice",
         ]),
       },
     });
-    // Aviso (no error) si el mayorista o el mínimo superan al precio de lista.
+    // Aviso (no error) si un precio rompe la coherencia entre frentes o con su regla.
     const warning = inventoryPriceWarning(inventory);
     return Response.json(warning ? { inventory, warning } : { inventory }, { status: 201 });
   }
