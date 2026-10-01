@@ -59,9 +59,12 @@ test("el schema declara la imagen y la fila del panel la tipa", () => {
 });
 
 test("la miniatura del inventario cae al ícono y nunca deja un cuadro roto", () => {
+  const box = repoFile("components/admin/AdminImageBox.tsx");
+  assert.match(box, /onError=\{\(\) => setFailed\(true\)\}/);
+  assert.match(box, /<AdminIcon name=\{icon\}/);
   const module = repoFile("components/admin/modules/InventarioModule.tsx");
   assert.match(module, /function InventoryThumb/);
-  assert.match(module, /onError=\{\(\) => setFailed\(true\)\}/);
+  assert.match(module, /<AdminImageBox imageUrl=\{item\.imageUrl\} size=\{size\} \/>/);
   assert.match(module, /label="Imagen \(URL\)"/);
   assert.match(module, /inventoryImageError\(image\)/);
 });

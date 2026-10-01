@@ -25,11 +25,14 @@ test("la caja de la imagen ancla la foto y la contiene entera", () => {
   assert.equal(/\.admin-item-thumb img \{[^}]*height:\s*auto/.test(css), false, "la imagen no puede quedar con alto automático");
 });
 
-test("el módulo usa la caja fija en lista, tarjetas y detalle", () => {
+test("el módulo usa la caja fija compartida en lista, tarjetas y detalle", () => {
+  const box = repoFile("components/admin/AdminImageBox.tsx");
+  assert.match(box, /style=\{\{ width: size, height: size \}\}/, "la caja tiene que ser fija e igual para todos");
+  assert.match(box, /onError=\{\(\) => setFailed\(true\)\}/, "falta el fallback al ícono");
+  assert.match(box, /<AdminIcon name=\{icon\}/, "sin imagen (o si falla) dibuja el ícono");
   const module = repoFile("components/admin/modules/InventarioModule.tsx");
   assert.match(module, /function InventoryThumb\(\{ item, size = 26 \}/, "falta la caja base de 26 px");
-  assert.match(module, /style=\{\{ width: size, height: size \}\}/, "la caja tiene que ser fija e igual para todos");
-  assert.match(module, /onError=\{\(\) => setFailed\(true\)\}/, "falta el fallback al ícono");
+  assert.match(module, /<AdminImageBox imageUrl=\{item\.imageUrl\} size=\{size\} \/>/, "la miniatura delega en la caja compartida");
   assert.match(module, /<InventoryThumb item=\{item\} size=\{32\} \/>/, "las tarjetas usan una caja de 32 px");
   assert.match(module, /<InventoryThumb item=\{selected\} size=\{72\} \/>/, "el detalle usa una caja de 72 px");
   assert.match(module, /className="admin-item-figure"/, "falta la figura del detalle");

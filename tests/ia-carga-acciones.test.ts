@@ -161,23 +161,24 @@ test("un candidato claro se propone como vincular; nunca se duplica", () => {
   assert.equal(resuelto.productos[0].existenteId, "p1");
 });
 
-test("dos clientes parecidos no se resuelven a ciegas: opciones y aviso", () => {
+test("dos clientes parecidos no se resuelven a ciegas: hay que elegir", () => {
   const analisis = normalizarAnalisis({ clientes: [{ nombre: "María González" }] }, ["clientes"]);
   const resuelto = asignarExistentes(analisis, { clientes: CARTERA_CLIENTES, productos: [] });
   const cliente = resuelto.clientes[0];
-  assert.equal(cliente.accion, "crear", "con match ambiguo no se vincula solo");
+  assert.equal(cliente.accion, "elegir", "con match ambiguo la persona decide");
+  assert.equal(cliente.existenteId, null);
   assert.ok(cliente.candidatos.length >= 2);
-  assert.ok(cliente.avisos.some((aviso) => aviso.includes("parecido")));
+  assert.ok(cliente.avisos.some((aviso) => aviso.includes("Elegí si es")));
 });
 
-test("sin candidatos se crea; el match dudoso se avisa", () => {
+test("sin candidatos se crea; el match de confianza media exige elección", () => {
   const analisis = normalizarAnalisis({ clientes: [{ nombre: "Cliente Nuevo" }, { nombre: "Pérez" }] }, ["clientes"]);
   const resuelto = asignarExistentes(analisis, { clientes: CARTERA_CLIENTES, productos: [] });
   assert.equal(resuelto.clientes[0].accion, "crear");
   assert.equal(resuelto.clientes[0].candidatos.length, 0);
-  assert.equal(resuelto.clientes[1].accion, "crear");
+  assert.equal(resuelto.clientes[1].accion, "elegir");
   assert.ok(resuelto.clientes[1].candidatos.length >= 1, "el apellido suelto deja candidatos para elegir");
-  assert.ok(resuelto.clientes[1].avisos.some((aviso) => aviso.includes("parecido")));
+  assert.ok(resuelto.clientes[1].avisos.some((aviso) => aviso.includes("Elegí si es")));
 });
 
 // ── Cobros (issue #122 §2) ──────────────────────────────────────────────────
