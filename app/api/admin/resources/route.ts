@@ -4,6 +4,7 @@ import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
   FIELD_MESSAGES,
   inventoryImageValid,
@@ -118,6 +119,31 @@ export async function GET(request: Request) {
     .filter((value): value is ResourceKind => (RESOURCE_KINDS as readonly string[]).includes(value));
   const selector = url.searchParams.get("fields") === "selector";
   const wanted = (kind: ResourceKind) => only.length === 0 || only.includes(kind);
+  // El inventario se pide con su forma completa (sin el binario de la foto,
+  // issue #109) o con el mínimo del selector; en paralelo con los demás. La
+  // fila completa expone la URL efectiva (manual o subida) y nunca el binario.
+  const inventoryRows = !wanted("inventory")
+    ? Promise.resolve([] as Array<Record<string, unknown>>)
+    : selector
+      ? db.inventoryItem.findMany({
+          where: { organizationId },
+          orderBy: { name: "asc" },
+          take: 300,
+          select: SELECTOR_FIELDS.inventory,
+        })
+      : db.inventoryItem
+          .findMany({
+            where: { organizationId },
+            orderBy: { name: "asc" },
+            take: 300,
+            omit: { imageData: true },
+          })
+          .then((items) =>
+            items.map((item) => {
+              const { imageMime, ...row } = item;
+              return { ...row, imageUrl: inventoryImageUrl(item) };
+            }),
+          );
   const [suppliers, inventory, promoters] = await Promise.all([
     wanted("suppliers")
       ? db.supplier.findMany({
@@ -127,14 +153,7 @@ export async function GET(request: Request) {
           ...(selector ? { select: SELECTOR_FIELDS.suppliers } : {}),
         })
       : [],
-    wanted("inventory")
-      ? db.inventoryItem.findMany({
-          where: { organizationId },
-          orderBy: { name: "asc" },
-          take: 300,
-          ...(selector ? { select: SELECTOR_FIELDS.inventory } : {}),
-        })
-      : [],
+    inventoryRows,
     wanted("promoters")
       ? db.promoter.findMany({
           where: { organizationId, active: true },

@@ -1581,6 +1581,10 @@ model InventoryItem {
   /// Imagen del ítem (issue #86): ruta interna `/assets/…` o URL http(s).
   /// La miniatura del panel la dibuja con fallback al ícono (nunca rota).
   imageUrl          String?
+  /// Foto subida (issue #109): binario + MIME real en la base, servida pública
+  /// por `/api/inventory-images/<id>`. La URL manual (`imageUrl`) tiene prioridad.
+  imageData         Bytes?
+  imageMime         String?
   kind              InventoryKind    @default(REUSABLE)
   status            InventoryStatus  @default(AVAILABLE)
   quantity          Int              @default(1)

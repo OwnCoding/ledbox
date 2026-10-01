@@ -261,6 +261,7 @@ export async function findSubstitutes(options: {
     where: { organizationId: options.organizationId, category: options.item.category, id: { not: options.item.id } },
     orderBy: { name: "asc" },
     take: 100,
+    omit: { imageData: true },
   });
   if (candidates.length === 0) return [];
   const rows = await db.eventInventory.findMany({

@@ -1169,6 +1169,30 @@ export function isLogoVariant(value: string): value is LogoVariant {
 /** Cuándo se subió cada variante; `null` = la empresa todavía no la subió. */
 export type AdminOrganizationLogos = Record<LogoVariant, string | null>;
 
+// ── Foto del ítem de inventario (issue #109) ─────────────────────────────────
+// La foto subida viaja como multipart, ya comprimida en el navegador (hasta
+// 2 MB), y el tipo real sale SIEMPRE del contenido por magic bytes —nunca del
+// MIME declarado ni de la extensión—. El binario queda en la base y se sirve
+// público por UUID; la URL manual (`imageUrl`) tiene prioridad sobre la subida.
+
+/** Tope de la foto del ítem: 2 MB (el navegador la comprime antes de subir). */
+export const INVENTORY_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Tipos aceptados por la foto del ítem. */
+export const INVENTORY_IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"] as const;
+export type InventoryImageMime = (typeof INVENTORY_IMAGE_MIMES)[number];
+
+/** Firma real de la foto del ítem (JPG, PNG o WebP); `null` si no es imagen. */
+export function detectInventoryImageMime(bytes: Uint8Array): InventoryImageMime | null {
+  const mime = detectIdentityImageMime(bytes);
+  return mime && (INVENTORY_IMAGE_MIMES as readonly string[]).includes(mime) ? (mime as InventoryImageMime) : null;
+}
+
+/** ¿El MIME guardado es una foto servible? (defensa del endpoint público). */
+export function isInventoryImageMime(value: string | null | undefined): value is InventoryImageMime {
+  return Boolean(value) && (INVENTORY_IMAGE_MIMES as readonly string[]).includes(value as string);
+}
+
 function versionQuery(version: string | Date | null | undefined): string {
   const value = version instanceof Date ? version.toISOString() : version;
   return value ? `?v=${encodeURIComponent(value)}` : "";
