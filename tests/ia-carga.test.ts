@@ -6,7 +6,7 @@ import { IA_REGISTROS_MAX, IA_TEXTO_MAX } from "../lib/ia-carga";
 import {
   IaError,
   analizarCarga,
-  asignarClientes,
+  asignarExistentes,
   candidatosDeCliente,
   fechaDeTexto,
   iaConfig,
@@ -46,11 +46,11 @@ test("la config respeta el modelo y la base, y una base inválida cae al default
 
 // ── Permisos por tipo ───────────────────────────────────────────────────────
 
-test("solo los roles que pueden crear los tres tipos usan el asistente", () => {
+test("solo los roles que pueden crear usan el asistente; los cobros se detectan siempre", () => {
   const de = (role: AdminRole) => tiposPermitidos(role).join(",");
-  assert.equal(de("OWNER"), "clientes,eventos,productos");
-  assert.equal(de("ADMIN"), "clientes,eventos,productos");
-  assert.equal(de("OPERATIONS"), "clientes,eventos,productos");
+  assert.equal(de("OWNER"), "clientes,eventos,productos,cobros");
+  assert.equal(de("ADMIN"), "clientes,eventos,productos,cobros");
+  assert.equal(de("OPERATIONS"), "clientes,eventos,productos,cobros");
   assert.equal(de("FINANCE"), "");
   assert.equal(de("VIEWER"), "");
 });
@@ -105,6 +105,11 @@ test("normalizarAnalisis valida con Zod y normaliza cada tipo", () => {
     ruc: "80012345-6",
     telefono: "+595 981123456",
     correo: "ventas@sur.com.py",
+    accion: "crear",
+    existenteId: null,
+    existenteNombre: null,
+    confianza: null,
+    candidatos: [],
     avisos: [],
   });
   assert.equal(salida.eventos[0].inicio, "2026-12-20");
@@ -176,9 +181,13 @@ const CARTERA = [
 ];
 
 test("el match de clientes ignora acentos y mayúsculas", () => {
-  assert.deepEqual(candidatosDeCliente("constructora sur", CARTERA), [{ id: "c1", nombre: "Constructora Sur SA" }]);
-  assert.deepEqual(candidatosDeCliente("juan perez", CARTERA), [{ id: "c2", nombre: "Juan Pérez" }]);
-  assert.equal(candidatosDeCliente("Nadie", CARTERA).length, 0);
+  assert.deepEqual(candidatosDeCliente({ nombre: "constructora sur" }, CARTERA), [
+    { id: "c1", nombre: "Constructora Sur SA", confianza: 92, detalle: null },
+  ]);
+  assert.deepEqual(candidatosDeCliente({ nombre: "juan perez" }, CARTERA), [
+    { id: "c2", nombre: "Juan Pérez", confianza: 100, detalle: null },
+  ]);
+  assert.equal(candidatosDeCliente({ nombre: "Nadie" }, CARTERA).length, 0);
 });
 
 test("un evento con cliente único se resuelve; ambiguo o desconocido queda con aviso", () => {
@@ -193,9 +202,9 @@ test("un evento con cliente único se resuelve; ambiguo o desconocido queda con 
     },
     ["eventos"],
   );
-  const resuelto = asignarClientes(analisis, CARTERA);
+  const resuelto = asignarExistentes(analisis, { clientes: CARTERA, productos: [] });
   assert.equal(resuelto.eventos[0].clienteId, "c1");
-  assert.deepEqual(resuelto.eventos[0].candidatos, []);
+  assert.equal(resuelto.eventos[0].candidatos[0]?.confianza, 92);
   assert.equal(resuelto.eventos[1].clienteId, null);
   assert.ok(resuelto.eventos[1].candidatos.length >= 2, "ofrece los candidatos para elegir");
   assert.ok(resuelto.eventos[1].avisos.some((aviso) => aviso.includes("varios clientes")));
