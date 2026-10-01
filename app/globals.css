@@ -1511,9 +1511,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-subtab .admin-icon { color: var(--a-accent); }
 .admin-subtab:hover { border-color: var(--a-line-2); color: var(--a-text); }
 .admin-subtab[data-active="true"], .admin-subtab[aria-current="page"] { border-color: color-mix(in srgb, var(--a-accent) 48%, transparent); background: var(--a-accent-soft); color: var(--a-text-strong); }
-/* Barra de subtabs fuera de un módulo con página propia (issue #56): alinea con
-   el padding del área de contenido. */
-.admin-subtabs-bar { padding: 12px 16px 0; }
+/* Barra de subtabs fuera de un módulo con página propia (issues #56 y #124): el
+   aire superior y lateral lo pone `.admin-main-body` (#115) y solo separa la
+   sección de abajo con el mismo ritmo que usa `.admin-module-page` (10px). */
+.admin-subtabs-bar { padding: 0 0 10px; }
 .admin-image-body { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .admin-image-preview { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border: 1px dashed var(--a-line-2); border-radius: var(--a-radius); background: var(--a-bg-2); }
 .admin-image-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1580,7 +1581,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-pin-slots { gap: 6px; }
   .admin-pin-slot { width: 30px; height: 38px; }
   .admin-pin-slot[data-min-boundary="true"] { margin-left: 8px; }
-  .admin-subtabs-bar { padding: 12px 12px 0; }
 }
 
 /* ── Diálogo del panel (issue #12) ──
