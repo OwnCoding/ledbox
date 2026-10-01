@@ -8,6 +8,8 @@
  * Vive acá, en un solo lugar, para que ninguna superficie arme la ruta a mano.
  */
 
+import { inventoryImageValid, normalizeInventoryImage } from "@/lib/field-rules";
+
 /** Ruta pública de la foto subida; `version` corta la caché inmutable. */
 export function inventoryImagePath(id: string, version?: string | Date | null): string {
   const value = version instanceof Date ? version.toISOString() : version;
@@ -24,4 +26,17 @@ export function inventoryImageUrl(item: {
   if (item.imageUrl) return item.imageUrl;
   if (!item.imageMime) return null;
   return inventoryImagePath(item.id, item.updatedAt ?? null);
+}
+
+/**
+ * URL manual de la foto tal como llega en el body: recortada y validada (ruta
+ * interna `/assets/…` o URL http(s)). Sin valor → `null` (la limpia); con un
+ * valor inválido → `false`. La comparten el alta y la edición del ítem.
+ */
+export function readInventoryImageUrl(raw: unknown): string | null | false {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") return false;
+  const image = normalizeInventoryImage(raw);
+  if (!image) return null;
+  return inventoryImageValid(image) ? image : false;
 }

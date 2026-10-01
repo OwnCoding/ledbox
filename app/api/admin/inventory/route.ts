@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { InventoryStatus } from "@prisma/client";
+import type { InventoryKind, InventoryStatus } from "@prisma/client";
 import { damageSummary, inventoryStatusLabel } from "@/lib/admin-format";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
-import { inventoryImageUrl } from "@/lib/server/inventory-images";
+import { inventoryImageUrl, readInventoryImageUrl } from "@/lib/server/inventory-images";
 import {
+  FIELD_LIMITS,
+  FIELD_MESSAGES,
+  inventoryPriceValue,
   inventoryPriceWarning,
   readInventoryPriceValues,
 } from "@/lib/field-rules";
@@ -52,6 +55,86 @@ export const dynamic = "force-dynamic";
  */
 
 const INVENTORY_STATUSES: readonly InventoryStatus[] = ["AVAILABLE", "RESERVED", "IN_USE", "MAINTENANCE", "RETIRED"];
+
+const INVENTORY_KINDS: readonly InventoryKind[] = ["REUSABLE", "CONSUMABLE", "DISPOSABLE"];
+
+/** Campos del ítem que se editan (issue #111); la cantidad va en #112. */
+const INVENTORY_ITEM_FIELDS = [
+  "name",
+  "category",
+  "kind",
+  "status",
+  "replacementCost",
+  "dailyCost",
+  "notes",
+  "visibleOnWeb",
+  "imageUrl",
+] as const;
+
+type InventoryItemUpdate = Partial<{
+  name: string;
+  category: string;
+  kind: InventoryKind;
+  status: InventoryStatus;
+  replacementCost: number;
+  dailyCost: number;
+  notes: string | null;
+  visibleOnWeb: boolean;
+  imageUrl: string | null;
+}>;
+
+/** Datos del ítem (issue #111) normalizados: `undefined` = no tocar el campo. */
+function readInventoryItemUpdate(body: Record<string, unknown>):
+  | { ok: true; data: InventoryItemUpdate }
+  | { ok: false; error: string } {
+  const data: InventoryItemUpdate = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || !body.name.trim()) return { ok: false, error: "Ingresá el nombre del artículo." };
+    const name = body.name.trim();
+    if (name.length > FIELD_LIMITS.name) {
+      return { ok: false, error: `El nombre no puede superar los ${FIELD_LIMITS.name} caracteres.` };
+    }
+    data.name = name;
+  }
+  if (body.category !== undefined) {
+    if (typeof body.category !== "string") return { ok: false, error: "La categoría no es válida." };
+    data.category = body.category.trim().slice(0, 80) || "General";
+  }
+  if (body.inventoryKind !== undefined) {
+    const kind = String(body.inventoryKind);
+    if (!(INVENTORY_KINDS as readonly string[]).includes(kind)) return { ok: false, error: "El tipo de inventario no es válido." };
+    data.kind = kind as InventoryKind;
+  }
+  if (body.status !== undefined) {
+    const status = String(body.status);
+    if (!(INVENTORY_STATUSES as readonly string[]).includes(status)) return { ok: false, error: "Estado de inventario inválido." };
+    data.status = status as InventoryStatus;
+  }
+  for (const field of ["replacementCost", "dailyCost"] as const) {
+    if (body[field] === undefined) continue;
+    const cost = inventoryPriceValue(body[field]);
+    if (cost === false) return { ok: false, error: "Ingresá un costo válido en guaraníes." };
+    if (cost !== null) data[field] = cost;
+  }
+  if (body.notes !== undefined) {
+    if (typeof body.notes !== "string") return { ok: false, error: "Las notas no son válidas." };
+    const notes = body.notes.trim();
+    if (notes.length > FIELD_LIMITS.notes) {
+      return { ok: false, error: `Las notas no pueden superar los ${FIELD_LIMITS.notes} caracteres.` };
+    }
+    data.notes = notes || null;
+  }
+  if (body.visibleOnWeb !== undefined) {
+    if (typeof body.visibleOnWeb !== "boolean") return { ok: false, error: "La visibilidad web tiene que ser sí o no." };
+    data.visibleOnWeb = body.visibleOnWeb;
+  }
+  if (body.imageUrl !== undefined) {
+    const imageUrl = readInventoryImageUrl(body.imageUrl);
+    if (imageUrl === false) return { ok: false, error: FIELD_MESSAGES.image };
+    data.imageUrl = imageUrl;
+  }
+  return { ok: true, data };
+}
 
 export async function GET(request: Request) {
   const auth = await requireAdminContext();
@@ -152,6 +235,7 @@ export async function GET(request: Request) {
     return {
       ...row,
       imageUrl: inventoryImageUrl(item),
+      imageUploaded: Boolean(item.imageMime),
       assignments: rows,
       availability: {
         committedNow,
@@ -201,6 +285,48 @@ export async function POST(request: Request) {
       });
     }
     return Response.json({ inventory });
+  }
+
+  if (kind === "item") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return jsonError("Falta el ítem de inventario.", 400);
+    const update = readInventoryItemUpdate(body);
+    if (!update.ok) return jsonError(update.error, 400);
+    const existing = await db.inventoryItem.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        kind: true,
+        status: true,
+        replacementCost: true,
+        dailyCost: true,
+        notes: true,
+        visibleOnWeb: true,
+        imageUrl: true,
+      },
+    });
+    if (!existing) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
+    const inventory = await db.inventoryItem.update({
+      where: { id: existing.id },
+      data: update.data,
+      omit: { imageData: true },
+    });
+    const changes = auditChanges(existing, inventory, INVENTORY_ITEM_FIELDS);
+    if (changes) {
+      await recordAudit({
+        context: auth.context,
+        action: "update",
+        entity: "InventoryItem",
+        entityId: inventory.id,
+        summary: `Editó el ítem de inventario «${inventory.name}»`,
+        detail: { changes },
+      });
+    }
+    return Response.json({
+      inventory: { ...inventory, imageUrl: inventoryImageUrl(inventory), imageUploaded: Boolean(inventory.imageMime) },
+    });
   }
 
   if (kind === "prices") {

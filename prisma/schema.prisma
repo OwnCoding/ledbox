@@ -1587,6 +1587,9 @@ model InventoryItem {
   imageMime          String?
   kind               InventoryKind    @default(REUSABLE)
   status             InventoryStatus  @default(AVAILABLE)
+  /// «Visible en la web» (issue #111): la landing es estática hoy; el flag queda
+  /// listo para el catálogo dinámico. Por defecto, nada se publica solo.
+  visibleOnWeb       Boolean          @default(false)
   quantity           Int              @default(1)
   replacementCost    Int              @default(0)
   dailyCost          Int              @default(0)
