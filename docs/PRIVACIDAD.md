@@ -159,9 +159,9 @@ sesión o con el link/token correspondiente. Los respaldos son archivos gzip en 
 | Campo | Detalle |
 | --- | --- |
 | Datos | El **texto pegado** por un miembro con permiso de escritura (puede contener nombres, teléfonos, correos, RUC, fechas y precios de clientes o contactos) y los registros que la IA propone, que la persona revisa y edita antes de crear |
-| Finalidad | Ordenar texto libre en registros del panel (clientes, eventos, productos) y ahorrar carga manual |
+| Finalidad | Ordenar texto libre en registros del panel (clientes, eventos, productos) y proponer acciones (vincular a lo existente, registrar un cobro) que la persona revisa y confirma |
 | Base legal | Ejecución del contrato / interés legítimo de operación; el dato ya es de la empresa y no se usa para otra finalidad |
-| Dónde vive | **El texto no se guarda en EventOS**: viaja al proveedor de IA configurado por entorno (`IA_API_KEY`/`IA_MODELO`/`IA_BASE_URL`, API compatible con `chat/completions`) y vuelve solo con la estructura propuesta. Los registros **confirmados** se guardan en T1/T2/T6 como cualquier alta del panel. La llamada queda auditada en `AuditLog` (`IaCarga`, solo conteos y modelo; nunca el texto) |
+| Dónde vive | **El texto no se guarda en EventOS**: viaja al proveedor de IA configurado por entorno (`IA_API_KEY`/`IA_MODELO`/`IA_BASE_URL`, API compatible con `chat/completions`) y vuelve solo con la estructura propuesta. Los registros **confirmados** se guardan en T1/T2/T6 como cualquier alta del panel y las acciones (cobros) en T7; el matching contra lo existente corre en el servidor, con los datos de la empresa activa. La llamada queda auditada en `AuditLog` (`IaCarga`, solo conteos y modelo; nunca el texto) |
 | Quién accede | Miembros con `clients.write`/`events.write`/`inventory.write` (OWNER/ADMIN/OPERATIONS); VIEWER y FINANCE no usan el asistente. El proveedor actúa como **encargado** y recibe solo lo pegado |
 | Retención | El texto no se persiste en EventOS; el proveedor puede retener las peticiones según su propia política (evaluar sus garantías — B8) |
 | Borrado/anonimización | No hay nada que borrar del lado de EventOS; apagar la función es quitar `IA_API_KEY` (el panel avisa y no envía nada) |

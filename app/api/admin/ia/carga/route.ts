@@ -7,7 +7,7 @@ import { requireAdminContext } from "@/lib/server/tenancy";
 import {
   IaError,
   analizarCarga,
-  asignarClientes,
+  asignarExistentes,
   iaConfig,
   iaProviderDeConfig,
   tiposPermitidos,
@@ -85,15 +85,38 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  // Match de eventos contra la cartera de la empresa (mismo aislamiento que el
-  // resto del panel: solo clientes de la organización activa).
-  const clientes = await db.client.findMany({
-    where: { organizationId: auth.context.organizationId, active: true },
-    orderBy: { name: "asc" },
-    take: 1000,
-    select: { id: true, name: true, company: true },
+  // Matching contra lo existente (issue #122): clientes por nombre/empresa/RUC/
+  // teléfono y productos por nombre/SKU/categoría, con el aislamiento de la
+  // empresa activa. Los datos no salen al proveedor: el match corre acá.
+  const [clientes, productos] = await Promise.all([
+    db.client.findMany({
+      where: { organizationId: auth.context.organizationId, active: true },
+      orderBy: { name: "asc" },
+      take: 1000,
+      select: { id: true, name: true, company: true, ruc: true, phone: true },
+    }),
+    db.inventoryItem.findMany({
+      where: { organizationId: auth.context.organizationId },
+      orderBy: { name: "asc" },
+      take: 2000,
+      select: { id: true, name: true, sku: true, category: true },
+    }),
+  ]);
+  const registros = asignarExistentes(analisis, {
+    clientes: clientes.map((cliente) => ({
+      id: cliente.id,
+      nombre: cliente.name,
+      empresa: cliente.company,
+      ruc: cliente.ruc,
+      telefono: cliente.phone,
+    })),
+    productos: productos.map((producto) => ({
+      id: producto.id,
+      nombre: producto.name,
+      sku: producto.sku,
+      categoria: producto.category,
+    })),
   });
-  const registros = asignarClientes(analisis, clientes.map((cliente) => ({ id: cliente.id, nombre: cliente.name, empresa: cliente.company })));
 
   // Traza de la transferencia al encargado (Ley 7593/2025, docs/PRIVACIDAD.md
   // T10): se auditan los conteos y el modelo, nunca el texto pegado.
@@ -102,13 +125,14 @@ export async function POST(request: Request) {
     action: "send",
     entity: "IaCarga",
     entityId: randomUUID(),
-    summary: `Analizó un texto con la IA (${registros.clientes.length} clientes, ${registros.eventos.length} eventos, ${registros.productos.length} productos)`,
+    summary: `Analizó un texto con la IA (${registros.clientes.length} clientes, ${registros.eventos.length} eventos, ${registros.productos.length} productos, ${registros.cobros.length} cobros)`,
     detail: {
       fields: {
         modelo: config.modelo,
         clientes: registros.clientes.length,
         eventos: registros.eventos.length,
         productos: registros.productos.length,
+        cobros: registros.cobros.length,
       },
     },
   });

@@ -895,7 +895,7 @@ export function AdminShell({
               </button>
               {paletteMounted ? <AdminCommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} /> : null}
               {!session.demo && canWriteCarga(session.user?.role) ? <AdminCargaIaButton onOpen={openCarga} /> : null}
-              {cargaOpen ? <AdminCargaIaDialog onClose={() => setCargaOpen(false)} /> : null}
+              {cargaOpen ? <AdminCargaIaDialog onClose={() => setCargaOpen(false)} rol={session.user?.role ?? null} /> : null}
               {session.demo ? (
                 <Link
                   className="admin-demo-chip"
