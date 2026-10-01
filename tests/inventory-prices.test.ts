@@ -83,8 +83,8 @@ test("el módulo Inventario muestra y edita los precios por frente", () => {
   for (const label of ["Precio normal", "Desde (días)", "Precio desde esos días", "Piso de venta"]) {
     assert.ok(module.includes(`label="${label}"`), `falta el campo «${label}»`);
   }
-  assert.match(module, /Editar precios: \$\{item\.name\}/);
-  assert.match(module, /submitPrices/);
+  assert.match(module, /Editar ítem: \$\{item\.name\}/);
+  assert.match(module, /submitEditItem/);
   // El resumen legible y el aviso de coherencia se ven en lista/tarjetas/detalle.
   assert.match(module, /priceFrontText\("Final"/);
   assert.match(module, /priceFrontText\("Mayorista"/);
