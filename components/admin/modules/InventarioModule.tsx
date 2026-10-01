@@ -22,6 +22,9 @@ import {
   inventoryImageValid,
   inventoryPriceValue,
   inventoryPriceWarning,
+  inventoryUnitCodeError,
+  inventoryUnitCodeValid,
+  normalizeInventoryUnitCode,
   readInventoryPriceValues,
   type InventoryPriceValues,
 } from "@/lib/field-rules";
@@ -31,6 +34,7 @@ import type {
   AdminInventoryItemRow,
   AdminInventoryRow,
   AdminInventorySubstitute,
+  AdminInventoryUnitRow,
 } from "@/lib/admin-types";
 import type { PreparedInventoryPhoto } from "@/lib/inventory-image";
 import { useAdminSession } from "../AdminShell";
@@ -40,6 +44,7 @@ import {
   AdminCell,
   AdminCountdown,
   AdminDataState,
+  AdminDialog,
   AdminEmpty,
   AdminFormPanel,
   AdminKpi,
@@ -73,6 +78,11 @@ const STATUS_OPTIONS = [
 ];
 
 const STATUS_PICK_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "ALL");
+
+/** Estados de una unidad física (issue #112): disponible, en mantenimiento o retirada. */
+const UNIT_STATUS_PICK_OPTIONS = STATUS_PICK_OPTIONS.filter(
+  (option) => option.value === "AVAILABLE" || option.value === "MAINTENANCE" || option.value === "RETIRED",
+);
 
 /** Vistas del inventario (issue #57): lista densa y cuadrícula de tarjetas. */
 const INVENTARIO_VIEWS = ["list", "grid"] as const;
@@ -456,6 +466,15 @@ export function InventarioModule() {
   /** La foto subida del ítem se quita al guardar (issue #111). */
   const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
   const [editPhotoError, setEditPhotoError] = useState("");
+
+  // Unidades físicas del ítem abierto (issue #112): alta, estado y edición.
+  const [unitBusyId, setUnitBusyId] = useState("");
+  const [unitError, setUnitError] = useState("");
+  const [unitNotice, setUnitNotice] = useState("");
+  const [unitDialog, setUnitDialog] = useState<AdminInventoryUnitRow | null>(null);
+  const [unitForm, setUnitForm] = useState({ code: "", status: "AVAILABLE", purchaseCost: "", notes: "" });
+  const [unitDialogBusy, setUnitDialogBusy] = useState(false);
+  const [unitDialogError, setUnitDialogError] = useState("");
   /** El aviso del alta (por ejemplo, precios incoherentes) se muestra en tono warn. */
   const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
 
@@ -805,9 +824,88 @@ export function InventarioModule() {
     resources.reload();
   }
 
+  /** Agrega una unidad al ítem abierto (issue #112): código autogenerado. */
+  async function addInventoryUnit(item: AdminInventoryItemRow) {
+    setUnitBusyId(item.id);
+    setUnitError("");
+    setUnitNotice("");
+    const result = await adminSend<{ unit?: AdminInventoryUnitRow }>("/api/admin/inventory", {
+      kind: "unit",
+      inventoryId: item.id,
+    });
+    setUnitBusyId("");
+    if (!result.ok) {
+      setUnitError(result.error);
+      return;
+    }
+    setUnitNotice(`Unidad «${result.data.unit?.code ?? "nueva"}» agregada a «${item.name}».`);
+    resources.reload();
+  }
+
+  /** Cambia el estado de una unidad: mantenimiento y retiro ajustan el stock libre. */
+  async function changeUnitStatus(unit: AdminInventoryUnitRow, next: string) {
+    setUnitBusyId(unit.id);
+    setUnitError("");
+    setUnitNotice("");
+    const result = await adminSend("/api/admin/inventory", { kind: "unit-update", id: unit.id, status: next });
+    setUnitBusyId("");
+    if (!result.ok) {
+      setUnitError(result.error);
+      return;
+    }
+    setUnitNotice(`Unidad «${unit.code}» pasó a ${inventoryStatusLabel(next)}.`);
+    resources.reload();
+  }
+
+  function openUnitDialog(unit: AdminInventoryUnitRow) {
+    setUnitError("");
+    setUnitNotice("");
+    setUnitDialogError("");
+    setUnitDialog(unit);
+    setUnitForm({
+      code: unit.code,
+      status: unit.status,
+      purchaseCost: unit.purchaseCost > 0 ? String(unit.purchaseCost) : "",
+      notes: unit.notes ?? "",
+    });
+  }
+
+  /** Guarda el código, el estado, el costo y las notas de una unidad. */
+  async function submitUnitDialog(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!unitDialog) return;
+    setUnitDialogError("");
+    const code = normalizeInventoryUnitCode(unitForm.code);
+    if (!inventoryUnitCodeValid(code)) {
+      setUnitDialogError(FIELD_MESSAGES.unitCode);
+      return;
+    }
+    const cost = inventoryPriceValue(unitForm.purchaseCost);
+    if (cost === false) {
+      setUnitDialogError(FIELD_MESSAGES.price);
+      return;
+    }
+    setUnitDialogBusy(true);
+    const result = await adminSend("/api/admin/inventory", {
+      kind: "unit-update",
+      id: unitDialog.id,
+      code,
+      status: unitForm.status,
+      purchaseCost: cost ?? 0,
+      notes: unitForm.notes,
+    });
+    setUnitDialogBusy(false);
+    if (!result.ok) {
+      setUnitDialogError(result.error);
+      return;
+    }
+    setUnitNotice(`Unidad «${code}» guardada.`);
+    setUnitDialog(null);
+    resources.reload();
+  }
+
   /** CSV del inventario filtrado: cantidades y costos reales de cada ítem. */
-  function exportInventory() {
-    const units = rows.reduce((sum, item) => sum + item.quantity, 0);
+  function exportInventory() {    const units = rows.reduce((sum, item) => sum + item.quantity, 0);
     const available = rows.reduce(
       (sum, item) => sum + (rangeActive ? (item.availability.range?.available ?? 0) : item.availability.availableNow),
       0,
@@ -1007,6 +1105,7 @@ export function InventarioModule() {
               maxLength={6}
               value={form.quantity}
               onChange={(value) => setForm({ ...form, quantity: value })}
+              hint="Se crean las unidades con código automático."
             />
             <SwitchField
               label="Visible en la web"
@@ -1123,6 +1222,29 @@ export function InventarioModule() {
               onChange={(checked) => setEditForm({ ...editForm, visibleOnWeb: checked })}
               hint="Para el catálogo público."
             />
+          </div>
+
+          {/* Las unidades físicas (issue #112) se gestionan en el detalle: acá
+              solo se resume cuántas hay, para no duplicar la lista. */}
+          <div className="admin-form-group admin-form-group--wide">
+            <span className="admin-form-group-title">Unidades</span>
+            <p className="admin-note">
+              <span>
+                {formatNumber(editItem.units.length)} unidad{editItem.units.length === 1 ? "" : "es"} · código, estado y
+                costo se gestionan en el detalle del ítem.
+              </span>
+              <AdminButton
+                icon="info"
+                type="button"
+                title="Ver el detalle con las unidades"
+                onClick={() => {
+                  setSelectedId(editItem.id);
+                  setEditItem(null);
+                }}
+              >
+                Ver unidades
+              </AdminButton>
+            </p>
           </div>
 
           {/* Foto (issues #109 y #111): se cambia subiendo otra o se quita. */}
@@ -1482,6 +1604,87 @@ export function InventarioModule() {
             </AdminBadge>
           </p>
           {selectedPriceWarning ? <AdminNote tone="warn">{selectedPriceWarning}</AdminNote> : null}
+
+          {/* Unidades físicas (issue #112): código, estado y costo por unidad. */}
+          <section className="admin-unit-block" aria-label={`Unidades de ${selected.name}`}>
+            <header className="admin-unit-head">
+              <span className="admin-form-group-title">
+                Unidades · {formatNumber(selected.units.length)}
+                {selected.availability.maintenanceNow > 0
+                  ? ` · ${formatNumber(selected.availability.maintenanceNow)} en mantenimiento`
+                  : ""}
+              </span>
+              {writable ? (
+                <AdminButton
+                  icon="plus"
+                  type="button"
+                  busy={unitBusyId === selected.id}
+                  title="Agregar una unidad con código automático"
+                  onClick={() => void addInventoryUnit(selected)}
+                >
+                  Agregar unidad
+                </AdminButton>
+              ) : null}
+            </header>
+            {unitNotice ? <AdminNote tone="ok">{unitNotice}</AdminNote> : null}
+            {unitError ? <AdminNote tone="error">{unitError}</AdminNote> : null}
+            {selected.units.length === 0 ? (
+              <AdminNote>
+                Sin unidades cargadas: agregá la primera para poder asignar «{selected.name}» a un evento.
+              </AdminNote>
+            ) : (
+              <AdminTable
+                view="inventario-unidades"
+                label={`Unidades de ${selected.name}`}
+                columns={[
+                  { label: "Código" },
+                  { label: "Estado" },
+                  { label: "Costo", end: true },
+                  { label: "Acciones", end: true },
+                ]}
+              >
+                {selected.units.map((unit) => (
+                  <AdminRow key={unit.id}>
+                    <AdminCell title={unit.notes ? `${unit.code} · ${unit.notes}` : unit.code}>
+                      <span className="admin-code">{unit.code}</span>
+                    </AdminCell>
+                    <AdminCell title={writable ? `Cambiar estado de ${unit.code}` : inventoryStatusLabel(unit.status)}>
+                      {writable ? (
+                        <AdminSelect
+                          className="admin-filter admin-filter--cell"
+                          value={unit.status}
+                          disabled={unitBusyId === unit.id}
+                          onChange={(value) => void changeUnitStatus(unit, value)}
+                          label={`Cambiar estado de la unidad ${unit.code}`}
+                          title={`Cambiar estado de la unidad ${unit.code}`}
+                          options={UNIT_STATUS_PICK_OPTIONS}
+                          tone={statusTone(unit.status)}
+                        />
+                      ) : (
+                        <AdminBadge tone={statusTone(unit.status)}>{inventoryStatusLabel(unit.status)}</AdminBadge>
+                      )}
+                    </AdminCell>
+                    <AdminCell end title={unit.purchaseCost > 0 ? formatMoney(unit.purchaseCost) : "Sin costo cargado"}>
+                      {unit.purchaseCost > 0 ? formatMoney(unit.purchaseCost) : "—"}
+                    </AdminCell>
+                    <AdminCell end className="admin-cell--actions">
+                      <span className="admin-actions">
+                        {writable ? (
+                          <AdminButton
+                            icon="edit"
+                            title={`Editar la unidad ${unit.code}`}
+                            aria-label={`Editar la unidad ${unit.code}`}
+                            onClick={() => openUnitDialog(unit)}
+                          />
+                        ) : null}
+                      </span>
+                    </AdminCell>
+                  </AdminRow>
+                ))}
+              </AdminTable>
+            )}
+          </section>
+
           {rangeActive ? (
             rangeLoading ? (
               <AdminNote>Calculando la disponibilidad del rango…</AdminNote>
@@ -1639,6 +1842,57 @@ export function InventarioModule() {
             </AdminTable>
           )}
         </AdminPanel>
+      ) : null}
+
+      {unitDialog ? (
+        <AdminDialog title={`Unidad ${unitDialog.code}`} icon="inventory" onClose={() => setUnitDialog(null)}>
+          <p className="admin-dialog-text">
+            El código es único en la empresa; el estado y el costo son de esta unidad.
+          </p>
+          <form className="admin-form" onSubmit={(event) => void submitUnitDialog(event)}>
+            <TextField
+              label="Código"
+              required
+              maxLength={FIELD_LIMITS.unitCode}
+              value={unitForm.code}
+              onChange={(value) => setUnitForm({ ...unitForm, code: normalizeInventoryUnitCode(value) })}
+              hint="Letras, números, guiones y guiones bajos."
+              error={unitForm.code && !inventoryUnitCodeValid(unitForm.code) ? FIELD_MESSAGES.unitCode : null}
+              autoCapitalize="characters"
+            />
+            <SelectField
+              label="Estado"
+              value={unitForm.status}
+              onChange={(value) => setUnitForm({ ...unitForm, status: value })}
+              options={UNIT_STATUS_PICK_OPTIONS}
+            />
+            <MoneyField
+              label="Costo que tuvo"
+              value={unitForm.purchaseCost}
+              onChange={(value) => setUnitForm({ ...unitForm, purchaseCost: value })}
+              hint="Costo interno de esta unidad."
+            />
+            <TextAreaField
+              label="Notas"
+              maxLength={400}
+              rows={3}
+              wide
+              value={unitForm.notes}
+              onChange={(value) => setUnitForm({ ...unitForm, notes: value })}
+              placeholder="Detalles de la unidad: accesorios, estado, reparaciones…"
+            />
+            {unitDialogError ? <AdminNote tone="error">{unitDialogError}</AdminNote> : null}
+            <div className="admin-dialog-foot">
+              <span className="admin-dialog-spacer" />
+              <AdminButton icon="close" type="button" onClick={() => setUnitDialog(null)} disabled={unitDialogBusy}>
+                Cancelar
+              </AdminButton>
+              <AdminButton variant="primary" icon="check" type="submit" busy={unitDialogBusy}>
+                Guardar unidad
+              </AdminButton>
+            </div>
+          </form>
+        </AdminDialog>
       ) : null}
     </div>
   );

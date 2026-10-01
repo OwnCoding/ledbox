@@ -2341,6 +2341,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-item-prices dd { margin: 0; overflow: hidden; color: var(--a-text-strong); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 /* Regla «desde X días» de cada frente, debajo del precio normal (issue #110). */
 .admin-item-prices small { overflow: hidden; color: var(--a-muted); font-size: 11px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+/* Unidades físicas del ítem (issue #112): bloque del detalle con su tabla. */
+.admin-unit-block { display: grid; gap: 8px; margin: 10px 12px 0; }
+.admin-unit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.admin-table--inventario-unidades { --inventario-unidades-cols: minmax(7rem, 1fr) 10.5rem 7rem 5.5rem; --admin-cols: var(--inventario-unidades-cols); --admin-table-min: 31.5rem; }
 
 /* ── Plan de la empresa (issue #42) ──
    Plan vigente, consumo del mes con barra y comparación del catálogo en tarjetas
