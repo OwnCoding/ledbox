@@ -5,11 +5,10 @@ import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
-  FIELD_MESSAGES,
-  inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
+  readInventoryPriceValues,
 } from "@/lib/field-rules";
 import {
   BLOCKED_INVENTORY_STATUSES,
@@ -62,7 +61,8 @@ export async function GET(request: Request) {
   const inventoryId = url.searchParams.get("inventoryId");
 
   if (inventoryId) {
-    const item = await db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId } });
+    // Sin el binario de la foto (issue #109): la disponibilidad no lo necesita.
+    const item = await db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId }, omit: { imageData: true } });
     if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
     const startsAt = parseDate(url.searchParams.get("startsAt"));
     const endsAt = parseDate(url.searchParams.get("endsAt"));
@@ -118,7 +118,13 @@ export async function GET(request: Request) {
     return Response.json({ inventory });
   }
 
-  const items = await db.inventoryItem.findMany({ where: { organizationId }, orderBy: { name: "asc" }, take: 300 });
+  // Sin el binario de la foto (issue #109): la lista solo necesita la URL efectiva.
+  const items = await db.inventoryItem.findMany({
+    where: { organizationId },
+    orderBy: { name: "asc" },
+    take: 300,
+    omit: { imageData: true },
+  });
   const assignments = items.length
     ? await db.eventInventory.findMany({
         where: { inventoryId: { in: items.map((item) => item.id) }, event: { organizationId } },
@@ -136,13 +142,16 @@ export async function GET(request: Request) {
 
   const now = new Date();
   const inventory = items.map((item) => {
+    // La URL efectiva (issue #109): la manual manda; si no, la foto subida.
+    const { imageMime: _imageMime, ...row } = item;
     const rows = assignments.filter((assignment) => assignment.inventoryId === item.id);
     const activeNow = rows.filter((row) => assignmentIsActiveNow(row, now));
     const committedNow = activeNow.reduce((sum, row) => sum + row.quantity, 0);
     const blocked = BLOCKED_INVENTORY_STATUSES.includes(item.status);
     const rangeAvailability = range ? buildAvailability(item, rows, range.start, range.end) : null;
     return {
-      ...item,
+      ...row,
+      imageUrl: inventoryImageUrl(item),
       assignments: rows,
       availability: {
         committedNow,
@@ -197,30 +206,46 @@ export async function POST(request: Request) {
   if (kind === "prices") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return jsonError("Falta el ítem de inventario.", 400);
-    const listPrice = inventoryPriceValue(body.listPrice);
-    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
-    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const minimumPrice = inventoryPriceValue(body.minimumPrice);
-    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
-    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
+    const prices = readInventoryPriceValues(body);
+    if (!prices.ok) return jsonError(prices.error, 400);
     const existing = await db.inventoryItem.findFirst({
       where: { id, organizationId },
-      select: { id: true, name: true, listPrice: true, wholesalePrice: true, minimumPrice: true, wholesaleFromDays: true },
+      select: {
+        id: true,
+        name: true,
+        listPrice: true,
+        listFromDays: true,
+        listFromPrice: true,
+        wholesalePrice: true,
+        wholesaleFromDays: true,
+        wholesaleFromPrice: true,
+        minimumPrice: true,
+      },
     });
     if (!existing) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
     // Los campos sin valor no cambian: es una edición parcial de precios.
     const inventory = await db.inventoryItem.update({
       where: { id: existing.id },
       data: {
-        listPrice: listPrice ?? undefined,
-        wholesalePrice: wholesalePrice ?? undefined,
-        minimumPrice: minimumPrice ?? undefined,
-        wholesaleFromDays: wholesaleFromDays ?? undefined,
+        listPrice: prices.values.listPrice ?? undefined,
+        listFromDays: prices.values.listFromDays ?? undefined,
+        listFromPrice: prices.values.listFromPrice ?? undefined,
+        wholesalePrice: prices.values.wholesalePrice ?? undefined,
+        wholesaleFromDays: prices.values.wholesaleFromDays ?? undefined,
+        wholesaleFromPrice: prices.values.wholesaleFromPrice ?? undefined,
+        minimumPrice: prices.values.minimumPrice ?? undefined,
       },
     });
-    const changes = auditChanges(existing, inventory, ["listPrice", "wholesalePrice", "minimumPrice", "wholesaleFromDays"]);
+    const priceFields = [
+      "listPrice",
+      "listFromDays",
+      "listFromPrice",
+      "wholesalePrice",
+      "wholesaleFromDays",
+      "wholesaleFromPrice",
+      "minimumPrice",
+    ] as const;
+    const changes = auditChanges(existing, inventory, priceFields);
     if (changes) {
       await recordAudit({
         context: auth.context,
@@ -241,7 +266,7 @@ export async function POST(request: Request) {
     if (!eventId || !inventoryId) return jsonError("Elegí el evento y el ítem de inventario.", 400);
     const [event, item] = await Promise.all([
       db.event.findFirst({ where: { id: eventId, organizationId }, select: EVENT_RANGE_SELECT }),
-      db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId } }),
+      db.inventoryItem.findFirst({ where: { id: inventoryId, organizationId }, omit: { imageData: true } }),
     ]);
     if (!event) return jsonError("El evento no existe en esta empresa.", 404);
     if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);

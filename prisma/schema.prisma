@@ -1573,32 +1573,44 @@ model BankStatementRow {
 }
 
 model InventoryItem {
-  id                String           @id
-  organizationId    String
-  name              String
-  category          String
-  sku               String?
+  id                 String           @id
+  organizationId     String
+  name               String
+  category           String
+  sku                String?
   /// Imagen del ítem (issue #86): ruta interna `/assets/…` o URL http(s).
   /// La miniatura del panel la dibuja con fallback al ícono (nunca rota).
-  imageUrl          String?
-  kind              InventoryKind    @default(REUSABLE)
-  status            InventoryStatus  @default(AVAILABLE)
-  quantity          Int              @default(1)
-  replacementCost   Int              @default(0)
-  dailyCost         Int              @default(0)
-  /// Precios de venta en guaraníes (issue #90). En 0 no están cargados: los
-  /// define el dueño desde el panel; no salen de la landing.
-  listPrice         Int              @default(0)
-  wholesalePrice    Int              @default(0)
-  minimumPrice      Int              @default(0)
-  /// Días desde los que aplica el precio mayorista; 0 = sin regla.
-  wholesaleFromDays Int              @default(0)
-  notes             String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  assignments       EventInventory[]
-  budgetItems       BudgetItem[]
+  imageUrl           String?
+  /// Foto subida (issue #109): binario + MIME real en la base, servida pública
+  /// por `/api/inventory-images/<id>`. La URL manual (`imageUrl`) tiene prioridad.
+  imageData          Bytes?
+  imageMime          String?
+  kind               InventoryKind    @default(REUSABLE)
+  status             InventoryStatus  @default(AVAILABLE)
+  quantity           Int              @default(1)
+  replacementCost    Int              @default(0)
+  dailyCost          Int              @default(0)
+  /// Precios de venta en guaraníes (issues #90 y #110). Cada frente tiene su
+  /// precio normal y, si hay regla, el umbral de días y el precio desde ahí;
+  /// `minimumPrice` es el piso. En 0 no están cargados: los define el dueño.
+  listPrice          Int              @default(0)
+  /// Días desde los que aplica `listFromPrice` (final por duración); 0 = sin regla.
+  listFromDays       Int              @default(0)
+  /// Precio final desde `listFromDays` días.
+  listFromPrice      Int              @default(0)
+  wholesalePrice     Int              @default(0)
+  /// Días desde los que aplica `wholesaleFromPrice` (umbral del mayorista).
+  wholesaleFromDays  Int              @default(0)
+  /// Precio mayorista desde `wholesaleFromDays` días.
+  wholesaleFromPrice Int              @default(0)
+  /// Piso de venta del ítem.
+  minimumPrice       Int              @default(0)
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignments        EventInventory[]
+  budgetItems        BudgetItem[]
 
   @@unique([organizationId, sku])
   @@index([status, category])

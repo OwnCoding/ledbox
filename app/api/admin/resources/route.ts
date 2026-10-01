@@ -4,13 +4,13 @@ import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import {
   FIELD_MESSAGES,
   inventoryImageValid,
-  inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
   normalizeInventoryImage,
+  readInventoryPriceValues,
 } from "@/lib/field-rules";
 import { PROMOTER_AVAILABILITIES, type PromoterAvailabilityValue } from "@/lib/admin-types";
 
@@ -118,6 +118,31 @@ export async function GET(request: Request) {
     .filter((value): value is ResourceKind => (RESOURCE_KINDS as readonly string[]).includes(value));
   const selector = url.searchParams.get("fields") === "selector";
   const wanted = (kind: ResourceKind) => only.length === 0 || only.includes(kind);
+  // El inventario se pide con su forma completa (sin el binario de la foto,
+  // issue #109) o con el mínimo del selector; en paralelo con los demás. La
+  // fila completa expone la URL efectiva (manual o subida) y nunca el binario.
+  const inventoryRows = !wanted("inventory")
+    ? Promise.resolve([] as Array<Record<string, unknown>>)
+    : selector
+      ? db.inventoryItem.findMany({
+          where: { organizationId },
+          orderBy: { name: "asc" },
+          take: 300,
+          select: SELECTOR_FIELDS.inventory,
+        })
+      : db.inventoryItem
+          .findMany({
+            where: { organizationId },
+            orderBy: { name: "asc" },
+            take: 300,
+            omit: { imageData: true },
+          })
+          .then((items) =>
+            items.map((item) => {
+              const { imageMime, ...row } = item;
+              return { ...row, imageUrl: inventoryImageUrl(item) };
+            }),
+          );
   const [suppliers, inventory, promoters] = await Promise.all([
     wanted("suppliers")
       ? db.supplier.findMany({
@@ -127,14 +152,7 @@ export async function GET(request: Request) {
           ...(selector ? { select: SELECTOR_FIELDS.suppliers } : {}),
         })
       : [],
-    wanted("inventory")
-      ? db.inventoryItem.findMany({
-          where: { organizationId },
-          orderBy: { name: "asc" },
-          take: 300,
-          ...(selector ? { select: SELECTOR_FIELDS.inventory } : {}),
-        })
-      : [],
+    inventoryRows,
     wanted("promoters")
       ? db.promoter.findMany({
           where: { organizationId, active: true },
@@ -182,14 +200,8 @@ export async function POST(request: Request) {
     if (typeof body.name !== "string") return jsonError("Name is required.", 400);
     const imageUrl = readInventoryImage(body.imageUrl);
     if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
-    const listPrice = inventoryPriceValue(body.listPrice);
-    if (listPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesalePrice = inventoryPriceValue(body.wholesalePrice);
-    if (wholesalePrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const minimumPrice = inventoryPriceValue(body.minimumPrice);
-    if (minimumPrice === false) return jsonError(FIELD_MESSAGES.price, 400);
-    const wholesaleFromDays = inventoryWholesaleDaysValue(body.wholesaleFromDays);
-    if (wholesaleFromDays === false) return jsonError(FIELD_MESSAGES.wholesaleDays, 400);
+    const prices = readInventoryPriceValues(body);
+    if (!prices.ok) return jsonError(prices.error, 400);
     const inventory = await db.inventoryItem.create({
       data: {
         id: randomUUID(),
@@ -199,10 +211,13 @@ export async function POST(request: Request) {
         imageUrl,
         kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
         quantity: typeof body.quantity === "number" ? body.quantity : 1,
-        listPrice: listPrice ?? 0,
-        wholesalePrice: wholesalePrice ?? 0,
-        minimumPrice: minimumPrice ?? 0,
-        wholesaleFromDays: wholesaleFromDays ?? 0,
+        listPrice: prices.values.listPrice ?? 0,
+        listFromDays: prices.values.listFromDays ?? 0,
+        listFromPrice: prices.values.listFromPrice ?? 0,
+        wholesalePrice: prices.values.wholesalePrice ?? 0,
+        wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+        wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+        minimumPrice: prices.values.minimumPrice ?? 0,
       },
     });
     await recordAudit({
@@ -221,13 +236,16 @@ export async function POST(request: Request) {
           "sku",
           "imageUrl",
           "listPrice",
+          "listFromDays",
+          "listFromPrice",
           "wholesalePrice",
-          "minimumPrice",
           "wholesaleFromDays",
+          "wholesaleFromPrice",
+          "minimumPrice",
         ]),
       },
     });
-    // Aviso (no error) si el mayorista o el mínimo superan al precio de lista.
+    // Aviso (no error) si un precio rompe la coherencia entre frentes o con su regla.
     const warning = inventoryPriceWarning(inventory);
     return Response.json(warning ? { inventory, warning } : { inventory }, { status: 201 });
   }

@@ -88,7 +88,7 @@ export const FIELD_MESSAGES = {
   serial: "El serial solo admite letras, números, guiones y guiones bajos.",
   image: "Usá una ruta interna (/assets/…) o una URL http(s) válida.",
   price: "Ingresá un precio válido en guaraníes (hasta Gs 10.000.000.000).",
-  wholesaleDays: "Ingresá los días del mayorista (0 a 3.650).",
+  priceDays: "Ingresá los días de la regla (0 a 3.650).",
   amount: "Ingresá un monto válido en guaraníes.",
   amountLimit: "El monto supera el máximo permitido.",
   percent: "Ingresá un porcentaje entre 0 y 100.",
@@ -355,13 +355,13 @@ export function inventoryImageError(value: string | null | undefined): string | 
 }
 
 /**
- * Precios de venta del inventario (issue #90): en guaraníes enteros, 0 = sin
- * cargar. El tope es el del `MoneyInput` (10.000 millones).
+ * Precios de venta del inventario (issues #90 y #110): en guaraníes enteros,
+ * 0 = sin cargar. El tope es el del `MoneyInput` (10.000 millones).
  */
 export const INVENTORY_PRICE_LIMIT = FIELD_LIMITS.amountGeneral;
 
-/** Tope de los días del precio mayorista (10 años alcanza y evita desbordar el Int). */
-export const INVENTORY_WHOLESALE_DAYS_MAX = 3650;
+/** Tope de los días de las reglas «desde X días» (10 años alcanza y evita desbordar el Int). */
+export const INVENTORY_PRICE_DAYS_MAX = 3650;
 
 /**
  * Precio de venta validado: entero ≥ 0 dentro del tope. `null` cuando no viene
@@ -382,39 +382,89 @@ export function inventoryPriceValue(raw: unknown): number | null | false {
   return false;
 }
 
-/** Días del precio mayorista validados: entero entre 0 y `INVENTORY_WHOLESALE_DAYS_MAX`. */
-export function inventoryWholesaleDaysValue(raw: unknown): number | null | false {
+/** Días de una regla «desde X días»: entero entre 0 y `INVENTORY_PRICE_DAYS_MAX`. */
+export function inventoryPriceDaysValue(raw: unknown): number | null | false {
   if (raw === undefined || raw === null || raw === "") return null;
   if (typeof raw === "number") {
-    return Number.isInteger(raw) && raw >= 0 && raw <= INVENTORY_WHOLESALE_DAYS_MAX ? raw : false;
+    return Number.isInteger(raw) && raw >= 0 && raw <= INVENTORY_PRICE_DAYS_MAX ? raw : false;
   }
   if (typeof raw === "string") {
     const clean = raw.trim();
     if (!/^\d+$/.test(clean)) return false;
     const days = Number(clean);
-    return days <= INVENTORY_WHOLESALE_DAYS_MAX ? days : false;
+    return days <= INVENTORY_PRICE_DAYS_MAX ? days : false;
   }
   return false;
 }
 
 /**
- * Aviso de coherencia de los precios (issue #90): con lista cargada, el
- * mayorista o el mínimo no deberían superarla. Devuelve el texto del aviso o
- * `null` si están en orden; el guardado nunca se bloquea por esto.
+ * Los siete campos de precios del ítem (issues #90 y #110), validados de una
+ * vez: cada frente tiene su precio normal y su regla «desde X días», más el
+ * piso. `null` = sin valor (no cambia / queda en 0); error = inválido.
+ */
+export type InventoryPriceValues = {
+  listPrice: number | null;
+  listFromDays: number | null;
+  listFromPrice: number | null;
+  wholesalePrice: number | null;
+  wholesaleFromDays: number | null;
+  wholesaleFromPrice: number | null;
+  minimumPrice: number | null;
+};
+
+export type InventoryPriceReadResult =
+  | { ok: true; values: InventoryPriceValues }
+  | { ok: false; error: string };
+
+export function readInventoryPriceValues(body: Record<string, unknown>): InventoryPriceReadResult {
+  const values = {} as InventoryPriceValues;
+  const priceFields = ["listPrice", "listFromPrice", "wholesalePrice", "wholesaleFromPrice", "minimumPrice"] as const;
+  const daysFields = ["listFromDays", "wholesaleFromDays"] as const;
+  for (const field of priceFields) {
+    const value = inventoryPriceValue(body[field]);
+    if (value === false) return { ok: false, error: FIELD_MESSAGES.price };
+    values[field] = value;
+  }
+  for (const field of daysFields) {
+    const value = inventoryPriceDaysValue(body[field]);
+    if (value === false) return { ok: false, error: FIELD_MESSAGES.priceDays };
+    values[field] = value;
+  }
+  return { ok: true, values };
+}
+
+/**
+ * Aviso de coherencia de los precios (issues #90 y #110), sin bloquear el
+ * guardado:
+ *
+ * - entre frentes: con lista cargada, el mayorista o el mínimo no deberían
+ *   superarla;
+ * - dentro de cada frente: el «desde X días» es un beneficio por duración, así
+ *   que no debería superar al precio normal de ese mismo frente.
+ *
+ * Devuelve los avisos unidos o `null` si están en orden.
  */
 export function inventoryPriceWarning(prices: {
   listPrice: number;
+  listFromPrice: number;
   wholesalePrice: number;
+  wholesaleFromPrice: number;
   minimumPrice: number;
 }): string | null {
-  if (prices.listPrice <= 0) return null;
-  const above: string[] = [];
-  if (prices.wholesalePrice > prices.listPrice) above.push("mayorista");
-  if (prices.minimumPrice > prices.listPrice) above.push("mínimo");
-  if (above.length === 0) return null;
-  return above.length === 1
-    ? `El precio ${above[0]} supera al de lista.`
-    : `Los precios ${above[0]} y ${above[1]} superan al de lista.`;
+  const warnings: string[] = [];
+  if (prices.listPrice > 0 && prices.wholesalePrice > prices.listPrice) {
+    warnings.push("El precio mayorista supera al de lista.");
+  }
+  if (prices.listPrice > 0 && prices.minimumPrice > prices.listPrice) {
+    warnings.push("El precio mínimo supera al de lista.");
+  }
+  if (prices.listPrice > 0 && prices.listFromPrice > prices.listPrice) {
+    warnings.push("El precio final desde esos días supera al normal.");
+  }
+  if (prices.wholesalePrice > 0 && prices.wholesaleFromPrice > prices.wholesalePrice) {
+    warnings.push("El precio mayorista desde esos días supera al normal.");
+  }
+  return warnings.length > 0 ? warnings.join(" ") : null;
 }
 
 export type ParsedPhone = {

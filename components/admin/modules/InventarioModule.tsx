@@ -17,12 +17,11 @@ import { canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import { csvBool, csvFilename, downloadCsv, type CsvBlock } from "@/lib/admin-export";
 import {
   FIELD_LIMITS,
-  FIELD_MESSAGES,
   inventoryImageError,
   inventoryImageValid,
-  inventoryPriceValue,
   inventoryPriceWarning,
-  inventoryWholesaleDaysValue,
+  readInventoryPriceValues,
+  type InventoryPriceValues,
 } from "@/lib/field-rules";
 import type {
   AdminApiResponse,
@@ -31,6 +30,7 @@ import type {
   AdminInventoryRow,
   AdminInventorySubstitute,
 } from "@/lib/admin-types";
+import type { PreparedInventoryPhoto } from "@/lib/inventory-image";
 import { useAdminSession } from "../AdminShell";
 import {
   AdminBadge,
@@ -48,8 +48,8 @@ import {
   AdminTable,
   AdminToolbar,
 } from "../AdminUI";
-import { DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
-import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
+import { AttachmentInput, Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, TextField } from "../AdminFields";
+import { adminApiGet, adminApiUpload, adminSend, useAdminResource } from "@/lib/admin-api";
 import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { AdminIcon } from "../AdminIcons";
@@ -82,13 +82,24 @@ const EMPTY_FORM = {
   quantity: "1",
   imageUrl: "",
   listPrice: "",
+  listFromDays: "0",
+  listFromPrice: "",
   wholesalePrice: "",
   wholesaleFromDays: "0",
+  wholesaleFromPrice: "",
   minimumPrice: "",
 };
 
-/** Precios del formulario de edición (issue #90), en el contrato de `MoneyField`. */
-const EMPTY_PRICES = { listPrice: "", wholesalePrice: "", wholesaleFromDays: "0", minimumPrice: "" };
+/** Precios del formulario de edición (issues #90 y #110), en el contrato de `MoneyField`. */
+const EMPTY_PRICES = {
+  listPrice: "",
+  listFromDays: "0",
+  listFromPrice: "",
+  wholesalePrice: "",
+  wholesaleFromDays: "0",
+  wholesaleFromPrice: "",
+  minimumPrice: "",
+};
 
 /**
  * Precio de venta listo para mostrar: Gs formateado o «—» cuando todavía no
@@ -98,24 +109,147 @@ function priceText(value: number): string {
   return value > 0 ? formatMoney(value) : "—";
 }
 
-/** Regla del mayorista en palabras: `desde 3 días` (0 = sin regla). */
-function wholesaleDaysText(days: number): string {
+/** Regla «desde X días» en palabras: `desde 3 días` (0 = sin regla). */
+function daysText(days: number): string {
   return days === 1 ? "desde 1 día" : `desde ${formatNumber(days)} días`;
 }
 
-/** Mayorista en una línea: `Gs 500.000 · desde 3 días`; sin precio, «—». */
-function wholesaleText(item: Pick<AdminInventoryRow, "wholesalePrice" | "wholesaleFromDays">): string {
-  if (item.wholesalePrice <= 0) return "—";
-  return item.wholesaleFromDays > 0
-    ? `${formatMoney(item.wholesalePrice)} · ${wholesaleDaysText(item.wholesaleFromDays)}`
-    : formatMoney(item.wholesalePrice);
+/**
+ * Frente de precios (issue #110) en una línea: el normal y, si hay regla, el
+ * precio desde X días. Ej.: `Final Gs 750.000 · desde 3 días Gs 500.000`.
+ */
+function priceFrontText(label: string, normal: number, fromDays: number, fromPrice: number): string {
+  const parts = [`${label} ${priceText(normal)}`];
+  if (fromPrice > 0 && fromDays > 0) parts.push(`${daysText(fromDays)} ${priceText(fromPrice)}`);
+  return parts.join(" · ");
 }
 
-/** Detalle completo de los tres precios para el `title` de una fila o tarjeta. */
+/** Detalle completo de los precios para el `title` de una fila o tarjeta. */
 function pricesTitle(
-  item: Pick<AdminInventoryRow, "listPrice" | "wholesalePrice" | "minimumPrice" | "wholesaleFromDays">,
+  item: Pick<
+    AdminInventoryRow,
+    | "listPrice"
+    | "listFromDays"
+    | "listFromPrice"
+    | "wholesalePrice"
+    | "wholesaleFromDays"
+    | "wholesaleFromPrice"
+    | "minimumPrice"
+  >,
 ): string {
-  return `Lista ${priceText(item.listPrice)} · Mayorista ${wholesaleText(item)} · Mínimo ${priceText(item.minimumPrice)} (PYG)`;
+  return [
+    priceFrontText("Final", item.listPrice, item.listFromDays, item.listFromPrice),
+    priceFrontText("Mayorista", item.wholesalePrice, item.wholesaleFromDays, item.wholesaleFromPrice),
+    `Mínimo ${priceText(item.minimumPrice)}`,
+  ].join(" · ") + " (PYG)";
+}
+
+/**
+ * Regla del frente en corto para la celda de la lista: `desde 3 d: 500.000`
+ * (sin «Gs»: la línea principal ya trae el símbolo). Vacío si no hay regla.
+ */
+function priceRuleChip(days: number, price: number): string {
+  if (price <= 0 || days <= 0) return "";
+  return `desde ${days} d: ${formatNumber(price)}`;
+}
+
+/** Líneas de la celda de precios de la lista: principal + reglas, sin cortar números. */
+function priceCellLines(
+  item: Pick<
+    AdminInventoryRow,
+    | "listPrice"
+    | "listFromDays"
+    | "listFromPrice"
+    | "wholesalePrice"
+    | "wholesaleFromDays"
+    | "wholesaleFromPrice"
+    | "minimumPrice"
+  >,
+): string[] {
+  const lines = [priceText(item.listPrice)];
+  const second = [priceRuleChip(item.listFromDays, item.listFromPrice), item.wholesalePrice > 0 ? `May. ${formatNumber(item.wholesalePrice)}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const third = [priceRuleChip(item.wholesaleFromDays, item.wholesaleFromPrice), item.minimumPrice > 0 ? `Mín. ${formatNumber(item.minimumPrice)}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  if (second) lines.push(second);
+  if (third) lines.push(third);
+  return lines;
+}
+
+/** Precio de un frente para las tarjetas: el normal y su regla, sin recortes. */
+function PriceValue({ normal, days, from }: { normal: number; days: number; from: number }) {
+  if (normal <= 0 && from <= 0) return <>—</>;
+  return (
+    <span className="admin-cell-stack">
+      <span>{priceText(normal)}</span>
+      {from > 0 && days > 0 ? (
+        <small className="admin-cell-sub">
+          desde {days} d: {formatNumber(from)}
+        </small>
+      ) : null}
+    </span>
+  );
+}
+
+/** Aviso suave de coherencia de los precios de un formulario (issues #90 y #110). */
+function priceWarningFor(values: InventoryPriceValues): string | null {
+  return inventoryPriceWarning({
+    listPrice: values.listPrice ?? 0,
+    listFromPrice: values.listFromPrice ?? 0,
+    wholesalePrice: values.wholesalePrice ?? 0,
+    wholesaleFromPrice: values.wholesaleFromPrice ?? 0,
+    minimumPrice: values.minimumPrice ?? 0,
+  });
+}
+
+/**
+ * Bloque de precios de un frente (issue #110): precio normal, umbral «desde X
+ * días» (input chiquito: son días) y precio desde esos días. Lo comparten el
+ * alta y la edición, así la regla se carga igual en los dos lados.
+ */
+function PriceFrontFields({
+  title,
+  normalValue,
+  daysValue,
+  fromValue,
+  onNormal,
+  onDays,
+  onFrom,
+}: {
+  title: string;
+  normalValue: string;
+  daysValue: string;
+  fromValue: string;
+  onNormal: (value: string) => void;
+  onDays: (value: string) => void;
+  onFrom: (value: string) => void;
+}) {
+  return (
+    <div className="admin-form-group admin-form-group--prices">
+      <span className="admin-form-group-title">{title}</span>
+      <MoneyField
+        label="Precio normal"
+        value={normalValue}
+        onChange={onNormal}
+        hint="En guaraníes; vacío o 0 = sin cargar."
+      />
+      <NumberField
+        label="Desde (días)"
+        maxLength={4}
+        value={daysValue}
+        onChange={onDays}
+        hint="0 = sin regla."
+      />
+      <MoneyField
+        label="Precio desde esos días"
+        value={fromValue}
+        onChange={onFrom}
+        hint="Vacío o 0 = sin precio por duración."
+      />
+    </div>
+  );
 }
 
 /**
@@ -190,6 +324,14 @@ export function InventarioModule() {
   const [selectedId, setSelectedId] = useState("");
   const [view, setView] = useAdminModuleView("inventario", INVENTARIO_VIEWS);
 
+  // Foto del alta (issue #109): archivo ya comprimido en el navegador, listo
+  // para subir después de crear el ítem (necesita su id).
+  const [pendingPhoto, setPendingPhoto] = useState<PreparedInventoryPhoto | null>(null);
+  const [photoError, setPhotoError] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  /** Categorías creadas en esta sesión del formulario (se suman a las existentes). */
+  const [categoryExtras, setCategoryExtras] = useState<string[]>([]);
+
   // Edición de precios de venta del ítem abierto (issue #90).
   const [priceItem, setPriceItem] = useState<AdminInventoryItemRow | null>(null);
   const [priceForm, setPriceForm] = useState(EMPTY_PRICES);
@@ -250,25 +392,36 @@ export function InventarioModule() {
     [inventory, rangeActive],
   );
 
-  // Aviso de coherencia de precios (issue #90): se ve mientras se cargan o
-  // editan (el guardado no se bloquea; el API devuelve el mismo aviso).
+  // Aviso de coherencia de precios (issues #90 y #110): se ve mientras se
+  // cargan o editan (el guardado no se bloquea; el API devuelve el mismo aviso).
   const formPriceWarning = useMemo(() => {
-    const list = inventoryPriceValue(form.listPrice);
-    const wholesale = inventoryPriceValue(form.wholesalePrice);
-    const minimum = inventoryPriceValue(form.minimumPrice);
-    if (list === false || wholesale === false || minimum === false) return null;
-    return inventoryPriceWarning({ listPrice: list ?? 0, wholesalePrice: wholesale ?? 0, minimumPrice: minimum ?? 0 });
-  }, [form.listPrice, form.wholesalePrice, form.minimumPrice]);
+    const prices = readInventoryPriceValues(form);
+    return prices.ok ? priceWarningFor(prices.values) : null;
+  }, [form]);
 
   const editPriceWarning = useMemo(() => {
-    const list = inventoryPriceValue(priceForm.listPrice);
-    const wholesale = inventoryPriceValue(priceForm.wholesalePrice);
-    const minimum = inventoryPriceValue(priceForm.minimumPrice);
-    if (list === false || wholesale === false || minimum === false) return null;
-    return inventoryPriceWarning({ listPrice: list ?? 0, wholesalePrice: wholesale ?? 0, minimumPrice: minimum ?? 0 });
-  }, [priceForm.listPrice, priceForm.wholesalePrice, priceForm.minimumPrice]);
+    const prices = readInventoryPriceValues(priceForm);
+    return prices.ok ? priceWarningFor(prices.values) : null;
+  }, [priceForm]);
 
   const selectedPriceWarning = selected ? inventoryPriceWarning(selected) : null;
+
+  // Categorías de la empresa (issue #109): el alta las busca y permite crear
+  // una nueva en línea; las creadas en la sesión se suman a las opciones.
+  const categoryChoices = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of inventory) {
+      const category = item.category?.trim();
+      if (category) seen.add(category);
+    }
+    for (const extra of categoryExtras) seen.add(extra);
+    return [...seen].sort((a, b) => a.localeCompare(b, "es")).map((category) => ({ value: category, label: category }));
+  }, [inventory, categoryExtras]);
+
+  // Foto del alta: el archivo elegido manda; si no, la URL manual válida.
+  const manualImage = inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null;
+  const photoPreview = pendingPhoto?.dataUrl ?? manualImage;
+  const hasPhoto = Boolean(pendingPhoto) || Boolean(form.imageUrl.trim());
 
   // Disponibilidad del ítem abierto en el rango pedido + sustitutos sugeridos.
   useEffect(() => {
@@ -306,6 +459,7 @@ export function InventarioModule() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
+    setPhotoError("");
     setNotice("");
     const image = form.imageUrl.trim();
     const imageError = inventoryImageError(image);
@@ -313,43 +467,83 @@ export function InventarioModule() {
       setFormError(imageError);
       return;
     }
-    const listPrice = inventoryPriceValue(form.listPrice);
-    const wholesalePrice = inventoryPriceValue(form.wholesalePrice);
-    const minimumPrice = inventoryPriceValue(form.minimumPrice);
-    if (listPrice === false || wholesalePrice === false || minimumPrice === false) {
-      setFormError(FIELD_MESSAGES.price);
-      return;
-    }
-    const wholesaleFromDays = inventoryWholesaleDaysValue(form.wholesaleFromDays);
-    if (wholesaleFromDays === false) {
-      setFormError(FIELD_MESSAGES.wholesaleDays);
+    const prices = readInventoryPriceValues(form);
+    if (!prices.ok) {
+      setFormError(prices.error);
       return;
     }
     setBusy(true);
     // El alta de ítems vive en `/api/admin/resources` (contrato existente del panel).
-    const result = await adminSend<AdminApiResponse>("/api/admin/resources", {
+    const result = await adminSend<{ inventory?: { id?: string }; warning?: string }>("/api/admin/resources", {
       kind: "inventory",
       name: form.name,
       category: form.category || "General",
       inventoryKind: form.inventoryKind,
       quantity: Number(form.quantity) || 1,
       imageUrl: image,
-      listPrice: listPrice ?? 0,
-      wholesalePrice: wholesalePrice ?? 0,
-      wholesaleFromDays: wholesaleFromDays ?? 0,
-      minimumPrice: minimumPrice ?? 0,
+      listPrice: prices.values.listPrice ?? 0,
+      listFromDays: prices.values.listFromDays ?? 0,
+      listFromPrice: prices.values.listFromPrice ?? 0,
+      wholesalePrice: prices.values.wholesalePrice ?? 0,
+      wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+      wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+      minimumPrice: prices.values.minimumPrice ?? 0,
     });
-    setBusy(false);
     if (!result.ok) {
+      setBusy(false);
       setFormError(result.error);
       return;
     }
+
+    // La foto necesita el id del ítem: recién creado se sube (issue #109). Si
+    // falla, el ítem ya quedó y se avisa tal cual; la foto se reintenta después.
+    let photoWarning = "";
+    const createdId = result.data.inventory?.id ?? "";
+    if (createdId && pendingPhoto) {
+      const photoForm = new FormData();
+      photoForm.append("file", pendingPhoto.blob, pendingPhoto.fileName);
+      const upload = await adminApiUpload(`/api/admin/inventory/${createdId}/image`, photoForm);
+      if (!upload.ok) photoWarning = ` La foto no se pudo subir: ${upload.error}`;
+    }
+    setBusy(false);
+
     // El aviso de precios incoherentes no bloquea el alta: se muestra tal cual.
     const warning = typeof result.data.warning === "string" ? result.data.warning : "";
-    setNotice(`Ítem «${form.name}» cargado.${warning ? ` ${warning}` : ""}`);
-    setNoticeTone(warning ? "warn" : "ok");
+    setNotice(`Ítem «${form.name}» cargado.${warning ? ` ${warning}` : ""}${photoWarning}`);
+    setNoticeTone(warning || photoWarning ? "warn" : "ok");
     setForm(EMPTY_FORM);
+    setPendingPhoto(null);
+    setPhotoError("");
+    setCategoryExtras([]);
     resources.reload();
+  }
+
+  /** Elige y comprime la foto del alta en el navegador (issue #109). */
+  async function selectPhotoFile(file: File | null) {
+    if (!file) return;
+    setPhotoError("");
+    setPhotoBusy(true);
+    try {
+      // El pipeline de imagen (canvas + magic bytes) se carga recién acá.
+      const { prepareInventoryPhoto } = await import("@/lib/inventory-image");
+      const result = await prepareInventoryPhoto(file);
+      if (!result.ok) {
+        setPhotoError(result.error);
+        return;
+      }
+      // Un solo origen: la foto elegida reemplaza la URL escrita.
+      setPendingPhoto(result.photo);
+      setForm((current) => ({ ...current, imageUrl: "" }));
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  /** Saca la foto del alta: la elegida o la URL manual. */
+  function clearPhoto() {
+    setPendingPhoto(null);
+    setPhotoError("");
+    setForm((current) => ({ ...current, imageUrl: "" }));
   }
 
   /** Abre la edición de precios del ítem con los valores actuales. */
@@ -362,39 +556,38 @@ export function InventarioModule() {
     setPriceItem(item);
     setPriceForm({
       listPrice: item.listPrice > 0 ? String(item.listPrice) : "",
+      listFromDays: String(item.listFromDays),
+      listFromPrice: item.listFromPrice > 0 ? String(item.listFromPrice) : "",
       wholesalePrice: item.wholesalePrice > 0 ? String(item.wholesalePrice) : "",
       wholesaleFromDays: String(item.wholesaleFromDays),
+      wholesaleFromPrice: item.wholesaleFromPrice > 0 ? String(item.wholesaleFromPrice) : "",
       minimumPrice: item.minimumPrice > 0 ? String(item.minimumPrice) : "",
     });
   }
 
-  /** Guarda los precios de venta del ítem abierto (issue #90). */
+  /** Guarda los precios de venta del ítem abierto (issues #90 y #110). */
   async function submitPrices(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!priceItem) return;
     setPriceError("");
     setNotice("");
     setNoticeTone("ok");
-    const listPrice = inventoryPriceValue(priceForm.listPrice);
-    const wholesalePrice = inventoryPriceValue(priceForm.wholesalePrice);
-    const minimumPrice = inventoryPriceValue(priceForm.minimumPrice);
-    if (listPrice === false || wholesalePrice === false || minimumPrice === false) {
-      setPriceError(FIELD_MESSAGES.price);
-      return;
-    }
-    const wholesaleFromDays = inventoryWholesaleDaysValue(priceForm.wholesaleFromDays);
-    if (wholesaleFromDays === false) {
-      setPriceError(FIELD_MESSAGES.wholesaleDays);
+    const prices = readInventoryPriceValues(priceForm);
+    if (!prices.ok) {
+      setPriceError(prices.error);
       return;
     }
     setPriceBusy(true);
     const result = await adminSend<AdminApiResponse>("/api/admin/inventory", {
       kind: "prices",
       id: priceItem.id,
-      listPrice: listPrice ?? 0,
-      wholesalePrice: wholesalePrice ?? 0,
-      wholesaleFromDays: wholesaleFromDays ?? 0,
-      minimumPrice: minimumPrice ?? 0,
+      listPrice: prices.values.listPrice ?? 0,
+      listFromDays: prices.values.listFromDays ?? 0,
+      listFromPrice: prices.values.listFromPrice ?? 0,
+      wholesalePrice: prices.values.wholesalePrice ?? 0,
+      wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+      wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+      minimumPrice: prices.values.minimumPrice ?? 0,
     });
     setPriceBusy(false);
     if (!result.ok) {
@@ -564,86 +757,132 @@ export function InventarioModule() {
           submitLabel="Cargar ítem"
           onSubmit={submit}
           onCancel={() => setShowForm(false)}
-          busy={busy}
+          onEscape={() => setShowForm(false)}
+          busy={busy || photoBusy}
           status={formError}
           statusNote={!formError && formPriceWarning ? <AdminNote tone="warn">{formPriceWarning}</AdminNote> : undefined}
         >
-          <TextField
-            label="Artículo"
-            required
-            maxLength={120}
-            value={form.name}
-            onChange={(value) => setForm({ ...form, name: value })}
-            placeholder="Ej.: Pantalla LED P3.9 500×500"
-          />
-          <TextField
-            label="Categoría"
-            maxLength={80}
-            value={form.category}
-            onChange={(value) => setForm({ ...form, category: value })}
-            placeholder="Ej.: Pantallas"
-          />
-          <SelectField
-            label="Tipo"
-            value={form.inventoryKind}
-            onChange={(value) => setForm({ ...form, inventoryKind: value })}
-            options={[
-              { value: "REUSABLE", label: "Reutilizable" },
-              { value: "CONSUMABLE", label: "Consumible" },
-              { value: "DISPOSABLE", label: "Descartable" },
-            ]}
-          />
-          <NumberField
-            label="Cantidad"
-            required
-            maxLength={6}
-            value={form.quantity}
-            onChange={(value) => setForm({ ...form, quantity: value })}
-          />
-          <TextField
-            label="Imagen (URL)"
-            maxLength={FIELD_LIMITS.image}
-            value={form.imageUrl}
-            onChange={(value) => setForm({ ...form, imageUrl: value })}
-            placeholder="Ej.: /assets/products/pantalla-led.png"
-            hint="Ruta interna (/assets/…) o URL http(s). Opcional."
-            inputMode="url"
-            autoCapitalize="none"
-          />
-          {/* Vista previa con la misma caja uniforme del módulo (issue #98):
-              sin imagen (o con una URL que no carga) muestra el ícono, nunca
-              un cuadro roto. */}
-          <div className="admin-field">
-            <span className="admin-field-label">Vista previa</span>
-            <span className="admin-image-preview">
-              <InventoryThumb item={{ imageUrl: inventoryImageValid(form.imageUrl.trim()) ? form.imageUrl.trim() : null }} size={64} />
-            </span>
+          {/* Datos del ítem (issue #109): campos finos; la cantidad va corta. */}
+          <div className="admin-form-group admin-form-group--item">
+            <span className="admin-form-group-title">Ítem</span>
+            <TextField
+              label="Artículo"
+              required
+              maxLength={120}
+              value={form.name}
+              onChange={(value) => setForm({ ...form, name: value })}
+              placeholder="Ej.: Pantalla LED P3.9 500×500"
+            />
+            <Combobox
+              label="Categoría"
+              value={form.category}
+              onChange={(value) => setForm({ ...form, category: value })}
+              options={categoryChoices}
+              placeholder="Ej.: Pantallas"
+              emptyLabel="Sin categorías cargadas."
+              hint="Buscá o creá una nueva."
+              onCreate={(query) => {
+                if (!query) return;
+                setCategoryExtras((current) => (current.includes(query) ? current : [...current, query]));
+                setForm((current) => ({ ...current, category: query }));
+              }}
+              createLabel={(query) => (query ? `Crear categoría «${query}»` : "Crear categoría")}
+            />
+            <SelectField
+              label="Tipo"
+              value={form.inventoryKind}
+              onChange={(value) => setForm({ ...form, inventoryKind: value })}
+              options={[
+                { value: "REUSABLE", label: "Reutilizable" },
+                { value: "CONSUMABLE", label: "Consumible" },
+                { value: "DISPOSABLE", label: "Descartable" },
+              ]}
+            />
+            <NumberField
+              label="Cantidad"
+              required
+              maxLength={6}
+              value={form.quantity}
+              onChange={(value) => setForm({ ...form, quantity: value })}
+            />
           </div>
-          <MoneyField
-            label="Precio de lista"
-            value={form.listPrice}
-            onChange={(value) => setForm({ ...form, listPrice: value })}
-            hint="En guaraníes; vacío o 0 = sin cargar."
+
+          {/* Foto (issue #109): URL manual o archivo subido (uno de los dos). */}
+          <div className="admin-form-group admin-form-group--photo">
+            <span className="admin-form-group-title">Foto</span>
+            <TextField
+              label="Imagen (URL)"
+              maxLength={FIELD_LIMITS.image}
+              value={form.imageUrl}
+              onChange={(value) => {
+                setPendingPhoto(null);
+                setPhotoError("");
+                setForm({ ...form, imageUrl: value });
+              }}
+              placeholder="Ej.: /assets/products/pantalla-led.png"
+              hint="Ruta interna (/assets/…) o URL http(s). Opcional."
+              inputMode="url"
+              autoCapitalize="none"
+            />
+            <AttachmentInput
+              label="Subir foto"
+              accept="image/jpeg,image/png,image/webp"
+              maxBytes={10 * 1024 * 1024}
+              hint="JPG, PNG o WebP; se comprime en el navegador (hasta 2 MB)."
+              disabled={busy || photoBusy}
+              error={photoError}
+              onSelect={(file) => void selectPhotoFile(file)}
+            />
+            <div className="admin-field">
+              <span className="admin-field-label">Vista previa</span>
+              <span className="admin-photo-preview">
+                <span className="admin-image-preview">
+                  <InventoryThumb item={{ imageUrl: photoPreview }} size={64} />
+                </span>
+                {hasPhoto ? (
+                  <AdminButton
+                    icon="trash"
+                    type="button"
+                    title="Quitar la foto elegida"
+                    aria-label="Quitar la foto elegida"
+                    onClick={clearPhoto}
+                  >
+                    Quitar foto
+                  </AdminButton>
+                ) : null}
+              </span>
+            </div>
+          </div>
+
+          {/* Precios por frente (issue #110): normal, umbral «desde X días» y
+              precio desde esos días; el mínimo es el piso de venta. */}
+          <PriceFrontFields
+            title="Precio cliente final"
+            normalValue={form.listPrice}
+            daysValue={form.listFromDays}
+            fromValue={form.listFromPrice}
+            onNormal={(value) => setForm({ ...form, listPrice: value })}
+            onDays={(value) => setForm({ ...form, listFromDays: value })}
+            onFrom={(value) => setForm({ ...form, listFromPrice: value })}
           />
-          <MoneyField
-            label="Mayorista"
-            value={form.wholesalePrice}
-            onChange={(value) => setForm({ ...form, wholesalePrice: value })}
-            hint="Precio por volumen."
+          <PriceFrontFields
+            title="Precio mayorista"
+            normalValue={form.wholesalePrice}
+            daysValue={form.wholesaleFromDays}
+            fromValue={form.wholesaleFromPrice}
+            onNormal={(value) => setForm({ ...form, wholesalePrice: value })}
+            onDays={(value) => setForm({ ...form, wholesaleFromDays: value })}
+            onFrom={(value) => setForm({ ...form, wholesaleFromPrice: value })}
           />
-          <NumberField
-            label="Mayorista desde (días)"
-            maxLength={4}
-            value={form.wholesaleFromDays}
-            onChange={(value) => setForm({ ...form, wholesaleFromDays: value })}
-            hint="0 = sin regla mayorista."
-          />
-          <MoneyField
-            label="Mínimo"
-            value={form.minimumPrice}
-            onChange={(value) => setForm({ ...form, minimumPrice: value })}
-            hint="Piso de venta del ítem."
-          />
+          <div className="admin-form-group admin-form-group--min">
+            <span className="admin-form-group-title">Precio mínimo</span>
+            <MoneyField
+              label="Piso de venta"
+              value={form.minimumPrice}
+              onChange={(value) => setForm({ ...form, minimumPrice: value })}
+              hint="Piso de venta del ítem."
+            />
+          </div>
         </AdminFormPanel>
       ) : null}
 
@@ -657,31 +896,33 @@ export function InventarioModule() {
           status={priceError}
           statusNote={!priceError && editPriceWarning ? <AdminNote tone="warn">{editPriceWarning}</AdminNote> : undefined}
         >
-          <MoneyField
-            label="Precio de lista"
-            value={priceForm.listPrice}
-            onChange={(value) => setPriceForm({ ...priceForm, listPrice: value })}
-            hint="En guaraníes; vacío o 0 = sin cargar."
+          <PriceFrontFields
+            title="Precio cliente final"
+            normalValue={priceForm.listPrice}
+            daysValue={priceForm.listFromDays}
+            fromValue={priceForm.listFromPrice}
+            onNormal={(value) => setPriceForm({ ...priceForm, listPrice: value })}
+            onDays={(value) => setPriceForm({ ...priceForm, listFromDays: value })}
+            onFrom={(value) => setPriceForm({ ...priceForm, listFromPrice: value })}
           />
-          <MoneyField
-            label="Mayorista"
-            value={priceForm.wholesalePrice}
-            onChange={(value) => setPriceForm({ ...priceForm, wholesalePrice: value })}
-            hint="Precio por volumen."
+          <PriceFrontFields
+            title="Precio mayorista"
+            normalValue={priceForm.wholesalePrice}
+            daysValue={priceForm.wholesaleFromDays}
+            fromValue={priceForm.wholesaleFromPrice}
+            onNormal={(value) => setPriceForm({ ...priceForm, wholesalePrice: value })}
+            onDays={(value) => setPriceForm({ ...priceForm, wholesaleFromDays: value })}
+            onFrom={(value) => setPriceForm({ ...priceForm, wholesaleFromPrice: value })}
           />
-          <NumberField
-            label="Mayorista desde (días)"
-            maxLength={4}
-            value={priceForm.wholesaleFromDays}
-            onChange={(value) => setPriceForm({ ...priceForm, wholesaleFromDays: value })}
-            hint="0 = sin regla mayorista."
-          />
-          <MoneyField
-            label="Mínimo"
-            value={priceForm.minimumPrice}
-            onChange={(value) => setPriceForm({ ...priceForm, minimumPrice: value })}
-            hint="Piso de venta del ítem."
-          />
+          <div className="admin-form-group admin-form-group--min">
+            <span className="admin-form-group-title">Precio mínimo</span>
+            <MoneyField
+              label="Piso de venta"
+              value={priceForm.minimumPrice}
+              onChange={(value) => setPriceForm({ ...priceForm, minimumPrice: value })}
+              hint="Piso de venta del ítem."
+            />
+          </div>
         </AdminFormPanel>
       ) : null}
 
@@ -723,8 +964,16 @@ export function InventarioModule() {
                 { label: rangeActive ? "Libres en rango" : "Libres ahora", value: formatNumber(available), title: availableTitle },
                 { label: "Reposición", value: formatMoney(item.replacementCost), title: formatMoney(item.replacementCost) },
                 { label: "Costo diario", value: formatMoney(item.dailyCost), title: formatMoney(item.dailyCost) },
-                { label: "Precio lista", value: priceText(item.listPrice), title: pricesTitle(item) },
-                { label: "Mayorista", value: wholesaleText(item), title: pricesTitle(item) },
+                {
+                  label: "Cliente final",
+                  value: <PriceValue normal={item.listPrice} days={item.listFromDays} from={item.listFromPrice} />,
+                  title: pricesTitle(item),
+                },
+                {
+                  label: "Mayorista",
+                  value: <PriceValue normal={item.wholesalePrice} days={item.wholesaleFromDays} from={item.wholesaleFromPrice} />,
+                  title: pricesTitle(item),
+                },
                 { label: "Mínimo", value: priceText(item.minimumPrice), title: pricesTitle(item) },
                 {
                   label: "Estado",
@@ -836,16 +1085,13 @@ export function InventarioModule() {
                   </AdminCell>
                   <AdminCell end title={pricesTitle(item)}>
                     <span className="admin-cell-stack">
-                      <span className="admin-nowrap">{priceText(item.listPrice)}</span>
-                      {item.wholesalePrice > 0 || item.minimumPrice > 0 ? (
-                        <small className="admin-cell-sub">
-                          {item.wholesalePrice > 0
-                            ? `May. ${formatNumber(item.wholesalePrice)}${item.wholesaleFromDays > 0 ? ` (${item.wholesaleFromDays} d)` : ""}`
-                            : null}
-                          {item.wholesalePrice > 0 && item.minimumPrice > 0 ? " · " : null}
-                          {item.minimumPrice > 0 ? `Mín. ${formatNumber(item.minimumPrice)}` : null}
-                        </small>
-                      ) : null}
+                      {priceCellLines(item).map((line, index) =>
+                        index === 0 ? (
+                          <span key={index} className="admin-nowrap">{line}</span>
+                        ) : (
+                          <small key={index} className="admin-cell-sub admin-nowrap">{line}</small>
+                        ),
+                      )}
                     </span>
                   </AdminCell>
                   <AdminCell title={writable ? `Cambiar estado: ${item.name}` : `Estado: ${inventoryStatusLabel(item.status)}`}>
@@ -927,12 +1173,22 @@ export function InventarioModule() {
           ) : null}
           <dl className="admin-item-prices">
             <div>
-              <dt>Precio de lista</dt>
+              <dt>Cliente final</dt>
               <dd>{priceText(selected.listPrice)}</dd>
+              {selected.listFromPrice > 0 && selected.listFromDays > 0 ? (
+                <small>
+                  {daysText(selected.listFromDays)}: {priceText(selected.listFromPrice)}
+                </small>
+              ) : null}
             </div>
             <div>
               <dt>Mayorista</dt>
-              <dd>{wholesaleText(selected)}</dd>
+              <dd>{priceText(selected.wholesalePrice)}</dd>
+              {selected.wholesaleFromPrice > 0 && selected.wholesaleFromDays > 0 ? (
+                <small>
+                  {daysText(selected.wholesaleFromDays)}: {priceText(selected.wholesaleFromPrice)}
+                </small>
+              ) : null}
             </div>
             <div>
               <dt>Mínimo</dt>
