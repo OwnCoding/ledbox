@@ -1320,6 +1320,7 @@ const AUDIT_ENTITY: Record<string, string> = {
   MessageTemplate: "Plantilla de mensaje",
   ApiToken: "API key",
   System: "Sistema",
+  IaCarga: "Carga con IA",
   PlanChangeRequest: "Solicitud de plan",
   Invoice: "Factura",
   PurchaseInvoice: "Compra",

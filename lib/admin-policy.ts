@@ -159,6 +159,16 @@ export function canWriteClients(role: AdminRole | null | undefined): boolean {
   return role === "OWNER" || role === "ADMIN" || role === "OPERATIONS";
 }
 
+/**
+ * «Carga con IA» (issue #120): crea clientes, eventos y productos; el API
+ * revalida cada alta con su capacidad (`clients.write`/`events.write`/
+ * `inventory.write`), que este trío de roles tiene completa. FINANCE y VIEWER
+ * no ven el asistente.
+ */
+export function canWriteCarga(role: AdminRole | null | undefined): boolean {
+  return role === "OWNER" || role === "ADMIN" || role === "OPERATIONS";
+}
+
 export function canManageUsers(role: AdminRole | null | undefined): boolean {
   return role === "OWNER" || role === "ADMIN";
 }

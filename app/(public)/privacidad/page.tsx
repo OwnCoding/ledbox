@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/privacidad" },
 };
 
-const LAST_UPDATE = "30-09-2026";
+const LAST_UPDATE = "01-10-2026";
 const CONTACT_PHONE = "+595 982 029 217";
 const rightsUrl = whatsappUrl("Hola LedBox! Quiero ejercer mis derechos sobre mis datos personales.");
 
@@ -117,6 +117,12 @@ export default function PrivacidadPage() {
             <ul>
               <li><strong>Infraestructura:</strong> proveedores que alojan el sitio y la base de datos donde vive tu consulta.</li>
               <li><strong>Mensajería:</strong> cuando elegís continuar por WhatsApp, el mensaje viaja por ese servicio con sus propias condiciones.</li>
+              <li>
+                <strong>Asistente de carga con IA (opcional):</strong> cuando el equipo de la empresa usa «Carga con IA»,
+                el texto que pega se envía a un proveedor de inteligencia artificial para ordenarlo en clientes, eventos
+                o productos. Se manda solo ese texto —no la base— y no se usa para publicidad ni para decisiones
+                automatizadas sobre vos.
+              </li>
               <li><strong>Autoridades públicas:</strong> cuando una norma o un requerimiento válido lo exija.</li>
             </ul>
             <p>

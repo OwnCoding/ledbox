@@ -3537,3 +3537,17 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-client-head, .admin-client-person-card { border: var(--a-panel-line); background: var(--a-panel); box-shadow: var(--a-panel-shadow); }
 .admin-client-person-card { background: var(--a-row-bg); }
 .admin-detail-item { border: var(--a-panel-line); background: var(--a-row-bg); box-shadow: var(--a-row-shadow); }
+
+/* ── Carga con IA (issue #120): botón del topbar, tarjetas de revisión ── */
+.admin-iabtn { color: var(--a-accent); border-color: color-mix(in srgb, var(--a-accent) 35%, var(--a-line-2)); }
+.admin-iabtn:hover { border-color: var(--a-accent); background: var(--a-accent-soft); color: var(--a-accent); }
+.admin-ia-privacy { margin: 0; }
+.admin-ia-privacy a { color: var(--a-accent); }
+.admin-ia-section { display: grid; gap: 8px; }
+.admin-ia-section-title { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--a-text-strong); font: 700 12.5px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
+.admin-ia-section-title span { padding: 2px 7px; border-radius: 999px; background: var(--a-bg-2); color: var(--a-muted); font: 700 10px var(--font-body); letter-spacing: .04em; }
+.admin-ia-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius-lg); background: var(--a-row-bg); box-shadow: var(--a-row-shadow); }
+.admin-ia-card[data-off="true"] { opacity: .55; }
+.admin-ia-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-ia-card-title { min-width: 0; overflow: hidden; color: var(--a-text-strong); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.admin-ia-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
