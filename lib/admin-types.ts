@@ -1431,8 +1431,12 @@ export type AdminInventoryRow = {
   sku: string | null;
   /** Imagen del ítem (issue #86): ruta interna o URL http(s); `null` sin imagen. */
   imageUrl: string | null;
+  /** ¿La imagen es una foto subida? (issue #109); sirve para cambiarla o quitarla. */
+  imageUploaded: boolean;
   kind: string;
   status: string;
+  /** «Visible en la web» (issue #111): el catálogo público lo respeta. */
+  visibleOnWeb: boolean;
   quantity: number;
   replacementCost: number;
   dailyCost: number;

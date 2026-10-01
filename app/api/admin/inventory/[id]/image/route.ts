@@ -66,3 +66,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   return Response.json({ inventory: { id: inventory.id, imageUrl: inventoryImageUrl(inventory) } });
 }
+
+/**
+ * `DELETE /api/admin/inventory/[id]/image`: quita la foto subida del ítem
+ * (issue #111). No toca la URL manual: si existe, sigue siendo la imagen del
+ * ítem. La respuesta deja el `imageUrl` efectivo resultante.
+ */
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdminContext("inventory.write");
+  if (!auth.ok) return auth.response;
+  const { id } = await params;
+  const item = await db.inventoryItem.findFirst({
+    where: { id, organizationId: auth.context.organizationId },
+    select: { id: true, name: true, imageUrl: true, imageMime: true, updatedAt: true },
+  });
+  if (!item) return jsonError("El ítem de inventario no existe en esta empresa.", 404);
+  if (!item.imageMime) {
+    return Response.json({ inventory: { id: item.id, imageUrl: inventoryImageUrl({ ...item, imageMime: null }) } });
+  }
+  const inventory = await db.inventoryItem.update({
+    where: { id: item.id },
+    data: { imageData: null, imageMime: null },
+    select: { id: true, imageUrl: true, imageMime: true, updatedAt: true },
+  });
+  await recordAudit({
+    context: auth.context,
+    action: "update",
+    entity: "InventoryItem",
+    entityId: item.id,
+    summary: `Quitó la foto del ítem «${item.name}»`,
+    detail: { fields: { imageMime: item.imageMime } },
+  });
+  return Response.json({ inventory: { id: inventory.id, imageUrl: inventoryImageUrl(inventory) } });
+}

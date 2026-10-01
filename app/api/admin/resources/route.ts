@@ -4,12 +4,10 @@ import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
-import { inventoryImageUrl } from "@/lib/server/inventory-images";
+import { inventoryImageUrl, readInventoryImageUrl } from "@/lib/server/inventory-images";
 import {
   FIELD_MESSAGES,
-  inventoryImageValid,
   inventoryPriceWarning,
-  normalizeInventoryImage,
   readInventoryPriceValues,
 } from "@/lib/field-rules";
 import { PROMOTER_AVAILABILITIES, type PromoterAvailabilityValue } from "@/lib/admin-types";
@@ -61,18 +59,6 @@ function readUntil(raw: unknown): Date | null | false {
   if (typeof raw !== "string") return false;
   const key = raw.trim().slice(0, 10);
   return isValidDayKey(key) ? dayStart(key) : false;
-}
-
-/**
- * Imagen del ítem de inventario (issue #86): ruta interna `/assets/…` o URL
- * http(s) ya validada. Sin valor → `null`; con un valor inválido → `false`.
- */
-function readInventoryImage(raw: unknown): string | null | false {
-  if (raw === undefined || raw === null) return null;
-  if (typeof raw !== "string") return false;
-  const image = normalizeInventoryImage(raw);
-  if (!image) return null;
-  return inventoryImageValid(image) ? image : false;
 }
 
 /**
@@ -140,7 +126,7 @@ export async function GET(request: Request) {
           .then((items) =>
             items.map((item) => {
               const { imageMime, ...row } = item;
-              return { ...row, imageUrl: inventoryImageUrl(item) };
+              return { ...row, imageUrl: inventoryImageUrl(item), imageUploaded: Boolean(imageMime) };
             }),
           );
   const [suppliers, inventory, promoters] = await Promise.all([
@@ -198,7 +184,7 @@ export async function POST(request: Request) {
     const auth = await requireAdminContext("inventory.write");
     if (!auth.ok) return auth.response;
     if (typeof body.name !== "string") return jsonError("Name is required.", 400);
-    const imageUrl = readInventoryImage(body.imageUrl);
+    const imageUrl = readInventoryImageUrl(body.imageUrl);
     if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
     const prices = readInventoryPriceValues(body);
     if (!prices.ok) return jsonError(prices.error, 400);
@@ -211,6 +197,7 @@ export async function POST(request: Request) {
         imageUrl,
         kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
         quantity: typeof body.quantity === "number" ? body.quantity : 1,
+        visibleOnWeb: body.visibleOnWeb === true,
         listPrice: prices.values.listPrice ?? 0,
         listFromDays: prices.values.listFromDays ?? 0,
         listFromPrice: prices.values.listFromPrice ?? 0,
@@ -233,6 +220,7 @@ export async function POST(request: Request) {
           "kind",
           "quantity",
           "status",
+          "visibleOnWeb",
           "sku",
           "imageUrl",
           "listPrice",
