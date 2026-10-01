@@ -42,6 +42,30 @@ test("promotoras suma lista y cuadrícula con las mismas acciones (issue #118)",
 });
 
 /**
+ * Eventos (issue #119): el selector queda en Lista + Cuadrícula, el tablero sale
+ * del módulo y el calendario sigue entrando por URL (`/calendario`), con el
+ * filtro de estado en el mismo lugar en las dos vistas.
+ */
+test("eventos suma lista y cuadrícula con el calendario solo por URL (issue #119)", () => {
+  const source = readFileSync(join(MODULES_DIR, "EventosModule.tsx"), "utf8");
+  assert.match(source, /useAdminModuleView\("eventos", EVENTOS_VIEWS\)/, "falta la vista recordada de eventos");
+  assert.match(source, /const EVENTOS_VIEWS = \["list", "grid"\]/, "el selector tiene que ofrecer lista y cuadrícula");
+  // Fuera el tablero: ni render ni handler (el kit queda para otros módulos).
+  assert.doesNotMatch(source, /useAdminBoardMove|<AdminBoard\b/, "el tablero salió de eventos");
+  assert.doesNotMatch(source, /"board"/, "el tablero no puede seguir declarado en eventos");
+  // El calendario sigue funcionando por URL aunque no esté en el selector.
+  assert.match(source, /useSearchParams\(\)/, "el calendario tiene que leer ?vista= de la URL");
+  assert.match(source, /calendarRequested/, "falta la detección de ?vista=calendario");
+  assert.match(source, /<CalendarioModule \/>/, "el calendario sigue renderizándose");
+  // Selector fijo: el filtro de estado ya no depende de la vista (no salta al alternar).
+  assert.doesNotMatch(source, /view === "list"/, "el filtro de estado no puede quedar solo en lista");
+  // Paridad de acciones entre la fila y la tarjeta (las mismas de siempre).
+  assert.equal((source.match(/eventActions\(event\)/g) ?? []).length, 2, "acciones en fila y tarjeta");
+  // Búsqueda y filtro compartidos por las dos vistas (mismo `rows`).
+  assert.match(source, /activeView === "grid" \? \(\n\s*<AdminCardGrid label="Eventos" cards=\{rows\.map/, "la cuadrícula tiene que usar las filas filtradas");
+});
+
+/**
  * Conmutador solo con íconos (issue #89): el nombre de la vista vive en
  * `title`/`aria-label` y el estado en `aria-pressed`; el texto visible se
  * retiró. Estas guardas frenan una vuelta atrás silenciosa.
