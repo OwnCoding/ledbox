@@ -51,7 +51,12 @@ test("editar precios de un ítem vinculado exige el switch explícito", () => {
   assert.match(ui, /actualizarPrecios && producto\.existenteId/, "el envío de precios depende del switch");
   assert.match(ui, /"\/api\/admin\/inventory"/, "los precios del ítem se actualizan con el endpoint real");
   assert.match(ui, /kind: "prices"/);
-  assert.match(ui, /disabled={!producto\.incluir \|\| !producto\.actualizarPrecios}/, "sin el switch los precios no se editan");
+  assert.match(ui, /Editar precios del producto/, "el vinculado no pide precios: se editan con una acción explícita");
+  assert.ok(
+    ui.indexOf("Editar precios del producto") < ui.indexOf("<MoneyField") ||
+      ui.indexOf("producto.actualizarPrecios ?") < ui.indexOf("<MoneyField"),
+    "los precios maestros están colapsados detrás de la acción",
+  );
 });
 
 test("dividir un cobro: partes con monto y fecha, seña ahora y saldo a plazo", () => {
