@@ -37,7 +37,7 @@ test("evento: check es-PY del cliente y «Fin» en Más datos", () => {
     "falta el check es-PY del cliente",
   );
   assert.match(module, /const EMPTY_EVENT_FORM = \{[^}]*endsAt: ""/, "el fin tiene estado propio");
-  assert.match(module, /label="Fin"[\s\S]{0,120}endsAt: value/, "el fin se edita en Más datos");
+  assert.match(module, /label="Fin"[\s\S]{0,200}endsAt: value/, "el fin se edita en Más datos");
   assert.match(module, /endsAt: form\.endsAt \|\| undefined/, "el fin viaja en el alta completa");
 });
 

@@ -61,8 +61,10 @@ test("eventos suma lista y cuadrícula con el calendario solo por URL (issue #11
   assert.doesNotMatch(source, /view === "list"/, "el filtro de estado no puede quedar solo en lista");
   // Paridad de acciones entre la fila y la tarjeta (las mismas de siempre).
   assert.equal((source.match(/eventActions\(event\)/g) ?? []).length, 2, "acciones en fila y tarjeta");
-  // Búsqueda y filtro compartidos por las dos vistas (mismo `rows`).
-  assert.match(source, /activeView === "grid" \? \(\n\s*<AdminCardGrid label="Eventos" cards=\{rows\.map/, "la cuadrícula tiene que usar las filas filtradas");
+  // Búsqueda y filtro compartidos por las dos vistas (mismo `rows`): la
+  // cuadrícula y el ancho compacto comparten las tarjetas (issue #139).
+  assert.match(source, /const eventCards: AdminCardData\[\] = rows\.map\(/, "las tarjetas tienen que salir de las filas filtradas");
+  assert.match(source, /cardView \? \(\n\s*<AdminCardGrid label="Eventos" cards=\{eventCards\} \/>/, "la cuadrícula tiene que usar las filas filtradas");
 });
 
 /**
