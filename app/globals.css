@@ -2381,6 +2381,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-cards-foot { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--a-line); }
 .admin-cards-foot > .admin-actions { flex: 1 1 auto; }
 .admin-cards-foot > .admin-filter { flex: 0 1 9.5rem; margin-right: auto; }
+/* El detalle de auditoría dentro de la tarjeta (issue #154): ocupa el ancho
+   completo y deja de ser sticky (la tabla ya no se desplaza). */
+.admin-cards-foot > .admin-audit-detail { flex: 1 1 100%; position: static; width: 100%; }
 @media (max-width: 480px) {
   .admin-cards { grid-template-columns: 1fr; }
 }
