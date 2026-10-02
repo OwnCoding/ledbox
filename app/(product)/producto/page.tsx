@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { AppFooter } from "@/components/app-footer";
 import { publicConfig } from "@/lib/public-config";
+import { PRODUCT_BOOT_SCRIPT, PRODUCT_ROOT_ID } from "@/lib/site-theme";
 
 const title = "EventOS · Gestión para empresas de eventos";
 const description =
@@ -77,8 +78,12 @@ const jsonLd = {
 
 export default function ProductoPage() {
   return (
-    <div className="producto">
+    <div className="producto" id={PRODUCT_ROOT_ID} data-theme="dark" suppressHydrationWarning>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      {/* La piel (issue #133): el tema se fija antes del primer pintado y la
+          matriz LED queda de fondo, como en el sitio. */}
+      <script dangerouslySetInnerHTML={{ __html: PRODUCT_BOOT_SCRIPT }} />
+      <div className="led-grid-bg" aria-hidden="true" />
 
       <header className="producto-top">
         <span className="producto-brand">

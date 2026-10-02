@@ -433,3 +433,22 @@ usan las variantes de texto del panel (`#0b6b43`, `#7a5005`, `#a82640`).
   commitear): portal (portada, presupuesto, firma y firma-canvas) y sitio
   (landing, ficha, carrito y consulta), más el arranque por preferencia del
   sistema.
+
+### 13.4 Landing de EventOS (01-10-2026, issue #133)
+
+`app/(product)/producto` (`eventos.ledbox.online`) —que §13.1 había dejado fuera—
+estrena la misma familia: oscuro **C · Vitrina** y claro **C1 · Aurora viva**,
+tipografía real (Space Grotesk display + Inter cuerpo), vidrio en la barra,
+matriz LED de fondo, superficies translúcidas con sombra y la acción primaria con
+la esquina cortada de la marca; en claro el acento baja a `#085a75`, como en el
+sitio, y los radios pasan a 18/26.
+
+- **Tema**: `PRODUCT_BOOT_SCRIPT` (`lib/site-theme.ts`, el mismo módulo y la
+  misma preferencia guardada que el sitio) fija `data-theme` en `#producto-root`
+  antes del primer pintado; sin JS queda el oscuro. Sin toggle visible.
+- **Patrones de la ronda**: padding de página y de sección simétrico
+  (#115/#121/#124) y grillas alineadas (#102). La superficie no tiene
+  estadísticas, campos ni títulos de urgencia: KPIs compactos (#113), aviso de
+  privacidad (#92) y escala de urgencia no aplican.
+- **Pie**: el compartido (`AppFooter variant="app"`) con la versión real de
+  `lib/version.ts`. Textos y SEO (`metadata`, JSON-LD) intactos.
