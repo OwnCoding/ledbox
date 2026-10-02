@@ -3,6 +3,17 @@
 Cómo se respalda la base de EventOS, cómo se verifica que el respaldo esté al día y cómo se
 restaura. El estado real se ve en el panel (OWNER/ADMIN) en **`/sistema`**.
 
+## 0. Runtime (Node)
+
+EventOS corre en **Node 22 LTS o superior**:
+
+- `package.json` → `engines.node: ">=22"`: es el pin que usan Railpack/Coolify para el contenedor
+  (antes `>=20.9`, que dejaba el deploy en Node 20).
+- CI (`.github/workflows/ci.yml`) → `actions/setup-node` con `node-version: 22`.
+- El e2e visual (`scripts/e2e-smoke.mjs`) usa `puppeteer-core`, que **requiere Node 22+**: con
+  versiones anteriores imprime su aviso de compatibilidad. Con Node 22+ no hay aviso.
+- Node 24 (local del equipo) es compatible: los requisitos no fijan un tope.
+
 ## 1. Respaldo (`scripts/backup.mjs`)
 
 Corre con Node (sin dependencias nuevas) y usa `pg_dump` del sistema:

@@ -193,6 +193,7 @@ export function instruccionesIa(): string {
     "- `nombre`/`cliente` son obligatorios en su tipo; sin nombre, no incluyas el registro.",
     "- `tipo` de cliente: FINAL para personas/empresas que alquilan, RESELLER para mayoristas o revendedores.",
     "- Fechas futuras (eventos) en YYYY-MM-DD; precios de producto en guaraníes (si vienen con separadores o «mil», copialos tal cual).",
+    "- Los precios del producto SOLO si el texto los define como precios de catálogo (precio de lista/final, mayorista o mínimo); los montos de alquiler, seña o cobro van en `cobros` y nunca en los precios del producto.",
     "- `cantidad` es un entero mayor o igual a 1 (para productos).",
     "- Los cobros («Fulano me pagó 750 mil», «me transfirió Juan»): `cliente` obligatorio; `monto` y `fecha` copialos TAL CUAL aparecen (no conviertas «750 mil» ni «ayer»); `metodo` (transferencia/efectivo/tarjeta/cheque) y `referencia` (número de transferencia o cheque) si aparecen.",
     "- Si el pago es a crédito, plazo o fiado («a crédito 7 días», «a 30 días», «me debe»), NO está cobrado: completá `plazoDias` con los días y dejá `fecha` vacía. El plazo jamás va en `referencia`.",
@@ -595,6 +596,17 @@ export function fechaEnTexto(
 
 // ── Normalización ───────────────────────────────────────────────────────────
 
+/**
+ * Palabras que definen un **precio de catálogo** en el texto (issue #136): un
+ * monto de alquiler/cobro («por 750.000») no es precio del producto. Sin la
+ * cue, el precio se descarta y queda solo en el cobro.
+ */
+const CUES_PRECIO = {
+  precioLista: /precio (de )?(lista|final|normal|venta|unitario)|(^|\s)lista\b|vende(n)? (a|en|por)/,
+  precioMayorista: /mayorista|por mayor/,
+  precioMinimo: /m[ií]nimo|piso de venta/,
+} as const;
+
 /** Tipo de cliente: mayorista/revendedor → `RESELLER`; el resto, final. */
 function tipoDeCliente(valor: string | null | undefined): "FINAL" | "RESELLER" {
   return /reseller|mayorista|reventa|revendedor/i.test(String(valor ?? "")) ? "RESELLER" : "FINAL";
@@ -683,7 +695,10 @@ export function normalizarProducto(datos: z.infer<typeof productoEsquema>, verif
   }
   // Los precios se resuelven con la misma inteligencia que los cobros:
   // «1.500.000», «850 mil» o un número directo; lo ilegible queda en null.
-  const precio = (valor: unknown, etiqueta: string): number | null => {
+  // Precios descartados por no estar definidos como precios de catálogo: se
+  // avisa una sola vez por producto (issue #136).
+  const sinCatalogo: string[] = [];
+  const precio = (valor: unknown, etiqueta: string, cue: RegExp): number | null => {
     if (valor === null || valor === undefined) return null;
     const moneda = monedaExtranjeraDeTexto(valor as string | number);
     if (moneda) {
@@ -691,17 +706,31 @@ export function normalizarProducto(datos: z.infer<typeof productoEsquema>, verif
       return null;
     }
     const monto = montoDeTexto(valor as string | number);
-    if (monto === null) avisos.push(`${etiqueta}: no pudimos leerlo; revisalo.`);
-    return monto === null ? null : Math.min(monto, FIELD_LIMITS.amountSales);
+    if (monto === null) {
+      avisos.push(`${etiqueta}: no pudimos leerlo; revisalo.`);
+      return null;
+    }
+    // El monto del alquiler/cobro no es un precio de catálogo (issue #136).
+    if (verificador && !cue.test(verificador.texto)) {
+      sinCatalogo.push(etiqueta.toLowerCase());
+      return null;
+    }
+    return Math.min(monto, FIELD_LIMITS.amountSales);
   };
+  const precioLista = precio(datos.precioLista, "Precio de lista", CUES_PRECIO.precioLista);
+  const precioMayorista = precio(datos.precioMayorista, "Precio mayorista", CUES_PRECIO.precioMayorista);
+  const precioMinimo = precio(datos.precioMinimo, "Precio mínimo", CUES_PRECIO.precioMinimo);
+  if (sinCatalogo.length > 0) {
+    avisos.push(`Precios de catálogo (${sinCatalogo.join(", ")}): el texto no los define; el monto queda solo en el cobro.`);
+  }
   return {
     nombre: datos.nombre,
     sku: String(datos.sku ?? "").trim() || null,
     categoria: String(datos.categoria ?? "").trim() || "General",
     cantidad,
-    precioLista: precio(datos.precioLista, "Precio de lista"),
-    precioMayorista: precio(datos.precioMayorista, "Precio mayorista"),
-    precioMinimo: precio(datos.precioMinimo, "Precio mínimo"),
+    precioLista,
+    precioMayorista,
+    precioMinimo,
     accion: "crear",
     existenteId: null,
     existenteNombre: null,

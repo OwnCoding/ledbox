@@ -14,6 +14,13 @@ No contradice `docs/REGLAS-GENERALES.md` ni `AGENTS.md`: los completa.
 > **Piel fase 3 (27-09-2026, issue #83)**: la misma identidad se extendió al
 > **portal del cliente** (`clientes.ledbox.online`) y al **sitio público**
 > (`ledbox.online`), cada superficie con su voz: **§13**.
+>
+> **Auditoría UX de producción (01-10-2026, issue #138)**: el relevamiento del
+> dueño sobre la **v2.1.61** (escritorio + móvil de 390 px: landing, login,
+> dashboard, eventos, clientes, presupuestos, finanzas, plan, modales y portal)
+> vive en **`docs/AUDITORIA-UX-PROD.md`**; sus prioridades —tablas móviles,
+> desbordamientos, Finanzas con subnavegación— ordenan las próximas tandas del
+> rediseño.
 
 ## 1. Objetivo
 
