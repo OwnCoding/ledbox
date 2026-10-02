@@ -120,6 +120,8 @@ La demo solamente expone visualmente Plan; no se pudieron revisar las configurac
 5. Tokens globales de espaciado, tipografía, colores, modales y estados.
 6. Auditoría específica del panel OWNER y configuraciones privadas.
 
+> Hecha en v2.1.63 (issue #149): [`AUDITORIA-OWNER.md`](./AUDITORIA-OWNER.md).
+
 ## Key learnings
 
 1. EventOS ya tiene una identidad visual sólida; el mayor problema es la jerarquía de información.
