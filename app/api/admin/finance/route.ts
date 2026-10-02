@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { after } from "next/server";
-import { PAYMENT_METHODS } from "@/lib/admin-types";
+import {
+  COLLECTED_PAYMENT_METHODS,
+  PAYMENT_METHODS,
+  PENDING_PAYMENT_METHOD,
+  TERM_PAYMENT_METHODS,
+} from "@/lib/admin-types";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
@@ -50,8 +55,6 @@ export const dynamic = "force-dynamic";
  * cobro, canal y día (`PaymentReminderLog`), así que no hace falta cron externo.
  */
 
-/** Métodos válidos para un cobro a plazo. */
-const TERM_METHODS = ["Transferencia", "Efectivo", "Cheque"] as const;
 /** Plazos ofrecidos en días desde la emisión de la factura. */
 const TERM_DAYS: readonly number[] = [0, 15, 30, 60];
 const MAX_AMOUNT = 99_000_000_000;
@@ -163,7 +166,7 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const { organizationId } = auth.context;
   const body = (await readJson(request)) as Record<string, unknown>;
-  if (body.kind !== "client") return jsonError("Unknown finance entry.", 400);
+  if (body.kind !== "client") return jsonError("Entrada de finanzas desconocida.", 400);
 
   return withIdempotency({ request, organizationId, scope: "finance:POST:client", body }, async (tx) => {
     const clientId = typeof body.clientId === "string" ? body.clientId : "";
@@ -175,7 +178,7 @@ export async function POST(request: Request) {
       where: { id: clientId, organizationId },
       select: { id: true, name: true, company: true },
     });
-    if (!client) return jsonError("Client not found.", 404);
+    if (!client) return jsonError("El cliente no existe en esta empresa.", 404);
     const budgetId = typeof body.budgetId === "string" ? body.budgetId : "";
     let budget: { id: string; title: string; total: number } | null = null;
     if (budgetId) {
@@ -183,19 +186,27 @@ export async function POST(request: Request) {
         where: { id: budgetId, organizationId },
         select: { id: true, title: true, total: true },
       });
-      if (!budget) return jsonError("Budget not found.", 404);
+      if (!budget) return jsonError("Presupuesto no encontrado.", 404);
     }
 
     // Cuenta de tesorería del cobro (issue #27): la pedida o la primera activa.
+    // Un cobro a crédito (`Pendiente`, issue #135) no lleva cuenta: se elige al
+    // cobrarlo.
     const requestedAccount = await requestedTreasuryAccount(tx, organizationId, body.treasuryAccountId);
     if (requestedAccount === null) return jsonError("La cuenta no existe en esta empresa.", 404);
-    const treasuryAccount = requestedAccount ?? (await firstActiveTreasuryAccount(tx, organizationId));
 
     // ── Cobro a plazo: a cobrar, con factura y/o cheque ───────────────────────
     if (body.status === "PENDING") {
-      const method = normalizeMethod(body.method, TERM_METHODS);
-      if (method === false) return jsonError("El método de un cobro a plazo es transferencia, efectivo o cheque.", 400);
+      const method = normalizeMethod(body.method, TERM_PAYMENT_METHODS);
+      if (method === false) return jsonError("El método de un cobro a plazo es pendiente, transferencia, efectivo o cheque.", 400);
       if (!method) return jsonError("Indicá el método del cobro a plazo.", 400);
+      if (method === PENDING_PAYMENT_METHOD && requestedAccount) {
+        return jsonError("Un cobro pendiente no lleva cuenta: elegí dónde entra cuando lo cobres.", 400);
+      }
+      const treasuryAccount =
+        method === PENDING_PAYMENT_METHOD
+          ? null
+          : requestedAccount ?? (await firstActiveTreasuryAccount(tx, organizationId));
 
       const chequeDayKey = readDayKey(body.chequeDate);
       if (method === "Cheque" && !chequeDayKey) return jsonError("La fecha del cheque es obligatoria.", 400);
@@ -265,6 +276,10 @@ export async function POST(request: Request) {
     // ── Cobro cobrado al momento (compatibilidad con el alta directa) ─────────
     const method = normalizeMethod(body.method, PAYMENT_METHODS);
     if (method === false) return jsonError("Método de pago desconocido.", 400);
+    if (method === PENDING_PAYMENT_METHOD) {
+      return jsonError("Un cobro cobrado necesita su método real: para a crédito, registralo como cobro a plazo.", 400);
+    }
+    const treasuryAccount = requestedAccount ?? (await firstActiveTreasuryAccount(tx, organizationId));
     const reference = typeof body.reference === "string" ? body.reference.trim() : "";
     if (reference.length > MAX_REFERENCE) return jsonError(`La referencia no puede superar los ${MAX_REFERENCE} caracteres.`, 400);
 
@@ -386,10 +401,10 @@ export async function PATCH(request: Request) {
   if (!auth.ok) return auth.response;
   const { organizationId } = auth.context;
   const body = (await readJson(request)) as Record<string, unknown>;
-  if (body.kind !== "client") return jsonError("Unknown finance entry.", 400);
+  if (body.kind !== "client") return jsonError("Entrada de finanzas desconocida.", 400);
   const paymentId = typeof body.paymentId === "string" ? body.paymentId : "";
   const action = body.action === "collect" ? "collect" : body.action === "cancel" ? "cancel" : "";
-  if (!paymentId || !action) return jsonError("paymentId and action are required.", 400);
+  if (!paymentId || !action) return jsonError("Falta el cobro o la acción.", 400);
 
   return withIdempotency({ request, organizationId, scope: "finance:PATCH:client", body }, async (tx) => {
     // Cuenta de tesorería del cobro (issue #27): la pedida al cobrar manda sobre
@@ -404,7 +419,7 @@ export async function PATCH(request: Request) {
         budget: { select: { id: true, title: true, total: true } },
       },
     });
-    if (!payment) return jsonError("Payment not found.", 404);
+    if (!payment) return jsonError("Cobro no encontrado.", 404);
     const label = clientLabel(payment.client);
 
     if (action === "collect") {
@@ -419,6 +434,15 @@ export async function PATCH(request: Request) {
       // La entrada de tesorería nace en la misma transacción, una sola vez por
       // cobro (el cambio de estado es el candado).
       const now = new Date();
+      // Método real al cobrar (issue #135): un cobro a crédito quedó «Pendiente»
+      // sin método real; al cobrarlo se elige el método que entró.
+      const requestedMethod = normalizeMethod(body.method, COLLECTED_PAYMENT_METHODS);
+      if (requestedMethod === false) return jsonError("Método de pago desconocido.", 400);
+      const storedMethod = payment.method && payment.method !== PENDING_PAYMENT_METHOD ? payment.method : null;
+      const collectedMethod = requestedMethod ?? storedMethod;
+      if (!collectedMethod) {
+        return jsonError("Indicá el método real con el que se cobró (no «Pendiente»).", 400);
+      }
       const storedAccount = payment.treasuryAccountId
         ? await tx.treasuryAccount.findFirst({
             where: { id: payment.treasuryAccountId, organizationId },
@@ -432,10 +456,11 @@ export async function PATCH(request: Request) {
           status: "RECEIVED",
           paidAt: now,
           collectedAt: now,
+          method: collectedMethod,
           collectedSnapshot: collectionSnapshotOf({
             at: now,
             amount: payment.amount,
-            method: payment.method,
+            method: collectedMethod,
             reference: payment.reference,
             invoiceNumber: payment.invoiceNumber,
             client: payment.client,
@@ -485,7 +510,11 @@ export async function PATCH(request: Request) {
             entityId: payment.id,
             summary: `Marcó como cobrado el cobro a plazo de «${label}»`,
             detail: {
-              changes: { status: { from: "PENDING", to: "RECEIVED" }, collectedAt: { from: null, to: now } },
+              changes: {
+                status: { from: "PENDING", to: "RECEIVED" },
+                method: { from: payment.method, to: collectedMethod },
+                collectedAt: { from: null, to: now },
+              },
               ...(account ? { fields: { treasuryAccountId: account.id } } : {}),
             },
           }),

@@ -38,12 +38,15 @@ import { csvDay, csvFilename, csvStamp, downloadCsv, type CsvBlock } from "@/lib
 import { bankMark, bankSuggestions } from "@/lib/bank-mark";
 import { canWriteFinance, matchesQuery } from "@/lib/admin-policy";
 import {
+  accountsForPaymentMethod,
+  COLLECTED_PAYMENT_METHODS,
   collectedAmount,
   EXPENSE_CATEGORIES,
   expectedPaymentNeedsAction,
   groupProofsByBudget,
   isCollectedPayment,
   PAYMENT_METHODS,
+  PENDING_PAYMENT_METHOD,
   supplierJobBalance,
   TERM_PAYMENT_METHODS,
   TREASURY_ACCOUNT_TYPES,
@@ -89,9 +92,9 @@ import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
 import { BudgetProofDialog } from "./PresupuestosModule";
 import { ConciliacionBancaria } from "./ConciliacionBancaria";
 
-/** Métodos de pago del alta directa (catálogo cerrado, espejo del API). */
-const METHOD_OPTIONS = [...PAYMENT_METHODS];
-/** Un cobro a plazo se cobra por transferencia, efectivo o cheque. */
+/** Cobro ya cobrado: métodos reales (sin «Pendiente»), issue #135. */
+const METHOD_OPTIONS = [...COLLECTED_PAYMENT_METHODS];
+/** A plazo (crédito): «Pendiente» primero y sin tarjeta. */
 const TERM_METHOD_OPTIONS = [...TERM_PAYMENT_METHODS];
 /** Plazos ofrecidos en días desde la emisión de la factura (issue #16). */
 const TERM_DAY_OPTIONS = ["0", "15", "30", "60"];
@@ -112,7 +115,8 @@ const CATEGORY_OPTIONS = [
   { value: "", label: "Categoría…" },
   ...EXPENSE_CATEGORIES.map((category) => ({ value: category, label: expenseCategoryLabel(category) })),
 ];
-const METHOD_SELECT_OPTIONS = [{ value: "", label: "Sin especificar" }, ...PAYMENT_METHODS.map((method) => ({ value: method, label: method }))];
+/** Métodos reales para el pago a proveedores y los gastos (issues #135). */
+const METHOD_SELECT_OPTIONS = COLLECTED_PAYMENT_METHODS.map((method) => ({ value: method, label: method }));
 const DIRECTION_OPTIONS = [
   { value: "IN", label: "Entrada" },
   { value: "OUT", label: "Salida" },
@@ -701,7 +705,7 @@ function ExpectedReviewDialog({
               label="Método"
               value={method}
               onChange={setMethod}
-              options={PAYMENT_METHODS.map((option) => ({ value: option, label: option }))}
+              options={COLLECTED_PAYMENT_METHODS.map((option) => ({ value: option, label: option }))}
             />
             <DateField label="Fecha del cobro" value={date} onChange={setDate} />
             <TextField
@@ -916,6 +920,142 @@ function ExpectedSplitDialog({
             onClick={() => onSplit(parts.map((part) => ({ amount: Number(part.amount), dueAt: part.dueAt })))}
           >
             Dividir en {parts.length} partes
+          </AdminButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Cobro real de un cobro a crédito que quedó «Pendiente» (issue #135): al
+ * cobrarse se elige el método real y la cuenta coherente (Efectivo entra a la
+ * caja, transferencia a una cuenta que no es la caja). Un cobro a plazo con
+ * método real se sigue cobrando de un clic.
+ */
+function CollectPaymentDialog({
+  payment,
+  accounts,
+  busy,
+  error,
+  onCollect,
+  onClose,
+}: {
+  payment: AdminPaymentRow;
+  accounts: AdminTreasuryAccountRow[];
+  busy: boolean;
+  error: string;
+  onCollect: (payload: { method: string; treasuryAccountId: string }) => void;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [method, setMethod] = useState<string>("Transferencia");
+  const [accountId, setAccountId] = useState("");
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const label = payment.client.company || payment.client.name;
+  const methodAccounts = accountsForPaymentMethod(method, accounts);
+  const effectiveAccountId = methodAccounts.some((account) => account.id === accountId)
+    ? accountId
+    : methodAccounts[0]?.id ?? "";
+
+  return (
+    <div
+      className="admin-dialog-overlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="admin-dialog" role="dialog" aria-modal="true" aria-label={`Marcar cobrado: ${label}`}>
+        <header className="admin-dialog-head">
+          <h2 className="admin-dialog-title">
+            <span className="admin-panel-icon admin-panel-icon--sm" aria-hidden="true">
+              <AdminIcon name="check" size={11} />
+            </span>
+            Marcar cobrado · {label}
+          </h2>
+          <button ref={closeRef} type="button" className="admin-iconbtn" onClick={onClose} aria-label="Cerrar" title="Cerrar">
+            <AdminIcon name="close" size={15} />
+          </button>
+        </header>
+
+        <dl className="admin-dialog-facts">
+          <div>
+            <dt>Cliente</dt>
+            <dd>{label}</dd>
+          </div>
+          <div>
+            <dt>Monto</dt>
+            <dd>{formatMoney(payment.amount)}</dd>
+          </div>
+          <div>
+            <dt>Vencimiento</dt>
+            <dd>{payment.dueAt ? formatDate(payment.dueAt) : "Sin fecha"}</dd>
+          </div>
+        </dl>
+
+        <p className="admin-dialog-text">
+          El cobro quedó a crédito («Pendiente»): al marcarlo cobrado elegí con qué método entró la plata y a qué cuenta.
+          El saldo sube al disponible de esa cuenta.
+        </p>
+
+        <div className="admin-expected-form">
+          <SelectField
+            label="Método real"
+            hint="Con qué entró la plata"
+            value={method}
+            onChange={(value) => {
+              setMethod(value);
+              setAccountId("");
+            }}
+            options={METHOD_OPTIONS.map((option) => ({ value: option, label: option }))}
+          />
+          {method === "Efectivo" ? (
+            <p className="admin-field-hint">
+              {effectiveAccountId
+                ? `El efectivo entra a «${methodAccounts[0]?.name ?? "la caja"}».`
+                : "No hay una cuenta de efectivo: creala en Tesorería."}
+            </p>
+          ) : (
+            <Combobox
+              label="Cuenta de tesorería"
+              hint="Donde entró la plata"
+              value={effectiveAccountId}
+              onChange={setAccountId}
+              placeholder="Buscá la cuenta…"
+              options={
+                methodAccounts.length > 0
+                  ? methodAccounts.map((account) => ({ value: account.id, label: treasuryAccountLabel(account) }))
+                  : [{ value: "", label: "Sin cuentas para este método" }]
+              }
+            />
+          )}
+        </div>
+
+        {error ? <AdminNote tone="error">{error}</AdminNote> : null}
+
+        <div className="admin-dialog-foot">
+          <AdminButton icon="close" type="button" disabled={busy} onClick={onClose}>
+            Cancelar
+          </AdminButton>
+          <span className="admin-dialog-spacer" />
+          <AdminButton
+            variant="primary"
+            icon="check"
+            busy={busy}
+            disabled={busy || !effectiveAccountId}
+            onClick={() => onCollect({ method, treasuryAccountId: effectiveAccountId })}
+          >
+            Marcar cobrado
           </AdminButton>
         </div>
       </section>
@@ -1140,6 +1280,10 @@ export function FinanzasModule() {
   const [expectedReview, setExpectedReview] = useState<{ row: AdminExpectedPaymentRow; mode: "confirm" | "reject" } | null>(null);
   /** División del saldo pendiente (issue #129): partes con vencimiento. */
   const [expectedSplit, setExpectedSplit] = useState<AdminExpectedPaymentRow | null>(null);
+  /** Cobro real de un cobro a crédito («Pendiente», issue #135). */
+  const [collectPayment, setCollectPayment] = useState<AdminPaymentRow | null>(null);
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collectError, setCollectError] = useState("");
   const [expectedTimeline, setExpectedTimeline] = useState<AdminExpectedPaymentRow | null>(null);
   const [expectedBusy, setExpectedBusy] = useState(false);
   const [expectedError, setExpectedError] = useState("");
@@ -1184,7 +1328,8 @@ export function FinanzasModule() {
     eventId: "",
     date: todayDayKey(),
     supplierId: "",
-    method: "",
+    // Un gasto es plata que sale: método real (issue #135).
+    method: METHOD_OPTIONS[0],
     receipt: "",
     notes: "",
   });
@@ -1217,6 +1362,18 @@ export function FinanzasModule() {
     () => activeAccounts.map((account) => ({ value: account.id, label: treasuryAccountLabel(account) })),
     [activeAccounts],
   );
+  /** Cuentas coherentes con el método elegido (issue #135): efectivo → caja,
+   *  transferencia/tarjeta → cuentas que no son caja, cheque → cheques/banco. */
+  const methodAccounts = useMemo(
+    () => accountsForPaymentMethod(form.method, activeAccounts),
+    [activeAccounts, form.method],
+  );
+  /** A crédito («Pendiente») no se elige cuenta: entra recién al cobrarlo. */
+  const accountIsPending = term && form.method === PENDING_PAYMENT_METHOD;
+  /** Cuenta efectiva del cobro: la elegida si sirve para el método; si no, la primera que sí. */
+  const effectiveAccountId = methodAccounts.some((account) => account.id === form.treasuryAccountId)
+    ? form.treasuryAccountId
+    : methodAccounts[0]?.id ?? "";
   const projectOptions = useMemo<Array<{ value: string; label: string }>>(
     () => [
       { value: "", label: "A definir" },
@@ -1475,8 +1632,9 @@ export function FinanzasModule() {
       budgetId: form.budgetId || undefined,
       amount: Number(form.amount),
       method: form.method || undefined,
-      // Cuenta de tesorería del cobro (issue #27): la elegida o la primera activa.
-      treasuryAccountId: form.treasuryAccountId || defaultAccountId || undefined,
+      // Cuenta de tesorería del cobro (issues #27 y #135): la coherente con el
+      // método; a crédito («Pendiente») no va cuenta hasta cobrarlo.
+      treasuryAccountId: accountIsPending ? undefined : effectiveAccountId || undefined,
     };
     if (term) {
       payload.status = "PENDING";
@@ -1512,27 +1670,59 @@ export function FinanzasModule() {
   }
 
   /** Cierra un cobro a plazo: lo cobra (fecha real) o lo anula; el API decide y audita. */
-  async function closeCollection(payment: AdminPaymentRow, action: "collect" | "cancel") {
+  async function closeCollection(
+    payment: AdminPaymentRow,
+    action: "collect" | "cancel",
+    extra?: { method?: string; treasuryAccountId?: string },
+  ) {
     const label = payment.client.company || payment.client.name;
     setBusyId(`${action}:${payment.id}`);
     setNotice(null);
     setFormError("");
     const result = await adminSend(
       "/api/admin/finance",
-      { kind: "client", paymentId: payment.id, action },
+      { kind: "client", paymentId: payment.id, action, ...extra },
       "PATCH",
       { idempotencyKey: true },
     );
     setBusyId("");
     if (!result.ok) {
       setNotice({ tone: "error", text: result.error });
-      return;
+      return false;
     }
     setNotice({
       tone: "ok",
       text: action === "collect" ? `Cobro de ${label} marcado como cobrado.` : `Cobro a plazo de ${label} anulado.`,
     });
     finance.reload();
+    return true;
+  }
+
+  /**
+   * Cobra un cobro a plazo (issue #135): si quedó «Pendiente» (a crédito) pide
+   * el método y la cuenta reales —nunca se elige dónde entró la plata antes de
+   * que entre—; con método real, sigue siendo de un clic.
+   */
+  function openCollect(payment: AdminPaymentRow) {
+    if (payment.method && payment.method !== PENDING_PAYMENT_METHOD) {
+      void closeCollection(payment, "collect");
+      return;
+    }
+    setCollectError("");
+    setCollectPayment(payment);
+  }
+
+  /** Cierra el diálogo del comprobante y cobra con el método real elegido. */
+  async function submitCollect(payload: { method: string; treasuryAccountId: string }) {
+    if (!collectPayment) return;
+    setCollectBusy(true);
+    setCollectError("");
+    const ok = await closeCollection(collectPayment, "collect", {
+      method: payload.method,
+      treasuryAccountId: payload.treasuryAccountId || undefined,
+    });
+    setCollectBusy(false);
+    if (ok) setCollectPayment(null);
   }
 
   /**
@@ -1627,10 +1817,10 @@ export function FinanzasModule() {
     finance.reload();
   }
 
-  /** "Marcar cobrado" desde el visor del comprobante: cierra el cobro y el diálogo. */
-  async function collectFromProofDialog(payment: AdminPaymentRow) {
-    await closeCollection(payment, "collect");
+  /** "Marcar cobrado" desde el visor del comprobante: cobra y cierra el diálogo. */
+  function collectFromProofDialog(payment: AdminPaymentRow) {
     setProofDialog(null);
+    openCollect(payment);
   }
 
   // ── Confirmación y observación de pagos esperados (issue #28) ─────────────
@@ -1980,7 +2170,8 @@ export function FinanzasModule() {
       accountId: defaultAccountId,
       amount: String(supplierJobBalance(job) || ""),
       date: todayDayKey(),
-      method: "",
+      // Un pago a proveedor es plata que sale: método real (issue #135).
+      method: METHOD_OPTIONS[0],
       receipt: "",
     });
   }
@@ -2158,24 +2349,31 @@ export function FinanzasModule() {
               ...clientBudgets.map((budget) => ({ value: budget.id, label: `${budget.title} · ${formatMoney(budget.total)}` })),
             ]}
           />
-          <Combobox
-            label="Cuenta de tesorería"
-            hint={
-              activeAccounts.length > 0
-                ? term
-                  ? "Donde va a entrar el cobro"
-                  : "Donde entra la plata"
-                : "Todavía no hay cuentas: el cobro no genera movimiento"
-            }
-            value={form.treasuryAccountId || defaultAccountId}
-            onChange={(value) => setForm({ ...form, treasuryAccountId: value })}
-            placeholder="Buscá la cuenta…"
-            options={
-              accountOptions.length > 0
-                ? accountOptions
-                : [{ value: "", label: "Sin cuentas de tesorería" }]
-            }
-          />
+          {accountIsPending || form.method === "Efectivo" ? (
+            <div className="admin-field">
+              <span className="admin-field-label">Cuenta de tesorería</span>
+              <span className="admin-field-hint">
+                {accountIsPending
+                  ? "A crédito: la plata todavía no entró, la cuenta se elige al cobrarlo."
+                  : methodAccounts.length > 0
+                    ? `El efectivo entra a «${methodAccounts[0].name}».`
+                    : "No hay una cuenta de efectivo: creala en Tesorería."}
+              </span>
+            </div>
+          ) : (
+            <Combobox
+              label="Cuenta de tesorería"
+              hint={term ? "Donde va a entrar el cobro" : "Donde entra la plata"}
+              value={effectiveAccountId}
+              onChange={(value) => setForm({ ...form, treasuryAccountId: value })}
+              placeholder="Buscá la cuenta…"
+              options={
+                methodAccounts.length > 0
+                  ? methodAccounts.map((account) => ({ value: account.id, label: treasuryAccountLabel(account) }))
+                  : [{ value: "", label: "Sin cuentas para este método" }]
+              }
+            />
+          )}
           <MoneyField
             label="Monto"
             hint="En guaraníes"
@@ -2188,11 +2386,10 @@ export function FinanzasModule() {
             value={form.mode}
             onChange={(value) => {
               const mode = value === "term" ? "term" : "now";
-              setForm({
-                ...form,
-                mode,
-                method: mode === "term" && form.method === "Tarjeta" ? "Transferencia" : form.method,
-              });
+              // A crédito se propone «Pendiente» (issue #135); al volver a
+              // cobrado ahora, se retoma un método real.
+              const method = mode === "term" ? PENDING_PAYMENT_METHOD : form.method === PENDING_PAYMENT_METHOD ? "Transferencia" : form.method;
+              setForm({ ...form, mode, method, treasuryAccountId: "" });
             }}
             options={[
               { value: "now", label: "Cobrado ahora" },
@@ -2202,7 +2399,7 @@ export function FinanzasModule() {
           <SelectField
             label="Método"
             value={form.method}
-            onChange={(value) => setForm({ ...form, method: value, chequeDate: "" })}
+            onChange={(value) => setForm({ ...form, method: value, chequeDate: "", treasuryAccountId: "" })}
             options={(term ? TERM_METHOD_OPTIONS : METHOD_OPTIONS).map((method) => ({ value: method, label: method }))}
           />
           {term ? (
@@ -2618,7 +2815,7 @@ export function FinanzasModule() {
                           disabled={Boolean(busyId)}
                           title={`Marcar cobrado: ${label}`}
                           aria-label={`Marcar cobrado: ${label}`}
-                          onClick={() => closeCollection(payment, "collect")}
+                          onClick={() => openCollect(payment)}
                         />
                       ) : null}
                       {writable ? (
@@ -3558,6 +3755,20 @@ export function FinanzasModule() {
           onClose={() => {
             setExpectedSplit(null);
             setExpectedError("");
+          }}
+        />
+      ) : null}
+
+      {collectPayment ? (
+        <CollectPaymentDialog
+          payment={collectPayment}
+          accounts={activeAccounts}
+          busy={collectBusy}
+          error={collectError}
+          onCollect={(payload) => void submitCollect(payload)}
+          onClose={() => {
+            setCollectPayment(null);
+            setCollectError("");
           }}
         />
       ) : null}

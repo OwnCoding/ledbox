@@ -13,6 +13,7 @@ import {
 import { canWriteFinance, matchesQuery } from "@/lib/admin-policy";
 import {
   isSupplierJobOpen,
+  PAYMENT_METHODS,
   supplierJobBalance,
   supplierJobNextStatuses,
   supplierJobTransitions,
@@ -65,7 +66,8 @@ import { adminSend, useAdminResource } from "@/lib/admin-api";
  * trabajo sale de la base (`total − anticipo`, 0 si está pagado o cancelado).
  */
 
-const METHOD_OPTIONS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"];
+/** Los métodos son la lista única del panel (issue #135), sin variantes. */
+const METHOD_OPTIONS = [...PAYMENT_METHODS];
 
 const CATEGORY_OPTIONS = SUPPLIER_CATEGORIES.map((value) => ({ value, label: supplierCategoryLabel(value) }));
 

@@ -672,15 +672,39 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 export type ExpenseCategoryValue = (typeof EXPENSE_CATEGORIES)[number];
 
-/** Métodos de pago del panel: misma lista que valida el API de finanzas. */
-export const PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"] as const;
+/**
+ * Métodos de cobro/pago (issue #135): **una sola lista** para el panel, la
+ * carga con IA y los pagos, sin variantes locales. `Pendiente` dice que la
+ * plata todavía no ingresó ni salió (a crédito): no se elige cuenta hasta
+ * cobrarlo/pagarlo.
+ */
+export const PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro", "Pendiente"] as const;
+
+/** Método de un cobro/pago a crédito: la plata todavía no se movió. */
+export const PENDING_PAYMENT_METHOD = "Pendiente";
+
+/** Un cobro/pago ya hecho tiene método real: sin `Pendiente`. */
+export const COLLECTED_PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"] as const;
 
 /**
- * Métodos válidos de un cobro a plazo (issue #129): sin tarjeta (no se difiere)
- * y sin «otro». Es la misma lista que valida el API y ofrece el contrato de
- * métodos/cuentas, para el panel y la carga con IA.
+ * Métodos válidos de un cobro a plazo (issues #129 y #135): `Pendiente` primero
+ * (es el default a crédito) y sin tarjeta. Es la misma lista que valida el API
+ * y ofrece el contrato de métodos/cuentas, para el panel y la carga con IA.
  */
-export const TERM_PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque"] as const;
+export const TERM_PAYMENT_METHODS = ["Pendiente", "Transferencia", "Efectivo", "Cheque"] as const;
+
+/**
+ * Cuentas coherentes con el método elegido (issue #135): el efectivo entra a la
+ * caja y una transferencia/tarjeta a una cuenta que no sea la caja; el cheque a
+ * la cuenta de cheques o al banco. Un solo objeto para los formularios de
+ * cobro/pago (nunca las dos cosas a la vez: método o cuenta).
+ */
+export function accountsForPaymentMethod<T extends { type: string }>(method: string, accounts: T[]): T[] {
+  if (method === "Efectivo") return accounts.filter((account) => account.type === "CASH");
+  if (method === "Transferencia" || method === "Tarjeta") return accounts.filter((account) => account.type !== "CASH");
+  if (method === "Cheque") return accounts.filter((account) => account.type === "CHEQUE" || account.type === "BANK");
+  return accounts;
+}
 
 /** Referencia mínima de una cuenta de tesorería dentro de otro registro. */
 export type AdminTreasuryAccountRef = { id: string; name: string; type: string };
