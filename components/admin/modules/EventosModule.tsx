@@ -104,7 +104,7 @@ const EVENTOS_VIEWS = ["list", "grid"] as const;
 /** `id` del `<datalist>` con el catálogo de ciudades (owncoding-ui) del campo Ciudad. */
 const EVENT_CITY_LIST_ID = "eventos-ciudad-opciones";
 
-const EMPTY_EVENT_FORM = { clientId: "", name: "", location: "", city: "", startsAt: "" };
+const EMPTY_EVENT_FORM = { clientId: "", name: "", location: "", city: "", startsAt: "", endsAt: "" };
 const EMPTY_TASK_FORM = { eventId: "", title: "", type: "EVENT", dueAt: "", promoterId: "" };
 const EMPTY_ASSIGN_FORM = { inventoryId: "", quantity: "1", startsAt: "", endsAt: "" };
 const EMPTY_MOVEMENT_FORM = { at: "", condition: ITEM_CONDITIONS[0] as string, damaged: "0", missing: "0", notes: "" };
@@ -433,16 +433,23 @@ export function EventosModule() {
 
   async function submitEvent(formEvent: React.FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
-    setBusy(true);
     setFormError("");
     setFormLimit("");
     setFormNotice("");
+    // Check del front en es-PY (issue #131): faltaba y el alta caía en el error
+    // en inglés del API.
+    if (!form.clientId.trim()) {
+      setFormError("Elegí el cliente del evento.");
+      return;
+    }
+    setBusy(true);
     const result = await adminSend("/api/admin/events", {
       clientId: form.clientId,
       name: form.name,
       location: form.location || undefined,
       city: form.city || undefined,
       startsAt: form.startsAt || undefined,
+      endsAt: form.endsAt || undefined,
     });
     setBusy(false);
     if (!result.ok) {
@@ -716,7 +723,8 @@ export function EventosModule() {
           }
         >
           {/* Alta rápida (issue #106): Nombre con foco + Cliente + Inicio; el
-              lugar y la ciudad viven en «Más datos» y no se pierden al plegarlos. */}
+              lugar, la ciudad y el fin viven en «Más datos» y no se pierden al
+              plegarlos (el fin se sumó en #131). */}
           <TextField
             label="Nombre del evento"
             required
@@ -757,7 +765,7 @@ export function EventosModule() {
             value={form.startsAt}
             onChange={(value) => setForm({ ...form, startsAt: value })}
           />
-          <AdminDisclosure title="Más datos" hint="lugar y ciudad">
+          <AdminDisclosure title="Más datos" hint="lugar, ciudad y fin">
             <TextField
               label="Lugar"
               maxLength={160}
@@ -777,6 +785,12 @@ export function EventosModule() {
                   ? `Departamento: ${cityArea}`
                   : "Se permite texto libre; sugerencias del catálogo de ciudades."
               }
+            />
+            <DateTimeField
+              label="Fin"
+              hint="Fecha y hora de cierre"
+              value={form.endsAt}
+              onChange={(value) => setForm({ ...form, endsAt: value })}
             />
             <datalist id={EVENT_CITY_LIST_ID}>
               {CITY_OPTIONS.map((option) => (

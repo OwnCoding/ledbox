@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CLIENT_LINK_MESSAGES, contactPhoneValid, instagramValid, websiteValid } from "@/lib/admin-format";
 import { adminSend } from "@/lib/admin-api";
 import type { AdminClientOption } from "@/lib/admin-types";
-import { emailValid, FIELD_LIMITS, FIELD_MESSAGES } from "@/lib/field-rules";
+import { emailValid, FIELD_LIMITS, FIELD_MESSAGES, personNameValid } from "@/lib/field-rules";
 import { AdminButton, AdminDialog, AdminDisclosure, AdminNote } from "../AdminUI";
 import { EmailField, PhoneField, RucField, SelectField, TextField } from "../AdminFields";
 
@@ -52,6 +52,7 @@ export const EMPTY_CLIENT_QUICK: ClientQuickValues = {
 
 /** Avisos del front con el mismo mensaje que revalida el API (regla única). */
 export type ClientQuickErrors = {
+  name: string | null;
   phone: string | null;
   email: string | null;
   contactPhone: string | null;
@@ -63,6 +64,8 @@ export type ClientQuickErrors = {
 
 export function clientQuickErrors(values: ClientQuickValues): ClientQuickErrors {
   return {
+    // El nombre se avisa al tipearlo (issue #131): vacío lo frena el navegador.
+    name: values.name.trim() && !personNameValid(values.name) ? FIELD_MESSAGES.name : null,
     phone: values.phone && !contactPhoneValid(values.phone) ? FIELD_MESSAGES.phone : null,
     email: values.email && !emailValid(values.email) ? FIELD_MESSAGES.email : null,
     contactPhone: values.contactPhone && !contactPhoneValid(values.contactPhone) ? FIELD_MESSAGES.phone : null,
@@ -109,6 +112,7 @@ export function ClientQuickFields({
         onChange={(value) => onChange({ name: value })}
         placeholder="Ej.: Samsung Paraguay"
         hint="Como figura en la cartera; si es una persona, su nombre."
+        error={errors?.name ?? null}
       />
       <PhoneField
         label="Teléfono"
@@ -223,7 +227,7 @@ export function ClientQuickDialog({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!values.name.trim()) {
-      setError("Ingresá el nombre del cliente.");
+      setError(FIELD_MESSAGES.name);
       return;
     }
     const firstError = clientQuickFirstError(errors);

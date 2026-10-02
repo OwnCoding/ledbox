@@ -4,6 +4,7 @@ import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
+import { FIELD_MESSAGES, emailValid, normalizeEmail, normalizePersonName, personNameValid } from "@/lib/field-rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,8 @@ function optionalText(value: unknown, max: number): string | null | undefined {
 function optionalEmail(value: unknown): string | null | undefined | false {
   const email = optionalText(value, MAX.email);
   if (email === undefined || email === null) return email;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.toLowerCase() : false;
+  const normalized = normalizeEmail(email);
+  return emailValid(normalized) ? normalized : false;
 }
 
 export async function GET() {
@@ -60,11 +62,13 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const body = await readJson(request) as Record<string, unknown>;
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (name.length < 2) return jsonError("Supplier name is required.", 400);
-  if (body.category !== undefined && !isCategory(body.category)) return jsonError("Invalid supplier category.", 400);
+  // Mensajes es-PY con las reglas del kit (issue #131): mismo texto en el front.
+  const name = normalizePersonName(typeof body.name === "string" ? body.name : "");
+  if (!personNameValid(name)) return jsonError(FIELD_MESSAGES.name, 400);
+  if (body.category !== undefined && !isCategory(body.category)) return jsonError("El rubro del proveedor no es válido.", 400);
   const email = optionalEmail(body.email);
-  if (email === false) return jsonError("Invalid email address.", 400);
+  if (email === false) return jsonError(FIELD_MESSAGES.email, 400);
+  if (body.active !== undefined && typeof body.active !== "boolean") return jsonError("El estado del proveedor tiene que ser activo o inactivo.", 400);
 
   const supplier = await db.supplier.create({
     data: {
@@ -77,6 +81,9 @@ export async function POST(request: Request) {
       category: isCategory(body.category) ? body.category : "OTHER",
       paymentTerms: optionalText(body.paymentTerms, MAX.terms) ?? undefined,
       notes: optionalText(body.notes, MAX.notes) ?? undefined,
+      // El estado del alta se respeta (issue #131): antes se ignoraba y el
+      // control quedaba muerto; sin valor, un proveedor nace activo.
+      active: typeof body.active === "boolean" ? body.active : true,
     },
   });
   await recordAudit({
@@ -95,17 +102,17 @@ export async function PATCH(request: Request) {
   if (!auth.ok) return auth.response;
   const { organizationId } = auth.context;
   const body = await readJson(request) as Record<string, unknown>;
-  if (typeof body.id !== "string") return jsonError("Supplier id is required.", 400);
+  if (typeof body.id !== "string") return jsonError("Falta el id del proveedor.", 400);
 
   const supplier = await db.supplier.findFirst({ where: { id: body.id, organizationId } });
-  if (!supplier) return jsonError("Supplier not found.", 404);
+  if (!supplier) return jsonError("Proveedor no encontrado.", 404);
 
-  const name = optionalText(body.name, MAX.name);
-  if (name === null) return jsonError("Supplier name cannot be empty.", 400);
-  if (body.category !== undefined && !isCategory(body.category)) return jsonError("Invalid supplier category.", 400);
+  const name = body.name === undefined ? undefined : normalizePersonName(typeof body.name === "string" ? body.name : "");
+  if (name !== undefined && !personNameValid(name)) return jsonError(FIELD_MESSAGES.name, 400);
+  if (body.category !== undefined && !isCategory(body.category)) return jsonError("El rubro del proveedor no es válido.", 400);
   const email = optionalEmail(body.email);
-  if (email === false) return jsonError("Invalid email address.", 400);
-  if (body.active !== undefined && typeof body.active !== "boolean") return jsonError("Active must be a boolean.", 400);
+  if (email === false) return jsonError(FIELD_MESSAGES.email, 400);
+  if (body.active !== undefined && typeof body.active !== "boolean") return jsonError("El estado del proveedor tiene que ser activo o inactivo.", 400);
 
   const updated = await db.supplier.update({
     where: { id: supplier.id },

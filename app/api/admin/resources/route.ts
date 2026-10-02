@@ -5,10 +5,16 @@ import { jsonError, readJson } from "@/lib/server/http";
 import { auditChanges, auditPick, recordAudit } from "@/lib/server/audit";
 import { dayStart, isValidDayKey } from "@/lib/server/notifications";
 import { inventoryImageUrl, readInventoryImageUrl } from "@/lib/server/inventory-images";
-import { createInventoryUnits } from "@/lib/server/inventory-units";
+import { createInventoryUnits, isUniqueConstraintError } from "@/lib/server/inventory-units";
 import {
   FIELD_MESSAGES,
+  emailValid,
   inventoryPriceWarning,
+  inventorySkuValid,
+  normalizeEmail,
+  normalizeInventorySku,
+  normalizePersonName,
+  personNameValid,
   readInventoryPriceValues,
 } from "@/lib/field-rules";
 import { PROMOTER_AVAILABILITIES, type PromoterAvailabilityValue } from "@/lib/admin-types";
@@ -184,42 +190,56 @@ export async function POST(request: Request) {
   if (kind === "inventory") {
     const auth = await requireAdminContext("inventory.write");
     if (!auth.ok) return auth.response;
-    if (typeof body.name !== "string") return jsonError("Name is required.", 400);
-    const itemName = body.name.trim();
+    // El nombre sigue la regla del kit (issue #131): mismo mensaje que el front.
+    const itemName = normalizePersonName(typeof body.name === "string" ? body.name : "");
+    if (!personNameValid(itemName)) return jsonError(FIELD_MESSAGES.name, 400);
+    // SKU opcional (issue #131): vacío no es error, inválido sí.
+    const skuRaw = typeof body.sku === "string" ? normalizeInventorySku(body.sku) : "";
+    if (skuRaw && !inventorySkuValid(skuRaw)) return jsonError(FIELD_MESSAGES.sku, 400);
     const imageUrl = readInventoryImageUrl(body.imageUrl);
     if (imageUrl === false) return jsonError(FIELD_MESSAGES.image, 400);
     const prices = readInventoryPriceValues(body);
     if (!prices.ok) return jsonError(prices.error, 400);
     const quantity = typeof body.quantity === "number" && Number.isInteger(body.quantity) && body.quantity > 0 ? body.quantity : 1;
     // El ítem y sus unidades nacen juntos (issue #112): `quantity` = unidades reales.
-    const inventory = await db.$transaction(async (tx) => {
-      const created = await tx.inventoryItem.create({
-        data: {
-          id: randomUUID(),
+    let inventory;
+    try {
+      inventory = await db.$transaction(async (tx) => {
+        const created = await tx.inventoryItem.create({
+          data: {
+            id: randomUUID(),
+            organizationId: auth.context.organizationId,
+            name: itemName,
+            category: typeof body.category === "string" ? body.category.trim() : "General",
+            sku: skuRaw || null,
+            imageUrl,
+            kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
+            quantity,
+            visibleOnWeb: body.visibleOnWeb === true,
+            listPrice: prices.values.listPrice ?? 0,
+            listFromDays: prices.values.listFromDays ?? 0,
+            listFromPrice: prices.values.listFromPrice ?? 0,
+            wholesalePrice: prices.values.wholesalePrice ?? 0,
+            wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
+            wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
+            minimumPrice: prices.values.minimumPrice ?? 0,
+          },
+        });
+        await createInventoryUnits(tx, {
           organizationId: auth.context.organizationId,
-          name: itemName,
-          category: typeof body.category === "string" ? body.category.trim() : "General",
-          imageUrl,
-          kind: body.inventoryKind === "CONSUMABLE" ? "CONSUMABLE" : body.inventoryKind === "DISPOSABLE" ? "DISPOSABLE" : "REUSABLE",
+          inventoryId: created.id,
+          name: created.name,
           quantity,
-          visibleOnWeb: body.visibleOnWeb === true,
-          listPrice: prices.values.listPrice ?? 0,
-          listFromDays: prices.values.listFromDays ?? 0,
-          listFromPrice: prices.values.listFromPrice ?? 0,
-          wholesalePrice: prices.values.wholesalePrice ?? 0,
-          wholesaleFromDays: prices.values.wholesaleFromDays ?? 0,
-          wholesaleFromPrice: prices.values.wholesaleFromPrice ?? 0,
-          minimumPrice: prices.values.minimumPrice ?? 0,
-        },
+        });
+        return created;
       });
-      await createInventoryUnits(tx, {
-        organizationId: auth.context.organizationId,
-        inventoryId: created.id,
-        name: created.name,
-        quantity,
-      });
-      return created;
-    });
+    } catch (error) {
+      // El SKU es único por empresa: mismo criterio que el código de unidad.
+      if (skuRaw && isUniqueConstraintError(error)) {
+        return jsonError(`Ya hay un ítem con el SKU «${skuRaw}»; probá con otro.`, 409);
+      }
+      throw error;
+    }
     await recordAudit({
       context: auth.context,
       action: "create",
@@ -254,15 +274,20 @@ export async function POST(request: Request) {
   if (kind === "promoter") {
     const auth = await requireAdminContext("promoters.write");
     if (!auth.ok) return auth.response;
-    if (typeof body.name !== "string") return jsonError("Name is required.", 400);
+    // Nombre y correo con las reglas del kit (issue #131): el alta suma «Correo».
+    const promoterName = normalizePersonName(typeof body.name === "string" ? body.name : "");
+    if (!personNameValid(promoterName)) return jsonError(FIELD_MESSAGES.name, 400);
+    const promoterEmail = normalizeEmail(typeof body.email === "string" ? body.email : "");
+    if (promoterEmail && !emailValid(promoterEmail)) return jsonError(FIELD_MESSAGES.email, 400);
     const availability = availabilityData(body);
     if (!availability.ok) return availability.response;
     const promoter = await db.promoter.create({
       data: {
         id: randomUUID(),
         organizationId: auth.context.organizationId,
-        name: body.name.trim(),
+        name: promoterName,
         phone: typeof body.phone === "string" ? body.phone.trim() : undefined,
+        email: promoterEmail || null,
         specialties: typeof body.specialties === "string" ? body.specialties.trim() : undefined,
         availability: availability.data.availability ?? "AVAILABLE",
         availabilityNote: availability.data.availabilityNote ?? null,
@@ -283,7 +308,7 @@ export async function POST(request: Request) {
   if (kind === "promoter-update") {
     const auth = await requireAdminContext("promoters.write");
     if (!auth.ok) return auth.response;
-    if (typeof body.id !== "string") return jsonError("Promoter id is required.", 400);
+    if (typeof body.id !== "string") return jsonError("Falta el id de la promotora.", 400);
     const availability = availabilityData(body);
     if (!availability.ok) return availability.response;
     if (!availability.data.availability) return jsonError("Indicá la disponibilidad.", 400);
@@ -291,7 +316,7 @@ export async function POST(request: Request) {
       where: { id: body.id, organizationId: auth.context.organizationId },
       select: { id: true, name: true, availability: true, availabilityNote: true, unavailableUntil: true },
     });
-    if (!existing) return jsonError("Promoter not found.", 404);
+    if (!existing) return jsonError("Promotora no encontrada.", 404);
     const promoter = await db.promoter.update({
       where: { id: existing.id },
       data: {
@@ -314,5 +339,5 @@ export async function POST(request: Request) {
     return Response.json({ promoter });
   }
 
-  return jsonError("Invalid resource.", 400);
+  return jsonError("Operación desconocida.", 400);
 }
