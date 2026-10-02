@@ -209,3 +209,14 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - el guardado de ítems conserva el vínculo con inventario
 - post-aprobación ordenada y miniaturas de los ítems
 
+## v2.1.64 — 2026-10-02
+
+- guarda del encabezado de tarjetas y del ancho de «Acciones»
+- el nombre de las tarjetas no se aplasta y «Acciones» entra completo
+- guardas de las listas móviles y del ancho de la grilla de Clientes
+- Eventos y Clientes como tarjetas en móvil y Clientes sin links en la grilla
+- guardas de las altas manuales y regla de SKU
+- altas manuales con menos campos, es-PY y sin controles muertos
+- registrar la segunda pasada móvil v2.1.61 (#155)
+- la landing de EventOS corrige el header y suma resultados, perfiles y flujo
+
