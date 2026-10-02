@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isAdminRoute } from "@/lib/admin-routes";
+import { PANEL_HOME, isAdminRoute } from "@/lib/admin-routes";
 import { publicConfig } from "@/lib/public-config";
 
 /**
@@ -144,7 +144,7 @@ export function middleware(request: NextRequest) {
     // El panel siempre se sirve en el host admin; el resto (API, assets, archivos) pasa igual.
     if (pathname === "/") {
       const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
+      url.pathname = PANEL_HOME;
       return NextResponse.rewrite(url);
     }
     return pass();

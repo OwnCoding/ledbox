@@ -3,6 +3,13 @@
  * público sepa qué paths pertenecen al panel. Al crear un módulo nuevo del panel,
  * sumarlo a esta lista.
  */
+
+/**
+ * Home canónica del panel (issue #134): a dónde va un usuario con sesión
+ * iniciada —la raíz del host del panel, el retorno de Google y el `/login` con
+ * sesión—. Una sola constante para no divergir.
+ */
+export const PANEL_HOME = "/dashboard";
 export const ADMIN_ROUTES = [
   "/login",
   "/recuperar",

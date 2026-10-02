@@ -7,6 +7,7 @@ import { AdminError, AdminSpinner } from "./AdminUI";
 import { EmailField, HoneypotField, PasswordField } from "./AdminFields";
 import { AdminFrame } from "./AdminFrame";
 import { GoogleMark } from "./GoogleMark";
+import { PANEL_HOME } from "@/lib/admin-routes";
 import { authErrorMessage } from "@/lib/google-auth";
 
 async function responseMessage(response: Response, fallback: string) {
@@ -39,7 +40,7 @@ export function AdminLoginForm({ googleError = "" }: { googleError?: string }) {
         setError(await responseMessage(response, "No pudimos iniciar sesión. Revisá tus datos."));
         return;
       }
-      router.replace("/dashboard");
+      router.replace(PANEL_HOME);
       router.refresh();
     } catch {
       setError("No pudimos conectar con el panel. Intentá nuevamente.");
