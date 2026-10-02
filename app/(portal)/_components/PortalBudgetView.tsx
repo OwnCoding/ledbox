@@ -1061,8 +1061,8 @@ export function PortalBudgetView({
               {paymentPlan.advanceAmount > 0 ? (
                 <tr>
                   <td>Anticipo{approved ? " (a transferir ahora)" : " (con la autorización)"}</td>
-                  <td className="portal-num">{formatMoney(paymentPlan.advanceAmount)}</td>
-                  <td>Con la autorización</td>
+                  <td className="portal-num" data-label="Monto">{formatMoney(paymentPlan.advanceAmount)}</td>
+                  <td data-label="Vencimiento">Con la autorización</td>
                 </tr>
               ) : null}
               {paymentPlan.installments.map((installment, index) => (
@@ -1071,8 +1071,8 @@ export function PortalBudgetView({
                     {installment.label}
                     {paymentPlan.advanceAmount === 0 && index === 0 ? " (a transferir ahora)" : ""}
                   </td>
-                  <td className="portal-num">{formatMoney(installment.amount)}</td>
-                  <td>
+                  <td className="portal-num" data-label="Monto">{formatMoney(installment.amount)}</td>
+                  <td data-label="Vencimiento">
                     {dueLabel(installment.dueAt)}
                     {installment.dueAt ? (
                       <span className="portal-countdown" data-tone={countdownTone(installment.dueAt)}>
@@ -1292,16 +1292,32 @@ export function PortalBudgetView({
       </header>
 
       {approved ? (
-        <section className="portal-banner portal-banner--ok" ref={approvedRef} tabIndex={-1} aria-labelledby="portal-approved">
+        <section className="portal-banner portal-banner--ok portal-success" ref={approvedRef} tabIndex={-1} aria-labelledby="portal-approved">
           <h2 className="portal-banner-title" id="portal-approved">
             <AdminIcon name="check" size={16} />
-            <span>{justApproved?.already ? "Este presupuesto ya estaba autorizado" : "Presupuesto autorizado"}</span>
+            <span>{justApproved?.already ? "Este presupuesto ya estaba autorizado" : "¡Listo! Presupuesto autorizado"}</span>
           </h2>
           <p>
             {justApproved?.already
               ? "Registramos tu visita: la autorización original queda tal cual, sin cambios."
-              : "Quedó registrada tu autorización. El equipo de LedBox te contacta para coordinar el evento."}
+              : "Quedó registrada tu autorización. Estos son los próximos pasos:"}
           </p>
+          <ol className="portal-success-steps">
+            <li>
+              <strong>El equipo de LedBox te contacta</strong> para coordinar el evento, los equipos y el montaje.
+            </li>
+            {transferNow ? (
+              <li>
+                <strong>
+                  Transferí {transferNow.label.toLowerCase()} ({formatMoney(transferNow.amount)})
+                </strong>{" "}
+                y subí el comprobante desde esta misma página.
+              </li>
+            ) : null}
+            <li>
+              <strong>Descargá el presupuesto autorizado</strong> y guardalo para tus registros.
+            </li>
+          </ol>
           <dl className="portal-facts portal-facts--inline">
             <div>
               <dt>Autorizó</dt>
@@ -1324,8 +1340,8 @@ export function PortalBudgetView({
             </p>
           ) : null}
           <div className="portal-banner-actions portal-print-hide">
-            <button type="button" className="portal-btn portal-btn--ghost" onClick={() => window.print()}>
-              Imprimir o guardar en PDF
+            <button type="button" className="portal-btn portal-btn--primary" onClick={() => window.print()}>
+              Descargar el presupuesto (PDF)
             </button>
           </div>
         </section>
@@ -1505,6 +1521,41 @@ export function PortalBudgetView({
             ) : null}
           </section>
 
+          {budget.deliveryAt || budget.ivaType || budget.warranty ? (
+            <section className="portal-card" aria-labelledby="portal-terms">
+              <div className="portal-card-head">
+                <PortalCardTitle id="portal-terms" icon="plan">
+                  Condiciones de la propuesta
+                </PortalCardTitle>
+              </div>
+              <dl className="portal-facts portal-facts--pay">
+                {budget.deliveryAt ? (
+                  <div>
+                    <dt>Entrega</dt>
+                    <dd>{formatDate(budget.deliveryAt)}</dd>
+                  </div>
+                ) : null}
+                {budget.ivaType ? (
+                  <div>
+                    <dt>IVA</dt>
+                    <dd>{invoiceTaxTypeLabel(budget.ivaType)}</dd>
+                  </div>
+                ) : null}
+                {budget.validUntil ? (
+                  <div>
+                    <dt>Válida hasta</dt>
+                    <dd>{formatDate(budget.validUntil)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              {budget.warranty ? (
+                <p className="portal-note">
+                  <strong>Garantía:</strong> {budget.warranty}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+
           {!approved && !revisionPending ? (
         <section className="portal-card portal-card--action" aria-labelledby="portal-action" ref={actionRef}>
           <div className="portal-card-head">
@@ -1516,7 +1567,7 @@ export function PortalBudgetView({
                 </div>
                 <p className="portal-card-lead">
                   {canEdit
-                    ? "Elegí una sola cosa: autorizás el presupuesto tal como queda (con tus ajustes, si los hiciste) o nos pedís una rebaja o un cambio. El equipo de LedBox responde por este mismo link."
+                    ? "Autorizá el presupuesto tal como queda (con tus ajustes, si los hiciste) o pedí una rebaja o un cambio: el equipo responde por este mismo link."
                     : "Mientras revisamos tu pedido podés autorizar el presupuesto tal como está; no perdés la respuesta del equipo."}
                 </p>
               </div>
@@ -1719,53 +1770,11 @@ export function PortalBudgetView({
                       ? "Tu autorización queda registrada con tu nombre y la fecha de envío."
                       : "Tu pedido queda en revisión y no modifica el presupuesto por sí solo."}
                 </p>
-                <p className="portal-help">
-                  {actionMode === "authorize"
-                    ? "La autorización queda registrada con tu nombre, la fecha y el detalle que ves en pantalla."
-                    : "Tu pedido no cambia el presupuesto hasta que el equipo lo revise y lo acepte."}
-                </p>
               </form>
             </section>
           ) : null}
 
           {approved ? null : paymentsCard}
-
-          {budget.deliveryAt || budget.ivaType || budget.warranty ? (
-            <section className="portal-card" aria-labelledby="portal-terms">
-              <div className="portal-card-head">
-                <PortalCardTitle id="portal-terms" icon="plan">
-                  Condiciones de la propuesta
-                </PortalCardTitle>
-              </div>
-              <dl className="portal-facts portal-facts--pay">
-                {budget.deliveryAt ? (
-                  <div>
-                    <dt>Entrega</dt>
-                    <dd>{formatDate(budget.deliveryAt)}</dd>
-                  </div>
-                ) : null}
-                {budget.ivaType ? (
-                  <div>
-                    <dt>IVA</dt>
-                    <dd>{invoiceTaxTypeLabel(budget.ivaType)}</dd>
-                  </div>
-                ) : null}
-                {budget.validUntil ? (
-                  <div>
-                    <dt>Válida hasta</dt>
-                    <dd>{formatDate(budget.validUntil)}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              {budget.warranty ? (
-                <p className="portal-note">
-                  <strong>Garantía:</strong> {budget.warranty}
-                </p>
-              ) : null}
-            </section>
-          ) : null}
-
-
 
           {approved ? null : proofCard}
 
@@ -1863,7 +1872,7 @@ export function PortalBudgetView({
         <aside className="portal-budget-aside" aria-labelledby="portal-summary">
           <div className="portal-card portal-summary">
             <PortalCardTitle id="portal-summary" icon="overview">
-              Resumen de lo pedido
+              Resumen
             </PortalCardTitle>
             <p className="portal-summary-client">{clientLabel}</p>
             <div className="portal-budget-chips">
@@ -1878,43 +1887,51 @@ export function PortalBudgetView({
                 </span>
               ) : null}
             </div>
-            <dl className="portal-facts portal-facts--aside">
-              <div>
-                <dt>Ítems</dt>
-                <dd>{formatNumber(budget.items.length)} en el detalle</dd>
-              </div>
-              <div>
-                <dt>Evento</dt>
-                <dd>{budget.event?.name || "Sin evento asociado"}</dd>
-              </div>
-              <div>
-                <dt>Lugar</dt>
-                <dd>{budget.event?.location || "—"}</dd>
-              </div>
-              <div>
-                <dt>Válido hasta</dt>
-                <dd>{budget.validUntil ? formatDate(budget.validUntil) : "Sin fecha de vencimiento"}</dd>
-              </div>
-            </dl>
             <div className="portal-totals portal-totals--aside">
-              <div className="portal-total-row">
-                <span>Subtotal</span>
-                <span className="portal-num">{formatMoney(itemsChanged ? proposedSubtotal : budget.subtotal)}</span>
-              </div>
-              {budget.discount > 0 ? (
-                <div className="portal-total-row">
-                  <span>Descuento</span>
-                  <span className="portal-num">− {formatMoney(budget.discount)}</span>
-                </div>
-              ) : null}
               <div className="portal-total-row portal-total-row--strong">
                 <span>{itemsChanged ? "Total con tus cambios" : "Total"}</span>
                 <span className="portal-num">{formatMoney(summaryTotal)}</span>
               </div>
-              <p className="portal-total-formula">
-                Precio unitario × cantidad × días = subtotal · subtotal − descuento = total
-              </p>
             </div>
+            <details className="portal-disclosure portal-disclosure--inner">
+              <summary>
+                <span>Detalle del resumen</span>
+              </summary>
+              <div className="portal-disclosure-body">
+                <dl className="portal-facts portal-facts--aside">
+                  <div>
+                    <dt>Ítems</dt>
+                    <dd>{formatNumber(budget.items.length)} en el detalle</dd>
+                  </div>
+                  <div>
+                    <dt>Evento</dt>
+                    <dd>{budget.event?.name || "Sin evento asociado"}</dd>
+                  </div>
+                  <div>
+                    <dt>Lugar</dt>
+                    <dd>{budget.event?.location || "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Válido hasta</dt>
+                    <dd>{budget.validUntil ? formatDate(budget.validUntil) : "Sin fecha de vencimiento"}</dd>
+                  </div>
+                </dl>
+                {budget.discount > 0 || (!approved && budget.subtotal !== summaryTotal) ? (
+                  <div className="portal-totals portal-totals--aside">
+                    <div className="portal-total-row">
+                      <span>Subtotal</span>
+                      <span className="portal-num">{formatMoney(itemsChanged ? proposedSubtotal : budget.subtotal)}</span>
+                    </div>
+                    {budget.discount > 0 ? (
+                      <div className="portal-total-row">
+                        <span>Descuento</span>
+                        <span className="portal-num">− {formatMoney(budget.discount)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </details>
             {approved && transferNow ? (
               <div className="portal-pay-now portal-pay-now--aside">
                 <span className="portal-pay-label">{transferNow.label}</span>
@@ -1922,14 +1939,29 @@ export function PortalBudgetView({
                 <span className="portal-help">Transferí este monto y subí el comprobante.</span>
               </div>
             ) : null}
+            {!approved && !revisionPending ? (
+              <button
+                type="button"
+                className="portal-btn portal-btn--primary portal-btn--block portal-print-hide"
+                onClick={() => actionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                aria-controls="portal-action"
+              >
+                Ir a la decisión
+              </button>
+            ) : null}
           </div>
         </aside>
       </div>
       {canEdit && actionBelowViewport && !footerVisible ? (
         <div className="portal-mobile-sticky" role="region" aria-label="Decisión y total">
           <div className="portal-mobile-sticky-total">
-            <span>Total actual</span>
+            <span>{itemsChanged ? "Total con tus cambios" : "Total actual"}</span>
             <strong className="portal-num">{formatMoney(actionTotal)}</strong>
+            {budget.validUntil ? (
+              <small className="portal-mobile-sticky-due" data-tone={countdownTone(budget.validUntil)}>
+                {formatCountdown(budget.validUntil, "client")}
+              </small>
+            ) : null}
           </div>
           <button
             type="button"

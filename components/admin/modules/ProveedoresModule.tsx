@@ -13,6 +13,7 @@ import {
 import { canWriteFinance, matchesQuery } from "@/lib/admin-policy";
 import {
   isSupplierJobOpen,
+  PAYMENT_METHODS,
   supplierJobBalance,
   supplierJobNextStatuses,
   supplierJobTransitions,
@@ -66,7 +67,8 @@ import { FIELD_MESSAGES, emailValid, personNameValid } from "@/lib/field-rules";
  * trabajo sale de la base (`total − anticipo`, 0 si está pagado o cancelado).
  */
 
-const METHOD_OPTIONS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"];
+/** Los métodos son la lista única del panel (issue #135), sin variantes. */
+const METHOD_OPTIONS = [...PAYMENT_METHODS];
 
 /**
  * Condiciones de pago del proveedor (issue #131): select con las opciones

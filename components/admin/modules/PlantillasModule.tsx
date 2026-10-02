@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
-import { formatNumber, messageTemplateCategoryLabel } from "@/lib/admin-format";
+import { formatDateShort, formatDateTime, formatNumber, messageTemplateCategoryLabel } from "@/lib/admin-format";
 import { canWriteTemplateCategory, matchesQuery } from "@/lib/admin-policy";
 import {
   MESSAGE_TEMPLATE_CATEGORIES,
@@ -18,6 +18,8 @@ import {
   validateMessageTemplate,
 } from "@/lib/server/message-templates";
 import { useAdminSession } from "../AdminShell";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import {
   AdminBadge,
   AdminButton,
@@ -77,6 +79,8 @@ export function PlantillasModule() {
   const [rowError, setRowError] = useState("");
   const [deleting, setDeleting] = useState<AdminMessageTemplateRow | null>(null);
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Lista en tarjetas en pantalla chica (auditoría móvil, issue #153). */
+  const compact = useAdminNarrowViewport();
 
   const templates = useMemo<AdminMessageTemplateRow[]>(() => templatesResource.data ?? [], [templatesResource.data]);
 
@@ -278,6 +282,68 @@ export function PlantillasModule() {
         >
           {rows.length === 0 ? (
             <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá de categoría." />
+          ) : compact ? (
+            <AdminCardGrid
+              label={`Plantillas de ${messageTemplateCategoryLabel(category)}`}
+              cards={rows.map((template): AdminCardData => {
+                const writable = canWriteTemplateCategory(role, template.category);
+                return {
+                  id: template.id,
+                  title: template.title,
+                  titleTooltip: `${template.title} · ${messageTemplateCategoryLabel(template.category)}`,
+                  subtitle: template.body,
+                  badges: [
+                    {
+                      label: template.active ? "Activa" : "Inactiva",
+                      tone: template.active ? "ok" : "neutral",
+                      title: template.active ? "Disponible para enviar" : "Oculta en los módulos",
+                    },
+                  ],
+                  fields: [
+                    {
+                      label: "Actualizada",
+                      value: `${formatDateShort(template.updatedAt)}${template.updatedByName ? ` · ${template.updatedByName}` : ""}`,
+                      title: template.updatedByName
+                        ? `Última edición de ${template.updatedByName} el ${formatDateTime(template.updatedAt)}`
+                        : `Última edición el ${formatDateTime(template.updatedAt)}`,
+                    },
+                  ],
+                  footer: (
+                    <span className="admin-actions">
+                      {writable ? (
+                        <>
+                          <AdminButton
+                            icon="edit"
+                            title={`Editar plantilla: ${template.title}`}
+                            aria-label={`Editar plantilla: ${template.title}`}
+                            onClick={() => openEdit(template)}
+                          />
+                          <AdminButton
+                            icon="power"
+                            busy={busyId === template.id}
+                            disabled={Boolean(busyId)}
+                            title={template.active ? `Desactivar plantilla: ${template.title}` : `Activar plantilla: ${template.title}`}
+                            aria-label={template.active ? `Desactivar plantilla: ${template.title}` : `Activar plantilla: ${template.title}`}
+                            onClick={() => void toggleActive(template)}
+                          />
+                          <AdminButton
+                            icon="trash"
+                            title={`Borrar plantilla: ${template.title}`}
+                            aria-label={`Borrar plantilla: ${template.title}`}
+                            onClick={() => {
+                              setRowError("");
+                              setDeleting(template);
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <span className="admin-muted">—</span>
+                      )}
+                    </span>
+                  ),
+                };
+              })}
+            />
           ) : (
             <AdminTable
               view="plantillas"

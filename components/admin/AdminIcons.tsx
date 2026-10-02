@@ -92,6 +92,13 @@ const ICON_PATHS: Record<AdminIconName, React.ReactNode> = {
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  dots: (
+    <>
+      <circle cx="5.6" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="18.4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
   close: <path d="M6 6l12 12M18 6 6 18" />,
   sun: (
     <>

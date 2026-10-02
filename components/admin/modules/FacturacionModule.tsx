@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import {
   formatDate,
+  formatDateShort,
   formatDateTime,
   formatMoney,
   formatNumber,
@@ -45,6 +46,8 @@ import type {
   AdminSupplierRow,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import {
   AdminBadge,
   AdminButton,
@@ -234,6 +237,8 @@ export function FacturacionModule() {
   const canWrite = canWriteFiscal(role) && !demo;
   const canProfile = canManageFiscalProfile(role) && !demo;
   const canReopen = canReopenFiscalPeriod(role) && !demo;
+  /** Listas en tarjetas en pantalla chica (auditoría móvil, issue #153). */
+  const compact = useAdminNarrowViewport();
 
   const data = fiscal.data;
   const summary = data?.summary ?? EMPTY_SUMMARY;
@@ -640,6 +645,36 @@ export function FacturacionModule() {
         <>
           {approvedBudgets.length > 0 && canWrite && !periodClosed ? (
             <AdminPanel title="Presupuestos aprobados para facturar" icon="budgets" meta={`${formatNumber(approvedBudgets.length)} aprobados`}>
+              {compact ? (
+                <AdminCardGrid
+                  label="Presupuestos aprobados"
+                  cards={approvedBudgets.slice(0, 35).map((budget): AdminCardData => ({
+                    id: budget.id,
+                    title: budget.title,
+                    titleTooltip: budget.title,
+                    subtitle: budget.client.company || budget.client.name,
+                    fields: [
+                      {
+                        label: "Total",
+                        value: <strong>{formatMoney(budget.total)}</strong>,
+                        title: formatMoney(budget.total),
+                      },
+                    ],
+                    footer: (
+                      <span className="admin-actions">
+                        <AdminButton
+                          icon="receipt"
+                          title={`Emitir la factura de «${budget.title}»`}
+                          aria-label={`Emitir la factura del presupuesto ${budget.title}`}
+                          onClick={() => openFromBudget(budget.id)}
+                        >
+                          Emitir
+                        </AdminButton>
+                      </span>
+                    ),
+                  }))}
+                />
+              ) : (
               <AdminTable
                 view="facturables"
                 label="Presupuestos aprobados"
@@ -670,6 +705,7 @@ export function FacturacionModule() {
                   </AdminRow>
                 ))}
               </AdminTable>
+              )}
             </AdminPanel>
           ) : null}          <AdminPanel
             title="Facturas del período" icon="receipt"
@@ -686,6 +722,81 @@ export function FacturacionModule() {
               {invoices.length === 0 ? (
                 <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá de mes." />
               ) : (
+                compact ? (
+                  <AdminCardGrid
+                    label="Facturas del período"
+                    cards={invoices.map((invoice): AdminCardData => {
+                      const fields: NonNullable<AdminCardData["fields"]> = [
+                        { label: "Emisión", value: formatDate(invoice.issuedAt), title: formatDate(invoice.issuedAt) },
+                        { label: "Total", value: <strong>{formatMoney(invoice.total)}</strong>, title: formatMoney(invoice.total) },
+                        {
+                          label: "IVA",
+                          value: formatMoney(invoice.iva10 + invoice.iva5),
+                          title: `IVA 10 % ${formatMoney(invoice.iva10)} · IVA 5 % ${formatMoney(invoice.iva5)}`,
+                        },
+                        { label: "RUC", value: invoice.clientRuc || "—", title: invoice.clientRuc || "Sin RUC" },
+                      ];
+                      if (invoice.status === "VOID") {
+                        fields.push({
+                          label: "Anulada",
+                          value: `${invoice.voidedByName ?? "—"}${invoice.voidedAt ? ` · ${formatDateShort(invoice.voidedAt)}` : ""}`,
+                          title: invoice.voidReason ? `Motivo: ${invoice.voidReason}` : "Sin motivo registrado",
+                        });
+                      }
+                      return {
+                      id: invoice.id,
+                      title: invoiceNumberLabel(invoice.number),
+                      titleTooltip: `Factura ${invoiceNumberLabel(invoice.number)} · ${invoice.clientName}`,
+                      subtitle: `${invoice.clientName}${invoice.budget?.title ? ` · ${invoice.budget.title}` : invoice.clientId ? " · Cliente del panel" : " · Consumidor final"}`,
+                      badges: [
+                        {
+                          label: invoiceConditionLabel(invoice.condition),
+                          tone: invoice.condition === "CREDIT" ? "warn" : "neutral",
+                          title: invoice.dueAt ? `Vence el ${formatDate(invoice.dueAt)}` : "Pago al contado",
+                        },
+                        { label: invoiceStatusLabel(invoice.status), tone: statusTone(invoice.status) },
+                      ],
+                      fields,
+                      footer: (
+                        <span className="admin-actions">
+                          <AdminButton
+                            icon="eye"
+                            title={`Ver el detalle de la factura ${invoiceNumberLabel(invoice.number)}`}
+                            aria-label={`Ver el detalle de la factura ${invoiceNumberLabel(invoice.number)}`}
+                            onClick={() => setDetail(invoice)}
+                          />
+                          <AdminIconLink
+                            href={`/imprimir/factura/${invoice.id}`}
+                            icon="print"
+                            label={`Abrir el imprimible de la factura ${invoiceNumberLabel(invoice.number)}`}
+                          />
+                          {canWrite && !periodClosed && invoice.status !== "VOID" ? (
+                            <AdminButton
+                              icon={invoice.status === "PAID" ? "refresh" : "check"}
+                              busy={busyId === `paid:${invoice.id}`}
+                              disabled={Boolean(busyId)}
+                              title={invoice.status === "PAID" ? "Volver a emitida" : "Marcar saldada"}
+                              aria-label={invoice.status === "PAID" ? `Volver a emitida la factura ${invoiceNumberLabel(invoice.number)}` : `Marcar saldada la factura ${invoiceNumberLabel(invoice.number)}`}
+                              onClick={() => void togglePaid(invoice)}
+                            />
+                          ) : null}
+                          {canWrite && !periodClosed && invoice.status === "ISSUED" ? (
+                            <AdminButton
+                              icon="close"
+                              title="Anular la factura con motivo (no se borra)"
+                              aria-label={`Anular la factura ${invoiceNumberLabel(invoice.number)}`}
+                              onClick={() => {
+                                setVoidReason("");
+                                setVoidTarget(invoice);
+                              }}
+                            />
+                          ) : null}
+                        </span>
+                      ),
+                      };
+                    })}
+                  />
+                ) : (
                 <AdminTable
                   view="facturas"
                   label="Facturas del período"
@@ -772,6 +883,7 @@ export function FacturacionModule() {
                     </AdminRow>
                   ))}
                 </AdminTable>
+                )
               )}
             </AdminDataState>
           </AdminPanel>
@@ -800,6 +912,74 @@ export function FacturacionModule() {
             {purchases.length === 0 ? (
               <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá de mes." />
             ) : (
+              compact ? (
+                <AdminCardGrid
+                  label="Compras del período"
+                  cards={purchases.map((purchase): AdminCardData => ({
+                    id: purchase.id,
+                    title: purchase.reason,
+                    titleTooltip: `${purchase.reason}${purchase.concept ? ` · ${purchase.concept}` : ""}`,
+                    subtitle: purchase.concept || purchase.supplier?.name || null,
+                    badges: [
+                      {
+                        label: purchaseTaxTypeLabel(purchase),
+                        tone: purchaseTaxTypeLabel(purchase) === "Gravada 10 %" ? "accent" : purchaseTaxTypeLabel(purchase) === "Gravada 5 %" ? "info" : "neutral",
+                      },
+                    ],
+                    fields: [
+                      { label: "Fecha", value: formatDate(purchase.date), title: formatDate(purchase.date) },
+                      {
+                        label: "Comprobante",
+                        value: <span className="admin-code">{purchase.number || "—"}</span>,
+                        title: [purchase.timbrado ? `Timbrado ${purchase.timbrado}` : null, purchase.number].filter(Boolean).join(" · "),
+                      },
+                      { label: "RUC", value: purchase.ruc || "—", title: purchase.ruc || "Sin RUC" },
+                      {
+                        label: "Gravada",
+                        value: formatMoney(purchase.taxable10 + purchase.taxable5),
+                        title: formatMoney(purchase.taxable10 + purchase.taxable5),
+                      },
+                      {
+                        label: "IVA",
+                        value: formatMoney(purchase.iva10 + purchase.iva5),
+                        title: `IVA 10 % ${formatMoney(purchase.iva10)} · IVA 5 % ${formatMoney(purchase.iva5)}`,
+                      },
+                      { label: "Total", value: <strong>{formatMoney(purchase.total)}</strong>, title: formatMoney(purchase.total) },
+                    ],
+                    footer:
+                      canWrite && !periodClosed ? (
+                        <span className="admin-actions">
+                          <AdminButton
+                            icon="edit"
+                            title={`Editar la compra de «${purchase.reason}»`}
+                            aria-label={`Editar la compra de ${purchase.reason}`}
+                            onClick={() => {
+                              setFormError("");
+                              setPurchaseForm({
+                                id: purchase.id,
+                                supplierId: purchase.supplierId ?? "",
+                                reason: purchase.reason,
+                                ruc: purchase.ruc ?? "",
+                                timbrado: purchase.timbrado ?? "",
+                                number: purchase.number ?? "",
+                                date: csvDay(purchase.date),
+                                taxType: purchase.taxable5 > 0 || purchase.iva5 > 0 ? "IVA5" : purchase.exempt > 0 && purchase.taxable10 === 0 ? "EXEMPT" : "IVA10",
+                                total: String(purchase.total),
+                                concept: purchase.concept ?? "",
+                              });
+                            }}
+                          />
+                          <AdminButton
+                            icon="trash"
+                            title={`Borrar la compra de «${purchase.reason}»`}
+                            aria-label={`Borrar la compra de ${purchase.reason}`}
+                            onClick={() => setDeleteTarget(purchase)}
+                          />
+                        </span>
+                      ) : null,
+                  }))}
+                />
+              ) : (
               <AdminTable
                 view="compras"
                 label="Compras del período"
@@ -881,6 +1061,7 @@ export function FacturacionModule() {
                   </AdminRow>
                 ))}
               </AdminTable>
+              )
             )}
           </AdminDataState>
         </AdminPanel>
@@ -892,6 +1073,29 @@ export function FacturacionModule() {
             {bookInvoices.filter((invoice) => invoice.status !== "VOID").length === 0 ? (
               <AdminEmpty icon="receipt" title="Sin ventas en el período" hint="Emití facturas o cambiá de mes para ver el libro." />
             ) : (
+              compact ? (
+                <AdminCardGrid
+                  label="IVA ventas del período"
+                  cards={bookInvoices
+                    .filter((invoice) => invoice.status !== "VOID")
+                    .map((invoice): AdminCardData => ({
+                      id: invoice.id,
+                      title: invoiceNumberLabel(invoice.number),
+                      titleTooltip: `Factura ${invoiceNumberLabel(invoice.number)} · ${invoice.clientName}`,
+                      subtitle: invoice.clientName,
+                      fields: [
+                        { label: "Fecha", value: formatDate(invoice.issuedAt), title: formatDate(invoice.issuedAt) },
+                        { label: "Total", value: <strong>{formatMoney(invoice.total)}</strong>, title: formatMoney(invoice.total) },
+                        { label: "Gravada 10 %", value: formatMoney(invoice.taxable10), title: formatMoney(invoice.taxable10) },
+                        { label: "IVA 10 %", value: formatMoney(invoice.iva10), title: formatMoney(invoice.iva10) },
+                        { label: "Gravada 5 %", value: formatMoney(invoice.taxable5), title: formatMoney(invoice.taxable5) },
+                        { label: "IVA 5 %", value: formatMoney(invoice.iva5), title: formatMoney(invoice.iva5) },
+                        { label: "Exenta", value: formatMoney(invoice.exempt), title: formatMoney(invoice.exempt) },
+                        { label: "RUC", value: invoice.clientRuc || "—", title: invoice.clientRuc || "Sin RUC" },
+                      ],
+                    }))}
+                />
+              ) : (
               <AdminTable
                 view="libro-ventas"
                 label="IVA ventas del período"
@@ -929,6 +1133,7 @@ export function FacturacionModule() {
                     </AdminRow>
                   ))}
               </AdminTable>
+              )
             )}
             {summary.counts.voided > 0 ? (
               <p className="admin-note">
@@ -943,6 +1148,31 @@ export function FacturacionModule() {
             {bookPurchases.length === 0 ? (
               <AdminEmpty icon="suppliers" title="Sin compras en el período" hint="Cargá los comprobantes de proveedores desde la pestaña Compras." />
             ) : (
+              compact ? (
+                <AdminCardGrid
+                  label="IVA compras del período"
+                  cards={bookPurchases.map((purchase): AdminCardData => ({
+                    id: purchase.id,
+                    title: purchase.reason,
+                    titleTooltip: `${purchase.reason}${purchase.ruc ? ` · RUC ${purchase.ruc}` : ""}`,
+                    subtitle: purchase.concept || purchase.supplier?.name || null,
+                    fields: [
+                      { label: "Fecha", value: formatDate(purchase.date), title: formatDate(purchase.date) },
+                      { label: "Total", value: <strong>{formatMoney(purchase.total)}</strong>, title: formatMoney(purchase.total) },
+                      { label: "Gravada 10 %", value: formatMoney(purchase.taxable10), title: formatMoney(purchase.taxable10) },
+                      { label: "IVA 10 %", value: formatMoney(purchase.iva10), title: formatMoney(purchase.iva10) },
+                      { label: "Gravada 5 %", value: formatMoney(purchase.taxable5), title: formatMoney(purchase.taxable5) },
+                      { label: "IVA 5 %", value: formatMoney(purchase.iva5), title: formatMoney(purchase.iva5) },
+                      { label: "Exenta", value: formatMoney(purchase.exempt), title: formatMoney(purchase.exempt) },
+                      {
+                        label: "Comprobante",
+                        value: <span className="admin-code">{purchase.number || "—"}</span>,
+                        title: [purchase.timbrado ? `Timbrado ${purchase.timbrado}` : null, purchase.number].filter(Boolean).join(" · "),
+                      },
+                    ],
+                  }))}
+                />
+              ) : (
               <AdminTable
                 view="libro-compras"
                 label="IVA compras del período"
@@ -978,6 +1208,7 @@ export function FacturacionModule() {
                   </AdminRow>
                 ))}
               </AdminTable>
+              )
             )}
           </AdminPanel>
 
@@ -1079,6 +1310,35 @@ export function FacturacionModule() {
               empty={false}
               emptyTitle=""
             >
+              {compact ? (
+                history.length === 0 ? (
+                  <p className="admin-note">Sin cierres registrados todavía.</p>
+                ) : (
+                  <AdminCardGrid
+                    label="Historial de cierres mensuales"
+                    cards={history.map((row): AdminCardData => ({
+                      id: row.id,
+                      title: monthKeyLabel(row.month),
+                      badges: [{ label: row.status === "CLOSED" ? "Cerrado" : "Abierto", tone: row.status === "CLOSED" ? "ok" : "warn" }],
+                      fields: [
+                        { label: "Ventas", value: row.summary ? formatMoney(row.summary.sales.total) : "—", title: row.summary ? formatMoney(row.summary.sales.total) : "" },
+                        { label: "Compras", value: row.summary ? formatMoney(row.summary.purchases.total) : "—", title: row.summary ? formatMoney(row.summary.purchases.total) : "" },
+                        { label: "Saldo de IVA", value: row.summary ? formatMoney(row.summary.balance) : "—", title: row.summary ? formatMoney(row.summary.balance) : "" },
+                        {
+                          label: "Cerrado",
+                          value: row.closedAt ? `${formatDate(row.closedAt)} · ${row.closedByName ?? ""}` : "—",
+                          title: formatDateTime(row.closedAt),
+                        },
+                        {
+                          label: "Reabierto",
+                          value: row.reopenedAt ? `${formatDate(row.reopenedAt)} · ${row.reopenedByName ?? ""}` : "—",
+                          title: row.reopenReason ?? undefined,
+                        },
+                      ],
+                    }))}
+                  />
+                )
+              ) : (
               <AdminTable
                 view="cierres"
                 label="Historial de cierres mensuales"
@@ -1128,6 +1388,7 @@ export function FacturacionModule() {
                   ))
                 )}
               </AdminTable>
+              )}
             </AdminDataState>
           </AdminPanel>
         </>

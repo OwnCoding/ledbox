@@ -53,6 +53,8 @@ import {
   AdminSelect,
   AdminTable,
 } from "../AdminUI";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import { Combobox, DateField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { AdminIcon } from "../AdminIcons";
 
@@ -160,6 +162,8 @@ export function ConciliacionBancaria({
   const [importOpen, setImportOpen] = useState(false);
   const [dialogRowId, setDialogRowId] = useState("");
   const [busyRowId, setBusyRowId] = useState("");
+  /** Filas del extracto en tarjetas en pantalla chica (auditoría móvil, #140). */
+  const compact = useAdminNarrowViewport();
 
   const periodQuery = datePeriodQuery(period);
   const path = `/api/admin/bank-statements?accountId=${encodeURIComponent(accountId)}&status=${status}${periodQuery ? `&${periodQuery.slice(1)}` : ""}`;
@@ -180,17 +184,24 @@ export function ConciliacionBancaria({
   const periodLabel = period === "all" ? "todo el historial" : "el período";
 
   // Cuenta por defecto: la primera con extractos importados (la primera activa
-  // si todavía no hay ninguno). La primera lectura, sin cuenta, es la que trae
-  // las cuentas con extractos.
+  // si todavía no hay ninguno). Se elige una sola vez, recién cuando llegó la
+  // primera lectura del extracto (es la que trae las cuentas con movimientos
+  // importados); si el usuario cambia de cuenta a mano, la elección manda
+  // (issue #140: abrir la sección en una cuenta sin extractos parecía vacía).
+  const [accountPicked, setAccountPicked] = useState(false);
   useEffect(() => {
-    if (accountId) return;
-    const withStatements = bank.data?.statementAccountIds ?? [];
+    if (accountPicked) return;
+    const withStatements = bank.data?.statementAccountIds;
+    if (!withStatements) return;
+    // Sin cuentas todavía no hay decisión posible: esperamos a que lleguen.
     const preferred =
       accounts.find((account) => withStatements.includes(account.id) && account.active)?.id ??
       withStatements[0] ??
-      defaultAccountId;
-    if (preferred) setAccountId(preferred);
-  }, [accountId, accounts, bank.data, defaultAccountId]);
+      (accounts.length > 0 ? defaultAccountId : "");
+    if (!preferred) return;
+    if (preferred !== accountId) setAccountId(preferred);
+    setAccountPicked(true);
+  }, [accountPicked, accountId, accounts, bank.data, defaultAccountId]);
 
   const accountOptions = useMemo(
     () =>
@@ -297,7 +308,10 @@ export function ConciliacionBancaria({
           <div className="admin-toolbar admin-toolbar--panel">
             <AdminSelect
               value={accountId}
-              onChange={setAccountId}
+              onChange={(value) => {
+                setAccountPicked(true);
+                setAccountId(value);
+              }}
               label="Cuenta de tesorería de la conciliación"
               title="Cuenta cuyo extracto se concilia"
               options={accountOptions}
@@ -348,6 +362,118 @@ export function ConciliacionBancaria({
             }
             rows={4}
           >
+            {compact ? (
+              <AdminCardGrid
+                label="Filas del extracto bancario"
+                cards={rows.map((row): AdminCardData => {
+                  const suggestions = rowSuggestions(row, candidates);
+                  const matchable = rowMatchableMovements(row, candidates);
+                  const best = suggestions[0] ?? null;
+                  return {
+                    id: row.id,
+                    title: row.description,
+                    titleTooltip: rowTitle(row),
+                    subtitle: row.reference ? `Ref. ${row.reference}` : null,
+                    badges: [
+                      { label: statementDirectionLabel(row.direction), tone: statementDirectionTone(row.direction) },
+                      { label: statementStatusLabel(row.status), tone: statementStatusTone(row.status), title: matchedTitle(row) },
+                    ],
+                    fields: [
+                      {
+                        label: "Fecha",
+                        value: formatDateShort(row.occurredAt),
+                        title: `${formatDate(row.occurredAt)} · ${row.account.name}`,
+                      },
+                      {
+                        label: "Monto",
+                        value: <span className="admin-nowrap">{statementAmountLabel(row)}</span>,
+                        title: `${statementDirectionLabel(row.direction)} de ${formatMoney(row.amount)} en «${row.account.name}»`,
+                      },
+                      {
+                        label: "Coincidencia",
+                        value:
+                          row.status === "MATCHED" && row.movement ? (
+                            <span className="admin-nowrap">
+                              {formatDateShort(row.movement.occurredAt)} · {row.movement.sourceLabel ?? row.movement.account.name}
+                            </span>
+                          ) : row.status === "IGNORED" ? (
+                            <span className="admin-muted">—</span>
+                          ) : best ? (
+                            <span className="admin-nowrap">
+                              {suggestions.length === 1 ? "1 sugerido" : `${formatNumber(suggestions.length)} sugeridos`} ·{" "}
+                              {formatDateShort(best.occurredAt)}
+                            </span>
+                          ) : matchable.length > 0 ? (
+                            <span className="admin-nowrap">
+                              {formatNumber(matchable.length)} posible{matchable.length === 1 ? "" : "s"}
+                            </span>
+                          ) : (
+                            <span className="admin-muted">Sin candidato</span>
+                          ),
+                        title: matchTitle(row, suggestions, matchable),
+                      },
+                    ],
+                    footer:
+                      row.status === "PENDING" && writable ? (
+                        <span className="admin-actions">
+                          <AdminButton
+                            icon="check"
+                            busy={busyRowId === row.id}
+                            disabled={Boolean(busyRowId) || !best}
+                            title={
+                              best
+                                ? `Conciliar con el movimiento del ${formatDate(best.occurredAt)} de ${formatMoney(best.amount)}`
+                                : "Sin movimiento sugerido: elegí otro o creá el movimiento desde el extracto"
+                            }
+                            aria-label={`Conciliar la fila de la línea ${row.line}`}
+                            onClick={() => {
+                              if (!best) return;
+                              if (suggestions.length === 1) void patchRow(row, "match", best.id);
+                              else setDialogRowId(row.id);
+                            }}
+                          />
+                          <AdminButton
+                            icon="search"
+                            disabled={Boolean(busyRowId)}
+                            title="Ver los movimientos candidatos y crear uno desde el extracto"
+                            aria-label={`Ver candidatos de la fila de la línea ${row.line}`}
+                            onClick={() => setDialogRowId(row.id)}
+                          />
+                          <AdminButton
+                            icon="close"
+                            disabled={Boolean(busyRowId)}
+                            title="Rechazar la fila: no se concilia y no cuenta en los totales"
+                            aria-label={`Rechazar la fila de la línea ${row.line}`}
+                            onClick={() => void patchRow(row, "ignore")}
+                          />
+                        </span>
+                      ) : row.status === "MATCHED" && writable ? (
+                        <span className="admin-actions">
+                          <AdminButton
+                            icon="refresh"
+                            busy={busyRowId === row.id}
+                            disabled={Boolean(busyRowId)}
+                            title={`Deshacer la conciliación${row.matchedByName ? ` hecha por ${row.matchedByName}` : ""}`}
+                            aria-label={`Deshacer la conciliación de la línea ${row.line}`}
+                            onClick={() => void patchRow(row, "reset")}
+                          />
+                        </span>
+                      ) : row.status === "IGNORED" && writable ? (
+                        <span className="admin-actions">
+                          <AdminButton
+                            icon="refresh"
+                            busy={busyRowId === row.id}
+                            disabled={Boolean(busyRowId)}
+                            title="Volver a pendiente: la fila vuelve a la cola de conciliación"
+                            aria-label={`Volver a pendiente la fila de la línea ${row.line}`}
+                            onClick={() => void patchRow(row, "reset")}
+                          />
+                        </span>
+                      ) : null,
+                  };
+                })}
+              />
+            ) : (
             <AdminTable
               view="conciliacion"
               label="Filas del extracto bancario"
@@ -461,6 +587,7 @@ export function ConciliacionBancaria({
                 );
               })}
             </AdminTable>
+            )}
           </AdminDataState>
 
           {writable && importOpen ? (
@@ -722,6 +849,8 @@ function ImportStatementDialog({
   const [previewError, setPreviewError] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState("");
+  /** Vista previa del extracto en tarjetas en pantalla chica (issue #140). */
+  const compact = useAdminNarrowViewport();
 
   /** Lee el texto local (archivo o pegado) y precarga el mapeo sugerido. */
   function readText(nextText: string, nextFileName: string | null) {
@@ -921,7 +1050,32 @@ function ImportStatementDialog({
             {preview.errors > 0 ? ` · ${formatNumber(preview.errors)} con error` : ""}
             {preview.duplicates > 0 ? ` · ${formatNumber(preview.duplicates)} duplicadas (ya importadas)` : ""}
           </p>
-          {previewRows.length > 0 ? (
+          {previewRows.length > 0 && compact ? (
+            <AdminCardGrid
+              label="Vista previa del extracto"
+              cards={previewRows.map((row): AdminCardData => ({
+                id: `${row.line}-${row.description}`,
+                title: row.description || "—",
+                titleTooltip: row.description || "Sin descripción",
+                subtitle: row.reference ? `Ref. ${row.reference}` : null,
+                badges: [
+                  ...(row.direction
+                    ? [{ label: statementDirectionLabel(row.direction), tone: statementDirectionTone(row.direction) }]
+                    : []),
+                  row.error
+                    ? { label: "Con error", tone: "danger" as const, title: row.error }
+                    : row.duplicate
+                      ? { label: "Duplicada", tone: "neutral" as const, title: "Ya importada en un extracto de esta cuenta" }
+                      : { label: "Lista", tone: "ok" as const, title: "Lista para importar" },
+                ],
+                fields: [
+                  { label: "Línea", value: formatNumber(row.line), title: `Línea ${row.line} del archivo` },
+                  { label: "Fecha", value: formatPreviewDay(row.date), title: row.date ?? "Fecha inválida" },
+                  { label: "Monto", value: row.amount !== null ? formatMoney(row.amount) : "—", title: row.amount !== null ? formatMoney(row.amount) : "Sin monto" },
+                ],
+              }))}
+            />
+          ) : previewRows.length > 0 ? (
             <AdminTable
               view="extracto-preview"
               label="Vista previa del extracto"

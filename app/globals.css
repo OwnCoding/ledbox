@@ -1257,6 +1257,14 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-iconbtn { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--a-line-control); border-radius: 8px; background: transparent; color: var(--a-muted-2); cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
 .admin-iconbtn:hover:not(:disabled) { border-color: var(--a-accent); background: var(--a-accent-soft); color: var(--a-accent); }
 .admin-iconbtn:disabled { opacity: .5; cursor: not-allowed; }
+/* Menú de acciones de fila/tarjeta (issue #143): el panel se ancla con
+   coordenadas del botón y `position: fixed`, así no lo recorta el scroll
+   horizontal de la tabla ni de las columnas del tablero. */
+.admin-menu-pop { position: fixed; z-index: 40; display: grid; gap: 2px; min-width: 12rem; max-height: min(70vh, 24rem); overflow-y: auto; padding: 4px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius); background: var(--a-panel); box-shadow: var(--a-shadow); backdrop-filter: var(--a-blur); }
+.admin-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 600 12.5px var(--font-body); text-align: left; text-decoration: none; cursor: pointer; }
+.admin-menu-item:hover:not(:disabled) { background: var(--a-accent-soft); color: var(--a-accent); }
+.admin-menu-item:disabled { opacity: .5; cursor: not-allowed; }
+.admin-menu-item .admin-icon { flex: 0 0 auto; }
 .admin-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 8px 12px; border: 1px solid var(--a-line-control); border-radius: 8px; background: transparent; color: var(--a-muted-2); font: 700 11px var(--font-body); letter-spacing: .08em; text-transform: uppercase; text-decoration: none; white-space: nowrap; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
 .admin-btn:hover:not(:disabled) { border-color: var(--a-accent); color: var(--a-accent); }
 .admin-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -1299,7 +1307,11 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    del cliente (issue #36), que suman hasta cinco links de contacto. */
 .admin-cell--actions .admin-iconbtn,
 .admin-cell--actions .admin-btn--only-icon { width: 28px; height: 28px; min-height: 28px; }
-.admin-note { display: flex; align-items: center; gap: 8px; color: var(--a-muted-2); font-size: 12.5px; }
+/* La nota es una sola corriente de texto (issue #153): el flex viejo partía el
+   párrafo en items —texto, <strong>, link— y en mobile el cierre mensual quedaba
+   en columnas de palabras sueltas. El ícono, si lo hay, va en línea. */
+.admin-note { display: block; color: var(--a-muted-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: break-word; }
+.admin-note > .admin-icon { margin-right: 8px; vertical-align: -2px; }
 .admin-note[data-tone="ok"] { color: var(--a-ok); }
 .admin-note[data-tone="warn"] { color: var(--a-warn); }
 .admin-note[data-tone="error"] { color: var(--a-danger); }
@@ -1702,7 +1714,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    tabla entra sin scroll horizontal en desktop (1440). */
 .admin-table--clientes { --clientes-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.2fr) 5.5rem 5.5rem 2.75rem 2.75rem 5.25rem minmax(4.5rem, .9fr) 4.75rem 4.75rem; --admin-cols: var(--clientes-cols); --admin-table-min: 56rem; }
 .admin-table--eventos { --eventos-cols: 7.5rem 7rem minmax(8.5rem, 1.6fr) minmax(6.5rem, 1.1fr) minmax(5.5rem, 1fr) 4rem 4.5rem 5.75rem 7.5rem; --admin-cols: var(--eventos-cols); --admin-table-min: 61rem; }
-.admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5.5rem 5rem 5.25rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
+/* Presupuestos (issue #143): prioridad visual a monto, vencimiento, cliente y
+   próximo paso; después ítems, cobrado, saldo, margen, portal y acciones. */
+.admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) minmax(6.25rem, 1fr) 5.5rem minmax(6.75rem, 1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
 /* Firmas (issue #81): documento con su presupuesto de origen, destinatario
    enmascarado, estado con el método, vencimiento con cuenta regresiva, último
    correo, alta y acciones. Fila compacta: en mobile la tabla se desplaza sola. */
@@ -1738,7 +1752,6 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-table--resumen-avisos { --resumen-avisos-cols: 5rem minmax(8rem, 1.8fr) 5.5rem 6rem; --admin-cols: var(--resumen-avisos-cols); --admin-table-min: 26rem; }
 .admin-table--resumen-vencidas { --resumen-vencidas-cols: minmax(7rem, 1.6fr) minmax(6.5rem, 1.2fr) 6rem; --admin-cols: var(--resumen-vencidas-cols); --admin-table-min: 20.5rem; }
 .admin-table--auditoria { --auditoria-cols: 9.5rem minmax(11rem, 1.3fr) 7rem 9.5rem minmax(14rem, 2fr) 4.5rem; --admin-cols: var(--auditoria-cols); --admin-table-min: 60rem; }
-.admin-table--solicitudes { --solicitudes-cols: minmax(6.5rem, 1.1fr) minmax(7.5rem, 1.2fr) minmax(8.5rem, 1.5fr) minmax(8rem, 1.4fr) 6rem 5.75rem 6.5rem; --admin-cols: var(--solicitudes-cols); --admin-table-min: 52rem; }
 /* Correo (issue #30): fecha, destinatario con su actor, tipo, asunto, estado y
    motivo del fallo. Entra sin scroll horizontal en desktop; en mobile se desplaza. */
 .admin-table--correo { --correo-cols: minmax(9.5rem, 1.5fr) minmax(9rem, 1.4fr) 6.5rem minmax(9rem, 1.5fr) 5.75rem minmax(8rem, 1.4fr); --admin-cols: var(--correo-cols); --admin-table-min: 51rem; }
@@ -1863,6 +1876,33 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-proof-frame { display: grid; place-items: center; min-height: 7rem; max-height: 38vh; overflow: auto; border: 1px dashed var(--a-line-2); border-radius: var(--a-radius); background: var(--a-bg-2); }
 .admin-proof-image { display: block; max-width: 100%; max-height: 36vh; }
 .admin-proof-pdf { width: 100%; height: 38vh; border: 0; border-radius: var(--a-radius); background: #fff; }
+
+/* ── Solicitudes del portal (issue #143) ──
+   Conversación comparativa: el pedido del cliente (mensaje + comparación
+   original vs propuesta) y la respuesta del equipo, en tarjetas con acciones. */
+.admin-request-list { display: grid; gap: 8px; margin: 0; padding: 12px; list-style: none; }
+.admin-request { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel-2); }
+.admin-request-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.admin-request-head strong { color: var(--a-text-strong); font-size: 13px; }
+.admin-request-sub { color: var(--a-muted-2); font-size: 12px; }
+.admin-request-when { margin-left: auto; color: var(--a-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.admin-request-talk { display: grid; gap: 8px; }
+.admin-request-message { display: grid; gap: 2px; margin: 0; color: var(--a-muted-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: break-word; }
+.admin-request-actor { color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.admin-request-message--team { padding: 8px 12px; border-left: 2px solid var(--a-accent); border-radius: 0 var(--a-radius) var(--a-radius) 0; background: color-mix(in srgb, var(--a-accent-soft) 40%, var(--a-panel)); }
+.admin-request-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .admin-request-head { align-items: flex-start; }
+  .admin-request-when { margin-left: 0; }
+  .admin-request-actions .admin-btn { flex: 1 1 auto; justify-content: center; }
+}
+/* Comparación de 3 columnas (ítem · original · propuesta). */
+.admin-dialog-table--compare .admin-dialog-table-head,
+.admin-dialog-table--compare .admin-dialog-table-row { grid-template-columns: minmax(8rem, 1.4fr) minmax(6rem, 1fr) minmax(7rem, 1.2fr); }
+@media (max-width: 720px) {
+  .admin-dialog-table--compare .admin-dialog-table-head,
+  .admin-dialog-table--compare .admin-dialog-table-row { grid-template-columns: minmax(4.5rem, 1.2fr) minmax(4.5rem, 1fr) minmax(5rem, 1.1fr); padding: 8px; }
+}
 
 /* ── Tesorería y gastos (issue #27) ──
    Los KPIs de disponible van dentro del panel de tesorería; las cuentas muestran
@@ -2428,12 +2468,15 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-user { padding: 4px; }
   .admin-user > .admin-icon { display: none; }
   .admin-user-info { display: none; }
-  /* Tarjetas de las listas (issue #139): en ancho compacto el nombre va
+  /* Tarjetas de las listas (issues #139 y #143): en ancho compacto el nombre va
      primero y en su propia línea; los chips bajan y se envuelven, así no lo
-     aplastan (Clientes llega a tres chips y el nombre quedaba en un hilo). */
+     aplastan (Clientes llega a tres chips y el nombre quedaba en un hilo). Los
+     chips ocupan su línea completa: con tres o más, su ancho natural desbordaba
+     la tarjeta (Presupuestos: estado + portal + próximo paso). */
   .admin-cards-head { flex-wrap: wrap; }
   .admin-cards-title { flex: 1 1 100%; }
   .admin-cards-badges { flex-wrap: wrap; }
+  .admin-cards-badges { flex: 1 1 100%; }
 }
 @media (max-width: 720px) {
   .admin-hide-sm { display: none; }
@@ -2872,6 +2915,26 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 @keyframes portal-spin { to { transform: rotate(360deg); } }
 .portal-btn--primary.portal-btn--block { box-shadow: 0 10px 28px color-mix(in srgb, var(--led) 18%, transparent); }
 .portal-mobile-sticky { display: none; }
+.portal-mobile-sticky-due { color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.portal-mobile-sticky-due[data-tone="warn"] { color: var(--p-warn); }
+.portal-mobile-sticky-due[data-tone="danger"] { color: var(--p-danger); }
+/* Éxito post-autorización (issue #144): próximos pasos concretos y descarga. */
+.portal-success-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--muted-2); font-size: 13px; line-height: 1.5; }
+.portal-success-steps li::marker { color: var(--p-ok); font-weight: 800; }
+.portal-success-steps strong { color: var(--text); }
+/* Secciones plegables del portal (issue #144): Cronología y el detalle del
+   resumen no compiten con la decisión. */
+.portal-disclosure { padding: 0; }
+.portal-disclosure > summary { display: flex; align-items: center; gap: 10px; padding: 16px; cursor: pointer; list-style: none; }
+.portal-disclosure > summary::-webkit-details-marker { display: none; }
+.portal-disclosure > summary::after { content: "▾"; margin-left: auto; color: var(--muted); font-size: 12px; transition: transform .15s ease; }
+.portal-disclosure[open] > summary::after { transform: rotate(180deg); }
+.portal-disclosure > :not(summary) { margin: 0 16px 16px; }
+.portal-disclosure .portal-card-head { padding: 0; }
+.portal-disclosure-hint { color: var(--muted); font-size: 11.5px; }
+.portal-disclosure--inner { border-color: var(--border); background: var(--surface-2); }
+.portal-disclosure--inner > summary { padding: 10px 12px; color: var(--muted-2); font-size: 12.5px; font-weight: 600; }
+.portal-disclosure--inner > :not(summary) { margin: 0 12px 12px; }
 .portal-pay-now--aside { display: grid; gap: 4px; justify-items: start; }
 .portal-chip { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid var(--border-2); border-radius: 999px; color: var(--muted-2); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
 .portal-chip[data-tone="accent"] { border-color: color-mix(in srgb, var(--led) 40%, transparent); background: var(--led-soft); color: var(--led); }
@@ -2886,7 +2949,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-countdown[data-tone="warn"] { border-color: color-mix(in srgb, var(--p-warn) 40%, transparent); background: color-mix(in srgb, var(--p-warn) 8%, transparent); color: var(--p-warn); }
 .portal-countdown[data-tone="danger"] { border-color: color-mix(in srgb, var(--p-danger) 40%, transparent); background: color-mix(in srgb, var(--p-danger) 8%, transparent); color: var(--p-danger); }
 .portal-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--p-radius-lg); background: var(--surface); box-shadow: var(--p-shadow-card); }
-.portal-card-title { display: flex; align-items: center; gap: 8px; color: var(--muted-2); font: 700 11px var(--font-body); letter-spacing: .16em; text-transform: uppercase; }
+/* Títulos de sección en caja natural (issue #144): el portal tenía todas las
+   secciones en mayúsculas y el cliente perdía jerarquía; las etiquetas chicas
+   (chips, th) siguen en mayúscula. */
+.portal-card-title { display: flex; align-items: center; gap: 8px; color: var(--text); font: 700 13.5px var(--font-body); letter-spacing: .01em; }
 .portal-card-title .admin-icon { flex: 0 0 auto; color: var(--led); }
 .portal-card-lead { color: var(--muted-2); font-size: 13px; line-height: 1.55; }
 .portal-card--action { border-color: var(--border-2); }
@@ -2920,7 +2986,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-banner--demo a { color: var(--led); text-decoration: none; }
 .portal-banner--demo a:hover { text-decoration: underline; }
 .portal-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2px; }
-.portal-banner-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 17px; letter-spacing: .02em; text-transform: uppercase; }
+.portal-banner-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 17px; letter-spacing: .02em; }
 .portal-banner-title .admin-icon { flex: 0 0 auto; color: var(--led); }
 .portal-banner--ok .portal-banner-title .admin-icon { color: var(--p-ok); }
 .portal-banner--warn .portal-banner-title .admin-icon { color: var(--p-warn); }
@@ -3000,6 +3066,23 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .portal-table--expected td.portal-item-cell { display: block; padding-top: 0; }
   .portal-table--expected td.portal-item-cell::before { content: none; }
   .portal-table--expected td[data-label="Estado"] { align-items: flex-start; flex-direction: column; }
+}
+/* Plan de pagos propuesto (issue #144): sin conceptos del portal, cada cuota es
+   una ficha con su vencimiento completo (antes la tabla se desplazaba y el
+   vencimiento quedaba fuera de la vista). */
+@media (max-width: 640px) {
+  .portal-table--plan:not(.portal-table--expected) { min-width: 0; }
+  .portal-table--plan:not(.portal-table--expected) thead { display: none; }
+  .portal-table--plan:not(.portal-table--expected),
+  .portal-table--plan:not(.portal-table--expected) tbody,
+  .portal-table--plan:not(.portal-table--expected) tr,
+  .portal-table--plan:not(.portal-table--expected) td { display: block; width: 100%; }
+  .portal-table--plan:not(.portal-table--expected) tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
+  .portal-table--plan:not(.portal-table--expected) td { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
+  .portal-table--plan:not(.portal-table--expected) td + td { border-top: 1px solid var(--border); }
+  .portal-table--plan:not(.portal-table--expected) td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .portal-table--plan:not(.portal-table--expected) td:first-child { display: block; padding-top: 0; color: var(--text); font-weight: 700; }
+  .portal-table--plan:not(.portal-table--expected) td:first-child::before { content: none; }
 }
 .portal-expected-note { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 .portal-card--pay { border-color: color-mix(in srgb, var(--p-ok) 35%, transparent); }
@@ -3116,7 +3199,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 }
 
 @media (max-width: 1023px) {
-  .portal-budget-aside { order: -1; }
+  /* En mobile manda el orden de la decisión (productos → condiciones →
+     decisión, issue #144): el resumen queda después y la barra fija cubre
+     total, vencimiento y acceso a la decisión mientras se recorre. */
   .portal-budget-grid { grid-template-columns: minmax(0, 1fr); }
 }
 

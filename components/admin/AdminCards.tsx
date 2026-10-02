@@ -40,7 +40,12 @@ export type AdminCardData = {
   footer?: React.ReactNode;
 };
 
-/** Grilla de tarjetas con pie anclado: `repeat(auto-fill, minmax(15rem, 1fr))`. */
+/**
+ * Grilla de tarjetas con pie anclado: `repeat(auto-fill, minmax(15rem, 1fr))`.
+ *
+ * El ancho compacto (≤980 px, mismo corte del shell) lo decide el módulo con
+ * `useAdminNarrowViewport` de `AdminBoard`: una sola regla para todo el panel.
+ */
 export function AdminCardGrid({ label, cards }: { label: string; cards: AdminCardData[] }) {
   return (
     <ul className="admin-cards" aria-label={label}>
