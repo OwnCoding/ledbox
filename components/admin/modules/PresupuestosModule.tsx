@@ -45,8 +45,10 @@ import {
 import { portalBudgetUrl } from "@/lib/public-config";
 import { qrDataUrl } from "@/lib/qr";
 import { useAdminSession } from "../AdminShell";
-import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, useAdminNarrowViewport, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import {
+  AdminActionsMenu,
   AdminBadge,
   AdminButton,
   AdminCell,
@@ -56,17 +58,16 @@ import {
   AdminDisclosure,
   AdminEmpty,
   AdminFormPanel,
-  AdminIconLink,
   AdminKpi,
   AdminModuleContext,
   AdminNote,
   AdminPanel,
   AdminRow,
-  AdminSelect,
   AdminTable,
   AdminTimelineDialog,
   AdminToolbar,
   AdminWhatsappTemplateButton,
+  type AdminMenuItem,
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
 import { SignatureDialog } from "./SignatureDialog";
@@ -191,6 +192,89 @@ function requestDelta(request: AdminBudgetRequestRow): string {
     return `Rebaja: ${asked} → ${formatMoney(discount.amount)} · descuento actual ${formatMoney(request.budget.discount)}`;
   }
   return request.payload.comment || request.note || "Pedido de cambios";
+}
+
+/**
+ * Comparación original vs propuesta del cliente (issue #143): lo que el
+ * presupuesto tiene hoy al lado de lo que pidió el portal, ítem por ítem o en
+ * el descuento. La usan la tarjeta de la solicitud y el diálogo de conversación.
+ */
+function RequestComparison({ request }: { request: AdminBudgetRequestRow }) {
+  if (request.kind === "items") {
+    const items = request.payload.items ?? [];
+    return (
+      <div className="admin-dialog-table admin-dialog-table--compare" role="table" aria-label="Comparación: original vs propuesta del cliente">
+        <div className="admin-dialog-table-head" role="row">
+          <span role="columnheader">Ítem</span>
+          <span role="columnheader">Original</span>
+          <span role="columnheader">Propuesta del cliente</span>
+        </div>
+        {items.length === 0 ? (
+          <div className="admin-dialog-table-row" role="row">
+            <span role="cell">Sin detalle de ítems</span>
+            <span role="cell">—</span>
+            <span role="cell">—</span>
+          </div>
+        ) : (
+          items.map((row) => {
+            const current = request.budget.items.find((item) => item.id === row.id);
+            return (
+              <div className="admin-dialog-table-row" role="row" key={row.id}>
+                <span role="cell">{current?.name ?? "Ítem"}</span>
+                <span role="cell">{current ? `${formatNumber(current.quantity)} × ${formatNumber(current.days)} d` : "—"}</span>
+                <span role="cell">
+                  <strong>
+                    {formatNumber(row.quantity)} × {formatNumber(row.days)} d
+                  </strong>
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    );
+  }
+  if (request.kind === "discount" && request.payload.discount) {
+    const discount = request.payload.discount;
+    const asked = discount.type === "percent" ? `${formatNumber(discount.value)} %` : formatMoney(discount.value);
+    return (
+      <dl className="admin-dialog-facts">
+        <div>
+          <dt>Descuento actual</dt>
+          <dd>{formatMoney(request.budget.discount)}</dd>
+        </div>
+        <div>
+          <dt>Pidió el cliente</dt>
+          <dd>
+            {asked} · {formatMoney(discount.amount)}
+          </dd>
+        </div>
+      </dl>
+    );
+  }
+  return <p className="admin-dialog-text">{request.payload.comment || request.note || "Pedido de cambios"}</p>;
+}
+
+/**
+ * Próximo paso comercial (issue #143): la acción que sigue según el estado y la
+ * aprobación del portal, en una línea. Prioridad visual de la lista y las
+ * tarjetas móviles: monto, vencimiento, cliente y próximo paso.
+ */
+function budgetNextStep(budget: AdminBudgetRow): { label: string; hint: string } {
+  if (budgetApprovalState(budget) === "CAMBIOS_SOLICITADOS") {
+    return { label: "Responder cambios", hint: "El cliente pidió ajustes desde el portal" };
+  }
+  const days = daysUntilDue(budget.validUntil);
+  if (budget.status === "DRAFT") return { label: "Enviar al cliente", hint: "Falta compartir la propuesta" };
+  if (budget.status === "SENT") {
+    if (days !== null && days < 0) return { label: "Reactivar vigencia", hint: "La validez venció sin respuesta" };
+    if (days !== null && days <= 7) return { label: "Recordar vencimiento", hint: "La validez termina esta semana" };
+    return { label: "Esperar respuesta", hint: "Enviado y pendiente del cliente" };
+  }
+  if (budget.status === "NEGOTIATING") return { label: "Acordar condiciones", hint: "Hay una negociación abierta" };
+  if (budget.status === "APPROVED") return { label: "Cobrar anticipo", hint: "Aprobado: sigue el plan de pagos" };
+  if (budget.status === "LOST") return { label: "Reactivar o cerrar", hint: "Perdido: definir si se reintenta" };
+  return { label: "Archivado", hint: "Cancelado: sin acción pendiente" };
 }
 
 /** Resumen del plan de pagos para la columna del presupuesto. */
@@ -771,6 +855,8 @@ export function PresupuestosModule() {
   const [newEventName, setNewEventName] = useState<string | null>(null);
   const [boardError, setBoardError] = useState("");
   const [view, setView] = useAdminModuleView("presupuestos");
+  /** Ancho compacto (issue #143): pestañas de estado y tarjetas, sin tablero. */
+  const narrow = useAdminNarrowViewport();
   /** Precio, costos y condiciones del presupuesto (issue #65). */
   const [pricing, setPricing] = useState<AdminBudgetRow | null>(null);
 
@@ -784,6 +870,8 @@ export function PresupuestosModule() {
 
   // Autogestión (issue #14): solicitudes, plan de pagos y datos de pago.
   const [resolution, setResolution] = useState<{ request: AdminBudgetRequestRow; decision: RequestDecision } | null>(null);
+  /** Conversación comparativa de una solicitud del portal (issue #143). */
+  const [talkRequest, setTalkRequest] = useState<AdminBudgetRequestRow | null>(null);
   const [counterItems, setCounterItems] = useState<Record<string, { quantity: number; days: number }>>({});
   const [counterDiscount, setCounterDiscount] = useState("");
   const [paymentsOpen, setPaymentsOpen] = useState(false);
@@ -861,8 +949,17 @@ export function PresupuestosModule() {
       .sort(compareBudgetUrgency);
   }, [budgetRows, query, status]);
 
+  /** Conteo por estado para las pestañas/filtros de estado (issue #143). */
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const budget of budgetRows) counts.set(budget.status, (counts.get(budget.status) ?? 0) + 1);
+    return counts;
+  }, [budgetRows]);
+
   // Tablero (issue #26): el estado vive en las columnas, así que la búsqueda se
   // aplica sin el filtro de estado y el orden por urgencia fija cada columna.
+  // Con un estado elegido (filtros encima del Kanban, issue #143) solo esa
+  // columna conserva tarjetas.
   const searched = useMemo(
     () =>
       budgetRows
@@ -870,13 +967,17 @@ export function PresupuestosModule() {
         .sort(compareBudgetUrgency),
     [budgetRows, query],
   );
+  const boardRows = useMemo(
+    () => (status === "ALL" ? searched : searched.filter((budget) => budget.status === status)),
+    [searched, status],
+  );
 
   const moveBudget = useCallback(async (budget: AdminBudgetRow, nextStatus: string) => {
     setBoardError("");
     const result = await adminSend("/api/admin/budgets", { budgetId: budget.id, status: nextStatus }, "PATCH");
     return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
   }, []);
-  const board = useAdminBoardMove({ rows: searched, move: moveBudget, onError: setBoardError });
+  const board = useAdminBoardMove({ rows: boardRows, move: moveBudget, onError: setBoardError });
 
   const boardCards = useMemo<AdminBoardCardData[]>(
     () =>
@@ -884,6 +985,7 @@ export function PresupuestosModule() {
         const paid = collectedAmount(budget.payments);
         const balance = budget.total - paid;
         const approvalState = budgetApprovalState(budget);
+        const next = budgetNextStep(budget);
         return {
           id: budget.id,
           status: budget.status,
@@ -899,30 +1001,11 @@ export function PresupuestosModule() {
               tone: budgetApprovalTone(approvalState),
               title: portalSummary(budget),
             },
+            { label: next.label, tone: "neutral", title: next.hint },
           ],
-          detail: `${formatNumber(budget.items.length)} ítem${budget.items.length === 1 ? "" : "s"} · cobrado ${formatMoney(paid)}`,
+          detail: `${next.label} · ${formatNumber(budget.items.length)} ítem${budget.items.length === 1 ? "" : "s"} · cobrado ${formatMoney(paid)}`,
           actions: (
             <>
-              <AdminIconLink
-                href={`/imprimir/presupuesto/${budget.id}`}
-                icon="print"
-                label={`Imprimir presupuesto: ${budget.title}`}
-                external
-              />
-              <AdminButton
-                icon="pen"
-                title={`Firma del cliente: ${budget.title}`}
-                aria-label={`Firma del cliente: ${budget.title}`}
-                onClick={() => setSignatureBudget(budget)}
-              />
-              <AdminButton
-                icon="globe"
-                title={`${budget.publicToken ? "QR y link del portal" : "Generar link del portal"}: ${budget.title}`}
-                aria-label={`${budget.publicToken ? "QR y link del portal" : "Generar link del portal"}: ${budget.title}`}
-                onClick={() => openPortal(budget)}
-              >
-                QR
-              </AdminButton>
               {writable ? (
                 <AdminButton
                   icon="mail"
@@ -931,11 +1014,115 @@ export function PresupuestosModule() {
                   onClick={() => openSend(budget)}
                 />
               ) : null}
+              <AdminActionsMenu label={`Acciones del presupuesto ${budget.title}`} items={budgetMenuItems(budget)} />
             </>
           ),
         };
       }),
     [board.rows, writable],
+  );
+
+  /**
+   * Acciones unificadas del presupuesto (issue #143): impresión, firma y portal
+   * viven en un solo menú «⋯» para no llenar la fila/tarjeta de íconos.
+   */
+  function budgetMenuItems(budget: AdminBudgetRow): AdminMenuItem[] {
+    return [
+      {
+        label: "Imprimir",
+        icon: "print",
+        href: `/imprimir/presupuesto/${budget.id}`,
+        external: true,
+        title: `Imprimir presupuesto: ${budget.title}`,
+      },
+      {
+        label: "Firma del cliente",
+        icon: "pen",
+        onClick: () => setSignatureBudget(budget),
+        title: `Firma del cliente: ${budget.title}`,
+      },
+      {
+        label: budget.publicToken ? "Portal del cliente" : "Generar link del portal",
+        icon: "globe",
+        onClick: () => openPortal(budget),
+        title: `${budget.publicToken ? "QR y link del portal" : "Generar link del portal"}: ${budget.title}`,
+      },
+      ...(budget.publicToken
+        ? [
+            {
+              label: "Copiar link del portal",
+              icon: "copy" as const,
+              onClick: () => void copyPortalLink(budget),
+              title: `Copiar el link del portal: ${budget.title}`,
+            },
+          ]
+        : []),
+    ];
+  }
+
+  /** Tarjetas del ancho compacto (issue #143): monto, vencimiento, cliente y próximo paso. */
+  const budgetCards = useMemo<AdminCardData[]>(
+    () =>
+      rows.map((budget) => {
+        const paid = collectedAmount(budget.payments);
+        const balance = budget.total - paid;
+        const approvalState = budgetApprovalState(budget);
+        const next = budgetNextStep(budget);
+        return {
+          id: budget.id,
+          title: budget.title,
+          titleTooltip: `${budget.title}${budget.event ? ` · ${budget.event.name}` : ""}`,
+          subtitle: [budget.client.company || budget.client.name, budget.event?.name ?? null].filter(Boolean).join(" · "),
+          badges: [
+            { label: budgetStatusLabel(budget.status), tone: statusTone(budget.status) },
+            { label: budgetApprovalLabel(approvalState), tone: budgetApprovalTone(approvalState), title: portalSummary(budget) },
+            { label: next.label, tone: "neutral", title: next.hint },
+          ],
+          fields: [
+            { label: "Total", value: <strong>{formatMoney(budget.total)}</strong>, title: formatMoney(budget.total) },
+            {
+              label: "Vence",
+              value: budget.validUntil ? (
+                <>
+                  <span className="admin-nowrap">{formatDateShort(budget.validUntil)}</span>{" "}
+                  <AdminCountdown
+                    value={budget.validUntil}
+                    className="admin-countdown--inline"
+                    title={`Validez de la oferta: ${budget.title}`}
+                  />
+                </>
+              ) : (
+                "—"
+              ),
+              title: budget.validUntil ? `Vence el ${formatDate(budget.validUntil)}` : "Sin vencimiento",
+            },
+            {
+              label: "Saldo",
+              value: formatMoney(balance),
+              title: `Total ${formatMoney(budget.total)} · cobrado ${formatMoney(paid)}`,
+            },
+            {
+              label: "Ítems",
+              value: formatNumber(budget.items.length),
+              title: `${formatNumber(budget.items.length)} ítem${budget.items.length === 1 ? "" : "s"}`,
+            },
+          ],
+          footer: (
+            <span className="admin-actions">
+              {writable ? (
+                <AdminButton
+                  icon="mail"
+                  title={`Enviar por correo: ${budget.title} · ${budget.client.email || "el cliente no tiene correo cargado"}`}
+                  aria-label={`Enviar por correo: ${budget.title}`}
+                  onClick={() => openSend(budget)}
+                />
+              ) : null}
+              <AdminActionsMenu label={`Acciones del presupuesto ${budget.title}`} items={budgetMenuItems(budget)} />
+            </span>
+          ),
+        };
+      }),
+    [rows, writable],
   );
 
   // KPIs del módulo (spec 22-09-2026): vigentes, por vencer en 7 días, los
@@ -1360,10 +1547,7 @@ export function PresupuestosModule() {
           label="Buscar presupuestos"
           placeholder="Buscar por título, cliente o evento…"
         />
-        {view === "list" ? (
-          <AdminSelect value={status} onChange={setStatus} label="Filtrar por estado" options={STATUS_OPTIONS} />
-        ) : null}
-        <AdminViewSwitch view={view} onChange={setView} label="Vista de presupuestos" />
+        {narrow ? null : <AdminViewSwitch view={view} onChange={setView} label="Vista de presupuestos" />}
         {canManagePayments ? (
           <AdminButton
             icon="finance"
@@ -1503,19 +1687,9 @@ export function PresupuestosModule() {
               : "Sin pendientes"
           }
         >
-          <AdminTable
-            view="solicitudes"
-            label="Solicitudes del portal"
-            columns={[
-              { label: "Solicitud" },
-              { label: "Presupuesto" },
-              { label: "Cambio propuesto" },
-              { label: "Motivo" },
-              { label: "Pedido" },
-              { label: "Estado" },
-              { label: "Acciones", end: true },
-            ]}
-          >
+          {/* Conversación comparativa (issue #143): el pedido del cliente al lado
+              de la propuesta original, con la respuesta del equipo. */}
+          <ul className="admin-request-list" aria-label="Solicitudes del portal">
             {requestRows.map((request) => {
               const clientLabel = request.budget.client.company || request.budget.client.name;
               const resolved = request.status !== "pending";
@@ -1523,49 +1697,99 @@ export function PresupuestosModule() {
                 ? `Resuelta el ${formatDateTime(request.resolvedAt)}${request.resolvedByName ? ` por ${request.resolvedByName}` : ""} · Pedida el ${formatDateTime(request.createdAt)}`
                 : `Pedida el ${formatDateTime(request.createdAt)} por ${request.requestedByName}`;
               return (
-                <AdminRow key={request.id}>
-                  <AdminCell title={`${budgetChangeKindLabel(request.kind)} · ${clientLabel}`}>
-                    <strong>{budgetChangeKindLabel(request.kind)}</strong>
-                    <small className="admin-cell-sub"> · {clientLabel}</small>
-                  </AdminCell>
-                  <AdminCell title={request.budget.title}>{request.budget.title}</AdminCell>
-                  <AdminCell title={requestDelta(request)}>{requestDelta(request)}</AdminCell>
-                  <AdminCell title={request.note ?? "Sin motivo"}>
-                    {request.note || "—"}
-                    {request.responseNote ? <small className="admin-cell-sub"> · Respuesta: {request.responseNote}</small> : null}
-                  </AdminCell>
-                  <AdminCell title={when}>{formatDateTime(request.createdAt)}</AdminCell>
-                  <AdminCell title={when}>
+                <li className="admin-request" key={request.id}>
+                  <div className="admin-request-head">
                     <AdminBadge tone={budgetChangeStatusTone(request.status)}>{budgetChangeStatusLabel(request.status)}</AdminBadge>
-                  </AdminCell>
-                  <AdminCell end className="admin-cell--actions">
-                    <span className="admin-actions">
-                      {writable && !resolved ? (
-                        <>
-                          <AdminButton
-                            icon="check"
-                            title={`Aceptar la solicitud de ${clientLabel}`}
-                            aria-label={`Aceptar la solicitud de ${clientLabel}`}
-                            onClick={() => openResolution(request, "accept")}
-                          />
-                          <AdminButton
-                            icon="close"
-                            title={`Rechazar la solicitud de ${clientLabel}`}
-                            aria-label={`Rechazar la solicitud de ${clientLabel}`}
-                            onClick={() => openResolution(request, "reject")}
-                          />
-                        </>
-                      ) : resolved ? (
-                        <small className="admin-cell-sub">{request.resolvedByName || "Equipo"}</small>
-                      ) : null}
+                    <strong>{budgetChangeKindLabel(request.kind)}</strong>
+                    <span className="admin-request-sub">
+                      {request.budget.title} · {clientLabel}
                     </span>
-                  </AdminCell>
-                </AdminRow>
+                    <span className="admin-request-when" title={when}>
+                      {formatDateTime(request.createdAt)} · {request.requestedByName}
+                    </span>
+                  </div>
+                  <div className="admin-request-talk">
+                    <p className="admin-request-message">
+                      <span className="admin-request-actor">Cliente</span>
+                      {request.note || "Pedido sin comentario"}
+                    </p>
+                    <p className="admin-request-message">
+                      <span className="admin-request-actor">Cambio propuesto</span>
+                      {requestDelta(request)}
+                    </p>
+                    {request.responseNote ? (
+                      <p className="admin-request-message admin-request-message--team">
+                        <span className="admin-request-actor">
+                          Equipo{request.resolvedByName ? ` · ${request.resolvedByName}` : ""}
+                        </span>
+                        {request.responseNote}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="admin-request-actions">
+                    <AdminButton
+                      icon="eye"
+                      title={`Ver la conversación de ${clientLabel}`}
+                      aria-label={`Ver la conversación de ${clientLabel}`}
+                      onClick={() => setTalkRequest(request)}
+                    >
+                      Ver conversación
+                    </AdminButton>
+                    {writable && !resolved ? (
+                      <>
+                        <AdminButton
+                          icon="check"
+                          title={`Aceptar la solicitud de ${clientLabel}`}
+                          aria-label={`Aceptar la solicitud de ${clientLabel}`}
+                          onClick={() => openResolution(request, "accept")}
+                        >
+                          Aceptar
+                        </AdminButton>
+                        <AdminButton
+                          icon="close"
+                          title={`Rechazar la solicitud de ${clientLabel}`}
+                          aria-label={`Rechazar la solicitud de ${clientLabel}`}
+                          onClick={() => openResolution(request, "reject")}
+                        >
+                          Rechazar
+                        </AdminButton>
+                      </>
+                    ) : null}
+                  </div>
+                </li>
               );
             })}
-          </AdminTable>
+          </ul>
         </AdminPanel>
       ) : null}
+
+      {/* Filtros/pestañas de estado (issue #143): encima del tablero y de la
+          lista; en ancho compacto son las pestañas que reemplazan al Kanban. */}
+      <nav className="admin-subtabs" aria-label="Filtrar presupuestos por estado">
+        <button
+          type="button"
+          className="admin-subtab"
+          data-active={status === "ALL" ? "true" : undefined}
+          aria-pressed={status === "ALL"}
+          onClick={() => setStatus("ALL")}
+        >
+          Todos
+          <span className="admin-subtab-count">{formatNumber(budgetRows.length)}</span>
+        </button>
+        {STATUS_OPTIONS.slice(1).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className="admin-subtab"
+            data-active={status === option.value ? "true" : undefined}
+            aria-pressed={status === option.value}
+            onClick={() => setStatus(option.value)}
+          >
+            {option.label}
+            <span className="admin-subtab-count">{formatNumber(statusCounts.get(option.value) ?? 0)}</span>
+          </button>
+        ))}
+      </nav>
 
       <AdminDataState
         loading={budgetsResource.loading}
@@ -1576,8 +1800,14 @@ export function PresupuestosModule() {
         emptyHint="Creá un presupuesto para seguir venta, costos, margen y cobros."
         emptyAction={writable ? <button type="button" className="admin-empty-link" onClick={() => { setFormError(""); setShowForm(true); }}>Crear presupuesto →</button> : undefined}
       >
-        {view === "board" ? (
-          searched.length === 0 ? (
+        {narrow ? (
+          rows.length === 0 ? (
+            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá la pestaña de estado." />
+          ) : (
+            <AdminCardGrid label="Presupuestos" cards={budgetCards} />
+          )
+        ) : view === "board" ? (
+          board.rows.length === 0 ? (
             <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda." />
           ) : (
             <AdminBoard
@@ -1598,14 +1828,14 @@ export function PresupuestosModule() {
             columns={[
               { label: "Presupuesto" },
               { label: "Cliente" },
-              { label: "Ítems", end: true },
               { label: "Total", end: true },
+              { label: "Vence" },
+              { label: "Estado / próximo paso" },
+              { label: "Ítems", end: true },
               { label: "Cobrado", end: true },
               { label: "Saldo", end: true },
               { label: "Margen", end: true },
-              { label: "Estado" },
               { label: "Portal" },
-              { label: "Vence" },
               { label: "Acciones", end: true },
             ]}
           >
@@ -1630,6 +1860,7 @@ export function PresupuestosModule() {
                 .join(", ");
               const budgetProofs = proofsByBudget[budget.id] ?? [];
               const proofLabel = `${formatNumber(budgetProofs.length)} comprobante${budgetProofs.length === 1 ? "" : "s"} del portal`;
+              const next = budgetNextStep(budget);
               return (
                 <AdminRow key={budget.id}>
                   <AdminCell title={`${budget.title}${budget.event ? ` · ${budget.event.name}` : ""}`}>
@@ -1637,6 +1868,21 @@ export function PresupuestosModule() {
                     {budget.event ? <small className="admin-cell-sub"> · {budget.event.name}</small> : null}
                   </AdminCell>
                   <AdminCell title={budget.client.company || budget.client.name}>{budget.client.company || budget.client.name}</AdminCell>
+                  <AdminCell end title={formatMoney(budget.total)}>
+                    {formatMoney(budget.total)}
+                  </AdminCell>
+                  <AdminCell title={budget.validUntil ? `Vence el ${formatDateShort(budget.validUntil)}` : "Sin vencimiento"}>
+                    <span className="admin-nowrap">{budget.validUntil ? formatDateShort(budget.validUntil) : "—"}</span>
+                    <AdminCountdown
+                      value={budget.validUntil}
+                      className="admin-countdown--inline"
+                      title={`Validez de la oferta: ${budget.title}`}
+                    />
+                  </AdminCell>
+                  <AdminCell title={`${budgetStatusLabel(budget.status)} · Próximo paso: ${next.label} — ${next.hint}`}>
+                    <AdminBadge tone={statusTone(budget.status)}>{budgetStatusLabel(budget.status)}</AdminBadge>
+                    <small className="admin-cell-sub" title={next.hint}> · {next.label}</small>
+                  </AdminCell>
                   <AdminCell
                     end
                     title={`${budget.items.length} ítem${budget.items.length === 1 ? "" : "s"}${
@@ -1648,9 +1894,6 @@ export function PresupuestosModule() {
                     {formatNumber(budget.items.length)}
                     {linkedCount > 0 ? <small className="admin-cell-sub"> · {formatNumber(linkedCount)} vinc.</small> : null}
                   </AdminCell>
-                  <AdminCell end title={formatMoney(budget.total)}>
-                    {formatMoney(budget.total)}
-                  </AdminCell>
                   <AdminCell end title={formatMoney(paid)}>
                     {formatMoney(paid)}
                   </AdminCell>
@@ -1660,23 +1903,12 @@ export function PresupuestosModule() {
                   <AdminCell end title={`${formatMoney(margin)} de margen sobre un costo interno de ${formatMoney(internalCost.total)} (materiales ${formatMoney(internalCost.materials)} · mano de obra ${formatMoney(internalCost.labor)} · ítems ${formatMoney(internalCost.items)})`}>
                     {formatMoney(margin)}
                   </AdminCell>
-                  <AdminCell>
-                    <AdminBadge tone={statusTone(budget.status)}>{budgetStatusLabel(budget.status)}</AdminBadge>
-                  </AdminCell>
                   <AdminCell title={portalSummary(budget)}>
                     <AdminBadge tone={budgetApprovalTone(approvalState)}>{budgetApprovalLabel(approvalState)}</AdminBadge>
                     <small className="admin-cell-sub">
                       {" "}· {budget.publicToken ? "Link activo" : "Sin link"}
                       {budgetProofs.length > 0 ? ` · ${proofLabel}` : ""}
                     </small>
-                  </AdminCell>
-                  <AdminCell title={budget.validUntil ? `Vence el ${formatDateShort(budget.validUntil)}` : "Sin vencimiento"}>
-                    <span className="admin-nowrap">{budget.validUntil ? formatDateShort(budget.validUntil) : "—"}</span>
-                    <AdminCountdown
-                      value={budget.validUntil}
-                      className="admin-countdown--inline"
-                      title={`Validez de la oferta: ${budget.title}`}
-                    />
                   </AdminCell>
                   <AdminCell end className="admin-cell--actions">
                     <span className="admin-actions">
@@ -1686,42 +1918,7 @@ export function PresupuestosModule() {
                         aria-label={`Ver la cronología: ${budget.title}`}
                         onClick={() => setTimelineBudget(budget)}
                       />
-                      <AdminButton
-                        icon="pen"
-                        title={`Firma del cliente: ${budget.title}`}
-                        aria-label={`Firma del cliente: ${budget.title}`}
-                        onClick={() => setSignatureBudget(budget)}
-                      />
-                      <AdminIconLink
-                        href={`/imprimir/presupuesto/${budget.id}`}
-                        icon="print"
-                        label={`Imprimir presupuesto: ${budget.title}`}
-                        external
-                      />
-                      {budget.publicToken ? (
-                        <>
-                          <AdminIconLink
-                            href={portalBudgetUrl(budget.publicToken)}
-                            icon="external"
-                            label={`Ver el portal del presupuesto: ${budget.title}`}
-                            external
-                          />
-                          <AdminButton
-                            icon="download"
-                            title={`Copiar el link del portal: ${budget.title}`}
-                            aria-label={`Copiar el link del portal: ${budget.title}`}
-                            onClick={() => void copyPortalLink(budget)}
-                          />
-                        </>
-                      ) : null}
-                      <AdminButton
-                        icon="globe"
-                        title={`${budget.publicToken ? "QR y link del portal" : "Generar link del portal"}: ${budget.title}`}
-                        aria-label={`${budget.publicToken ? "QR y link del portal" : "Generar link del portal"}: ${budget.title}`}
-                        onClick={() => openPortal(budget)}
-                      >
-                        QR
-                      </AdminButton>
+                      <AdminActionsMenu label={`Acciones del presupuesto ${budget.title}`} items={budgetMenuItems(budget)} />
                       {writable ? (
                         <AdminButton
                           icon="mail"
@@ -1987,6 +2184,60 @@ export function PresupuestosModule() {
             <AdminButton variant="primary" icon="check" busy={dialogBusy} onClick={() => void submitApproval()}>
               {approval.decision === "approve" ? "Registrar aprobación" : "Registrar pedido"}
             </AdminButton>
+          </div>
+        </AdminDialog>
+      ) : null}
+
+      {talkRequest ? (
+        <AdminDialog
+          title={`Conversación · ${talkRequest.budget.title}`}
+          size="wide"
+          icon="globe"
+          onClose={() => setTalkRequest(null)}
+        >
+          <p className="admin-dialog-text">
+            <strong>{talkRequest.requestedByName}</strong> pidió {budgetChangeKindLabel(talkRequest.kind).toLowerCase()} el{" "}
+            {formatDateTime(talkRequest.createdAt)}. Comparación original vs propuesta:
+          </p>
+          <RequestComparison request={talkRequest} />
+          {talkRequest.note ? (
+            <p className="admin-dialog-text">
+              <strong>Cliente:</strong> {talkRequest.note}
+            </p>
+          ) : null}
+          {talkRequest.responseNote ? (
+            <p className="admin-dialog-text">
+              <strong>Equipo{talkRequest.resolvedByName ? ` · ${talkRequest.resolvedByName}` : ""}:</strong>{" "}
+              {talkRequest.responseNote}
+            </p>
+          ) : null}
+          <div className="admin-dialog-foot">
+            <AdminButton icon="close" onClick={() => setTalkRequest(null)}>
+              Cerrar
+            </AdminButton>
+            {writable && talkRequest.status === "pending" ? (
+              <>
+                <AdminButton
+                  icon="close"
+                  onClick={() => {
+                    openResolution(talkRequest, "reject");
+                    setTalkRequest(null);
+                  }}
+                >
+                  Rechazar
+                </AdminButton>
+                <AdminButton
+                  variant="primary"
+                  icon="check"
+                  onClick={() => {
+                    openResolution(talkRequest, "accept");
+                    setTalkRequest(null);
+                  }}
+                >
+                  Aceptar y aplicar
+                </AdminButton>
+              </>
+            ) : null}
           </div>
         </AdminDialog>
       ) : null}

@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 /**
- * Regla de las vistas del panel (issues #57 y #139/#140): un módulo que dibuja
- * la cuadrícula de tarjetas (`AdminCardGrid`) tiene que hacerla alcanzable por
- * alguna de las dos vías del kit: el conmutador recordado por usuario
- * (`useAdminModuleView` + `AdminViewSwitch` + `"grid"`) o el ancho compacto
- * (≤980 px la tabla densa se reemplaza por tarjetas,
- * `useAdminNarrowViewport`). Si la cuadrícula no se puede alcanzar por ninguna,
- * este test lo frena.
+ * Regla de las vistas del panel (issues #57, #139/#140 y #143): un módulo que
+ * dibuja la cuadrícula de tarjetas (`AdminCardGrid`) tiene que hacerla
+ * alcanzable por alguna de las dos vías del kit: si declara `"grid"` entre las
+ * vistas, el conmutador recordado por usuario (`useAdminModuleView` +
+ * `AdminViewSwitch`); si la usa solo para el ancho compacto (≤980 px la tabla
+ * densa se reemplaza por tarjetas), `useAdminNarrowViewport`. Si la cuadrícula
+ * no se puede alcanzar por ninguna, este test lo frena.
  */
 const MODULES_DIR = join(process.cwd(), "components", "admin", "modules");
 
@@ -22,14 +22,14 @@ test("los módulos con cuadrícula la ofrecen en el conmutador o en la lista com
 
   for (const file of withGrid) {
     const source = readFileSync(join(MODULES_DIR, file), "utf8");
-    if (/useAdminModuleView\(/.test(source)) {
+    if (/useAdminModuleView\(/.test(source) && /["']grid["']/.test(source)) {
       assert.match(source, /AdminViewSwitch/, `${file}: falta el conmutador de vistas`);
-      assert.match(source, /["']grid["']/, `${file}: la cuadrícula no está declarada entre las vistas`);
     } else {
+      // Cuadrícula solo para el ancho compacto (≤980 px): la regla es la del kit.
       assert.match(
         source,
         /useAdminNarrowViewport/,
-        `${file}: la cuadrícula no es alcanzable (sin conmutador ni ancho compacto)`,
+        `${file}: la cuadrícula no es alcanzable (sin conmutador de cuadrícula ni ancho compacto)`,
       );
     }
   }

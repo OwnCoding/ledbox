@@ -51,6 +51,8 @@ export type AdminIconName =
   | "upload"
   | "trash"
   | "globe"
+  /** Menú de acciones de fila/tarjeta (issue #143): el botón «⋯». */
+  | "dots"
   | "database"
   | "instagram"
   | "plan"

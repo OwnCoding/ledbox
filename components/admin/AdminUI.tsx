@@ -78,6 +78,133 @@ export function AdminIconLink({ href, icon, label, external }: { href: string; i
   );
 }
 
+/** Ítem del menú de acciones de una fila o tarjeta. */
+export type AdminMenuItem = {
+  label: string;
+  icon: AdminIconName;
+  /** Acción del ítem; con `href` se dibuja como link. */
+  onClick?: () => void;
+  href?: string;
+  /** Abre el link en una pestaña nueva (imprimibles y portal). */
+  external?: boolean;
+  disabled?: boolean;
+  title?: string;
+};
+
+/**
+ * Menú de acciones compacto (issue #143): un solo botón «⋯» agrupa las acciones
+ * secundarias de la fila/tarjeta (imprimir, firma, portal…) sin sumar una fila
+ * de íconos. El panel flotante se posiciona con `position: fixed` para que no lo
+ * recorte el scroll horizontal de las tablas ni de las columnas del tablero; se
+ * cierra al elegir, con Escape o con un clic afuera.
+ */
+export function AdminActionsMenu({
+  label,
+  items,
+  align = "end",
+}: {
+  /** Nombre accesible del menú («Acciones del presupuesto X»). */
+  label: string;
+  items: readonly AdminMenuItem[];
+  /** Borde al que se ancla el panel; por defecto a la derecha del botón. */
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPos({
+        top: rect.bottom + 4,
+        left: align === "start" ? rect.left : Math.max(8, rect.right - 192),
+      });
+    };
+    update();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (popRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open, align]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="admin-iconbtn"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <AdminIcon name="dots" size={16} />
+      </button>
+      {open && pos ? (
+        <div
+          ref={popRef}
+          className="admin-menu-pop"
+          role="menu"
+          aria-label={label}
+          style={{ top: pos.top, left: pos.left }}
+        >
+          {items.map((item) =>
+            item.href ? (
+              <Link
+                key={item.label}
+                className="admin-menu-item"
+                href={item.href}
+                role="menuitem"
+                title={item.title ?? item.label}
+                {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
+                onClick={() => setOpen(false)}
+              >
+                <AdminIcon name={item.icon} size={14} />
+                <span>{item.label}</span>
+              </Link>
+            ) : (
+              <button
+                key={item.label}
+                type="button"
+                className="admin-menu-item"
+                role="menuitem"
+                title={item.title ?? item.label}
+                disabled={item.disabled}
+                onClick={() => {
+                  setOpen(false);
+                  item.onClick?.();
+                }}
+              >
+                <AdminIcon name={item.icon} size={14} />
+                <span>{item.label}</span>
+              </button>
+            ),
+          )}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /** Link de WhatsApp con el teléfono normalizado; no se dibuja si no hay número válido. */
 export function AdminWhatsappLink({
   phone,
