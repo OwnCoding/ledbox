@@ -64,7 +64,7 @@ import { SearchField, TextAreaField } from "../AdminFields";
 import { ClientQuickFields, clientQuickErrors, clientQuickFirstError } from "./ClientQuickForm";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import { FIELD_LIMITS } from "@/lib/field-rules";
-import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
+import { AdminViewSwitch, useAdminModuleView, useAdminNarrowViewport } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 
 /** Vistas de la cartera (issue #57): lista densa y cuadrícula de fichas. */
@@ -303,6 +303,10 @@ export function ClientesModule() {
   const [status, setStatus] = useState("");
   const [detail, setDetail] = useState<AdminClientRow | null>(null);
   const [view, setView] = useAdminModuleView("clientes", CLIENTES_VIEWS);
+  // En ancho compacto la lista también se lee como tarjetas (issue #139): la
+  // tabla no entra en 390 sin cortar contacto, deuda y última actividad.
+  const narrow = useAdminNarrowViewport();
+  const cardView = narrow || view === "grid";
   /** Envío por WhatsApp con plantilla (issue #35) para el cliente elegido. */
   const [templateTarget, setTemplateTarget] = useState<MessageTemplateTarget | null>(null);
 
@@ -331,6 +335,105 @@ export function ClientesModule() {
       );
     return sortClients(list, order);
   }, [clients.data, query, type, filter, order]);
+
+  /**
+   * Tarjetas del cliente (issues #57 y #139): las comparten la cuadrícula y la
+   * lista en ancho compacto —cliente, contacto principal, deuda, última
+   * actividad y estado— con las mismas acciones que la fila.
+   */
+  const clientCards: AdminCardData[] = rows.map((client): AdminCardData => {
+    const name = clientLabel(client);
+    const metrics = client.metrics;
+    const contact = [client.contactPhone || client.phone, client.contactEmail || client.email].filter(Boolean).join(" · ");
+    const lastActivity = metrics.lastActivityAt ? formatDateShort(metrics.lastActivityAt) : null;
+    // Contacto principal (issues #57 y #139): el encargado manda sobre el
+    // teléfono general; el resto de los datos sigue en la ficha.
+    const primaryContact = client.contactName
+      ? [client.contactName, client.contactPhone || client.phone].filter(Boolean).join(" · ")
+      : contact;
+    return {
+      id: client.id,
+      title: (
+        <>
+          <ClientLogo client={client} size={22} />
+          <strong>{name}</strong>
+        </>
+      ),
+      titleTooltip: `${client.name}${client.company ? ` · ${client.company}` : ""}${client.ruc ? ` · RUC ${client.ruc}` : ""}`,
+      subtitle: [client.company && client.company !== name ? client.company : null, primaryContact].filter(Boolean).join(" · ") || null,
+      badges: [
+        { label: clientTypeLabel(client.type), tone: client.type === "RESELLER" ? "accent" : "neutral" },
+        { label: client.active ? "Activo" : "Inactivo", tone: client.active ? "ok" : "neutral" },
+        ...(client.contactName
+          ? []
+          : [
+              {
+                label: "Sin responsable",
+                tone: "warn" as const,
+                title: `Sin responsable cargado: el portal no puede prellenar quién autoriza el presupuesto de ${name}`,
+              },
+            ]),
+      ],
+      fields: [
+        {
+          label: "Contratado",
+          value: metrics.contracts > 0 ? formatMoney(metrics.contracted) : "—",
+          title:
+            metrics.contracts > 0
+              ? `${formatNumber(metrics.contracts)} contrato${metrics.contracts === 1 ? "" : "s"} · ticket promedio ${formatMoney(metrics.averageTicket)}`
+              : "Sin contratos aprobados",
+        },
+        { label: "Eventos", value: formatNumber(client._count.events), title: `${client._count.events} eventos` },
+        { label: "Presupuestos", value: formatNumber(client._count.budgets), title: `${client._count.budgets} presupuestos` },
+        {
+          label: "Deuda vencida",
+          value: metrics.overdue > 0 ? formatMoney(metrics.overdue) : "—",
+          title:
+            metrics.overdue > 0
+              ? `${formatMoney(metrics.overdue)} en ${formatNumber(metrics.overdueCount)} cobro${metrics.overdueCount === 1 ? "" : "s"} vencido${metrics.overdueCount === 1 ? "" : "s"}`
+              : "Sin cobros vencidos",
+        },
+        {
+          label: "Última actividad",
+          value: lastActivity ?? "—",
+          title: metrics.lastActivityAt
+            ? `Última actividad comercial: ${formatDate(metrics.lastActivityAt)}`
+            : "Sin actividad comercial registrada",
+        },
+      ],
+      footer: (
+        <span className="admin-actions">
+          <AdminButton
+            icon="eye"
+            title={`Ver la ficha de ${name}`}
+            aria-label={`Ver la ficha de ${name}`}
+            onClick={() => setDetail(client)}
+          />
+          <ClientLinks client={client} name={name} compact skipWhatsapp={writable} />
+          {writable && whatsappHref(client.whatsapp || client.phone) ? (
+            <AdminWhatsappTemplateButton
+              title={`Enviar por WhatsApp con plantilla a ${name}`}
+              onClick={() =>
+                setTemplateTarget({
+                  kind: "client",
+                  id: client.id,
+                  label: name,
+                  phone: client.whatsapp || client.phone,
+                })
+              }
+            />
+          ) : null}
+          {client.contactEmail || client.email ? (
+            <AdminIconLink
+              href={`mailto:${client.contactEmail || client.email}`}
+              icon="mail"
+              label={`Enviar correo a ${name}`}
+            />
+          ) : null}
+        </span>
+      ),
+    };
+  });
 
   const totals = useMemo(() => {
     const list = clients.data ?? [];
@@ -494,7 +597,11 @@ export function ClientesModule() {
         <AdminSelect value={type} onChange={setType} label="Filtrar por tipo" options={TYPE_OPTIONS} />
         <AdminSelect value={filter} onChange={setFilter} label="Filtrar la cartera" options={FILTER_OPTIONS} />
         <AdminSelect value={order} onChange={setOrder} label="Ordenar clientes por" options={ORDER_OPTIONS} />
-        <AdminViewSwitch view={view} onChange={setView} label="Vista de clientes" views={CLIENTES_VIEWS} />
+        {/* En ancho compacto lista y cuadrícula se ven igual (tarjetas): el
+            conmutador no aporta y se retira de la barra (issue #139). */}
+        {narrow ? null : (
+          <AdminViewSwitch view={view} onChange={setView} label="Vista de clientes" views={CLIENTES_VIEWS} />
+        )}
         {writable ? (
           <AdminButton
             variant="primary"
@@ -589,95 +696,8 @@ export function ClientesModule() {
             hint="Probá con otro término de búsqueda o cambiá el filtro."
             action={query ? <button type="button" className="admin-empty-link" onClick={() => setQuery("")}>Limpiar búsqueda →</button> : undefined}
           />
-        ) : view === "grid" ? (
-          <AdminCardGrid label="Clientes" cards={rows.map((client): AdminCardData => {
-            const name = clientLabel(client);
-            const metrics = client.metrics;
-            const contact = [client.contactPhone || client.phone, client.contactEmail || client.email].filter(Boolean).join(" · ");
-            const lastActivity = metrics.lastActivityAt ? formatDateShort(metrics.lastActivityAt) : null;
-            return {
-              id: client.id,
-              title: (
-                <>
-                  <ClientLogo client={client} size={22} />
-                  <strong>{name}</strong>
-                </>
-              ),
-              titleTooltip: `${client.name}${client.company ? ` · ${client.company}` : ""}${client.ruc ? ` · RUC ${client.ruc}` : ""}`,
-              subtitle: [client.company && client.company !== name ? client.company : null, contact].filter(Boolean).join(" · ") || null,
-              badges: [
-                { label: clientTypeLabel(client.type), tone: client.type === "RESELLER" ? "accent" : "neutral" },
-                { label: client.active ? "Activo" : "Inactivo", tone: client.active ? "ok" : "neutral" },
-                ...(client.contactName
-                  ? []
-                  : [
-                      {
-                        label: "Sin responsable",
-                        tone: "warn" as const,
-                        title: `Sin responsable cargado: el portal no puede prellenar quién autoriza el presupuesto de ${name}`,
-                      },
-                    ]),
-              ],
-              fields: [
-                {
-                  label: "Contratado",
-                  value: metrics.contracts > 0 ? formatMoney(metrics.contracted) : "—",
-                  title:
-                    metrics.contracts > 0
-                      ? `${formatNumber(metrics.contracts)} contrato${metrics.contracts === 1 ? "" : "s"} · ticket promedio ${formatMoney(metrics.averageTicket)}`
-                      : "Sin contratos aprobados",
-                },
-                { label: "Eventos", value: formatNumber(client._count.events), title: `${client._count.events} eventos` },
-                { label: "Presupuestos", value: formatNumber(client._count.budgets), title: `${client._count.budgets} presupuestos` },
-                {
-                  label: "Deuda vencida",
-                  value: metrics.overdue > 0 ? formatMoney(metrics.overdue) : "—",
-                  title:
-                    metrics.overdue > 0
-                      ? `${formatMoney(metrics.overdue)} en ${formatNumber(metrics.overdueCount)} cobro${metrics.overdueCount === 1 ? "" : "s"} vencido${metrics.overdueCount === 1 ? "" : "s"}`
-                      : "Sin cobros vencidos",
-                },
-                {
-                  label: "Última actividad",
-                  value: lastActivity ?? "—",
-                  title: metrics.lastActivityAt
-                    ? `Última actividad comercial: ${formatDate(metrics.lastActivityAt)}`
-                    : "Sin actividad comercial registrada",
-                },
-              ],
-              footer: (
-                <span className="admin-actions">
-                  <AdminButton
-                    icon="eye"
-                    title={`Ver la ficha de ${name}`}
-                    aria-label={`Ver la ficha de ${name}`}
-                    onClick={() => setDetail(client)}
-                  />
-                  <ClientLinks client={client} name={name} compact skipWhatsapp={writable} />
-                  {writable && whatsappHref(client.whatsapp || client.phone) ? (
-                    <AdminWhatsappTemplateButton
-                      title={`Enviar por WhatsApp con plantilla a ${name}`}
-                      onClick={() =>
-                        setTemplateTarget({
-                          kind: "client",
-                          id: client.id,
-                          label: name,
-                          phone: client.whatsapp || client.phone,
-                        })
-                      }
-                    />
-                  ) : null}
-                  {client.contactEmail || client.email ? (
-                    <AdminIconLink
-                      href={`mailto:${client.contactEmail || client.email}`}
-                      icon="mail"
-                      label={`Enviar correo a ${name}`}
-                    />
-                  ) : null}
-                </span>
-              ),
-            };
-          })} />
+        ) : cardView ? (
+          <AdminCardGrid label="Clientes" cards={clientCards} />
         ) : (
           <AdminTable
             view="clientes"
@@ -698,7 +718,13 @@ export function ClientesModule() {
             {rows.map((client) => {
               const name = clientLabel(client);
               const metrics = client.metrics;
-              const contact = [client.contactPhone || client.phone, client.contactEmail || client.email].filter(Boolean).join(" · ");
+              // Contacto principal de la fila (issue #139): el teléfono. El
+              // correo, Instagram, la web y WhatsApp salen de la grilla —el
+              // ancho de la tabla era el problema— y quedan en la ficha.
+              const contact = client.contactPhone || client.phone;
+              const contactTitle =
+                [client.contactName, contact, client.contactEmail || client.email].filter(Boolean).join(" · ") ||
+                "Sin contacto cargado";
               return (
                 <AdminRow key={client.id}>
                   <AdminCell title={`${client.name}${client.company ? ` · ${client.company}` : ""}${client.ruc ? ` · RUC ${client.ruc}` : ""}`}>
@@ -708,9 +734,7 @@ export function ClientesModule() {
                       {client.company && client.name !== client.company ? <small className="admin-cell-sub"> · {client.name}</small> : null}
                     </span>
                   </AdminCell>
-                  <AdminCell
-                    title={[client.phone, client.email].filter(Boolean).join(" · ") || "Sin contacto cargado"}
-                  >
+                  <AdminCell title={contactTitle}>
                     {/* Señal compacta del dato que falta para el portal: sin
                         responsable cargado, la aprobación del presupuesto no
                         tiene a quién prellenarle el nombre. El chip va primero
@@ -775,6 +799,8 @@ export function ClientesModule() {
                     <AdminBadge tone={client.active ? "ok" : "neutral"}>{client.active ? "Activo" : "Inactivo"}</AdminBadge>
                   </AdminCell>
                   <AdminCell end className="admin-cell--actions">
+                    {/* La fila se queda con la ficha (issue #139): los links de
+                        contacto salen de la grilla y viven en el detalle. */}
                     <span className="admin-actions">
                       <AdminButton
                         icon="eye"
@@ -782,30 +808,6 @@ export function ClientesModule() {
                         aria-label={`Ver la ficha de ${name}`}
                         onClick={() => setDetail(client)}
                       />
-                      <ClientLinks client={client} name={name} compact skipWhatsapp={writable} />
-                      {writable && whatsappHref(client.whatsapp || client.phone) ? (
-                        <AdminWhatsappTemplateButton
-                          title={`Enviar por WhatsApp con plantilla a ${name}`}
-                          onClick={() =>
-                            setTemplateTarget({
-                              kind: "client",
-                              id: client.id,
-                              label: name,
-                              phone: client.whatsapp || client.phone,
-                            })
-                          }
-                        />
-                      ) : null}
-                      {client.contactEmail || client.email ? (
-                        <AdminIconLink
-                          href={`mailto:${client.contactEmail || client.email}`}
-                          icon="mail"
-                          label={`Enviar correo a ${name}`}
-                        />
-                      ) : null}
-                      {!whatsappHref(client.whatsapp || client.phone) && !client.contactEmail && !client.email && !instagramLabel(client.instagram) && !websiteHref(client.website) ? (
-                        <span className="admin-muted">—</span>
-                      ) : null}
                     </span>
                   </AdminCell>
                 </AdminRow>
