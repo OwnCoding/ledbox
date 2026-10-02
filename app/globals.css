@@ -3571,3 +3571,10 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-ia-split-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .admin-ia-split-title { color: var(--a-muted-2); font-size: 12px; font-weight: 600; }
 .admin-ia-split-row { display: grid; grid-template-columns: minmax(9rem, 1fr) minmax(9rem, 1fr) auto; gap: 8px; align-items: start; }
+.admin-ia-lote { display: grid; gap: 6px; }
+.admin-ia-lote-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--a-line); border-radius: 8px; background: var(--a-row-bg); }
+.admin-ia-lote-row[data-off="true"] { opacity: .55; }
+.admin-ia-lote-label { min-width: 0; overflow: hidden; color: var(--a-text); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-ia-lote-label strong { color: var(--a-muted); font: 700 10px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
+.admin-ia-lote-error { color: var(--a-danger); font-size: 11.5px; }
+.admin-ia-lote-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }

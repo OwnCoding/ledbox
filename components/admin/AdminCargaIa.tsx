@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { normalizarBusqueda } from "owncoding-ui/utils";
-import { adminApiGet, adminSend, requestAdminRefresh } from "@/lib/admin-api";
+import { adminApiGet, adminSend, newIdempotencyKey, requestAdminRefresh } from "@/lib/admin-api";
 import { ADMIN_ROOT_ID } from "@/lib/admin-theme";
 import { publicConfig } from "@/lib/public-config";
 import { formatMoney } from "@/lib/admin-format";
@@ -36,7 +36,7 @@ import {
   TextAreaField,
   TextField,
 } from "./AdminFields";
-import { AdminButton, AdminDialog, AdminEmpty, AdminNote } from "./AdminUI";
+import { AdminBadge, AdminButton, AdminDialog, AdminEmpty, AdminNote } from "./AdminUI";
 import { AdminAvatar } from "./AdminAvatar";
 import { AdminImageBox } from "./AdminImageBox";
 
@@ -141,11 +141,39 @@ type CobroEdit = {
 
 type ClienteOpcion = { value: string; label: string };
 
+/** Fila creada por el lote: se puede abrir en su módulo y anular (issue #130). */
+type FilaResultado = {
+  clave: string;
+  tipo: "cliente" | "evento" | "producto" | "cobro";
+  id: string;
+  etiqueta: string;
+  /** Cobros: estado real; los cobrados no se cancelan desde Finanzas. */
+  estado?: "RECEIVED" | "PENDING";
+  anulado?: boolean;
+  error?: string;
+};
+
 type Resultado = {
+  lote: string;
   creados: { clientes: number; eventos: number; productos: number; cobros: number };
   vinculados: { clientes: number; productos: number };
+  filas: FilaResultado[];
   errores: string[];
   advertencias: string[];
+};
+
+/** Módulo donde vive cada tipo creado (para «Abrir»). */
+const RUTA_TIPO: Record<FilaResultado["tipo"], string> = {
+  cliente: "/clientes",
+  evento: "/eventos",
+  producto: "/inventario",
+  cobro: "/finanzas",
+};
+const ETIQUETA_TIPO: Record<FilaResultado["tipo"], string> = {
+  cliente: "Cliente",
+  evento: "Evento",
+  producto: "Producto",
+  cobro: "Cobro",
 };
 
 const TIPO_CLIENTE: Array<{ value: string; label: string }> = [
@@ -227,6 +255,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
   const [productos, setProductos] = useState<ProductoEdit[]>([]);
   const [cobros, setCobros] = useState<CobroEdit[]>([]);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [confirmandoAnular, setConfirmandoAnular] = useState<string | null>(null);
   const [opcionesCliente, setOpcionesCliente] = useState<ClienteOpcion[]>([]);
   const [cargandoClientes, setCargandoClientes] = useState(false);
   const [cartera, setCartera] = useState<{ clientes: number; productos: number } | null>(null);
@@ -623,7 +652,11 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
     const vinculados = { clientes: 0, productos: 0 };
     const errores: string[] = [];
     const advertencias: string[] = [];
+    const filas: FilaResultado[] = [];
     const indice = new Map<string, string>();
+    // Lote de la carga (issue #130): agrupa lo aplicado en la auditoría y
+    // permite anular por fila desde el resultado.
+    const lote = newIdempotencyKey();
 
     for (const cliente of clientes.filter((fila) => fila.incluir)) {
       if (cliente.accion === "vincular") {
@@ -651,6 +684,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       if (id) {
         creados.clientes += 1;
         indice.set(normalizarBusqueda(cliente.nombre), id);
+        filas.push({ clave: siguienteClave("fila"), tipo: "cliente", id, etiqueta: cliente.nombre });
       } else {
         errores.push(`Cliente «${cliente.nombre}»: ${result.ok ? "la respuesta no trajo el id" : result.error}`);
       }
@@ -679,8 +713,13 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         "POST",
         { idempotencyKey: true },
       );
-      if (result.ok) creados.eventos += 1;
-      else errores.push(`Evento «${evento.nombre}»: ${result.error}`);
+      if (result.ok) {
+        creados.eventos += 1;
+        const idEvento = (result.data as { event?: { id?: string } } | undefined)?.event?.id;
+        if (idEvento) filas.push({ clave: siguienteClave("fila"), tipo: "evento", id: idEvento, etiqueta: evento.nombre });
+      } else {
+        errores.push(`Evento «${evento.nombre}»: ${result.error}`);
+      }
     }
 
     for (const producto of productos.filter((fila) => fila.incluir)) {
@@ -710,7 +749,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         continue;
       }
       const cantidad = Math.min(100_000, Math.max(1, Math.floor(aNumero(producto.cantidad)) || 1));
-      const result = await adminSend<{ warning?: string }>(
+      const result = await adminSend<{ inventory?: { id?: string }; warning?: string }>(
         "/api/admin/resources",
         {
           kind: "inventory",
@@ -726,6 +765,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       );
       if (result.ok) {
         creados.productos += 1;
+        const idProducto = result.data.inventory?.id;
+        if (idProducto) filas.push({ clave: siguienteClave("fila"), tipo: "producto", id: idProducto, etiqueta: producto.nombre });
         if (result.data.warning) advertencias.push(`Producto «${producto.nombre}»: ${result.data.warning}`);
       } else {
         errores.push(`Producto «${producto.nombre}»: ${result.error}`);
@@ -779,7 +820,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
               errores.push(`Cobro de «${etiqueta}»: el saldo a plazo necesita método (transferencia, efectivo o cheque).`);
               continue;
             }
-            const result = await adminSend(
+            const result = await adminSend<{ payment?: { id?: string; status?: string } }>(
               "/api/admin/finance",
               {
                 kind: "client",
@@ -795,13 +836,23 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
             );
             if (result.ok) {
               creados.cobros += 1;
+              const idPago = result.data.payment?.id;
+              if (idPago) {
+                filas.push({
+                  clave: siguienteClave("fila"),
+                  tipo: "cobro",
+                  id: idPago,
+                  etiqueta: `Saldo de «${etiqueta}» · ${formatMoney(montoParte)} · vence ${parte.fecha}`,
+                  estado: "PENDING",
+                });
+              }
               advertencias.push(`Saldo de «${etiqueta}»: ${formatMoney(montoParte)} a cobrar el ${parte.fecha}.`);
             } else {
               errores.push(`Saldo de «${etiqueta}»: ${result.error}`);
             }
             continue;
           }
-          const result = await adminSend(
+          const result = await adminSend<{ payment?: { id?: string; status?: string } }>(
             "/api/admin/finance",
             {
               kind: "client",
@@ -814,13 +865,26 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
             "POST",
             { idempotencyKey: true },
           );
-          if (result.ok) creados.cobros += 1;
-          else errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
+          if (result.ok) {
+            creados.cobros += 1;
+            const idPago = result.data.payment?.id;
+            if (idPago) {
+              filas.push({
+                clave: siguienteClave("fila"),
+                tipo: "cobro",
+                id: idPago,
+                etiqueta: `Cobro de «${etiqueta}» · ${formatMoney(montoParte)}`,
+                estado: "RECEIVED",
+              });
+            }
+          } else {
+            errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
+          }
         }
         continue;
       }
 
-      const result = await adminSend(
+      const result = await adminSend<{ payment?: { id?: string; status?: string } }>(
         "/api/admin/finance",
         {
           kind: "client",
@@ -833,12 +897,39 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         "POST",
         { idempotencyKey: true },
       );
-      if (result.ok) creados.cobros += 1;
-      else errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
+      if (result.ok) {
+        creados.cobros += 1;
+        const idPago = result.data.payment?.id;
+        if (idPago) {
+          filas.push({
+            clave: siguienteClave("fila"),
+            tipo: "cobro",
+            id: idPago,
+            etiqueta: `Cobro de «${etiqueta}» · ${formatMoney(monto)}`,
+            estado: "RECEIVED",
+          });
+        }
+      } else {
+        errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
+      }
+    }
+
+    // Constancia del lote en la auditoría (issue #130): agrupa lo creado.
+    if (filas.length > 0) {
+      const loteResult = await adminSend("/api/admin/ia/lote", {
+        lote,
+        creados: {
+          clientes: filas.filter((fila) => fila.tipo === "cliente").map((fila) => ({ id: fila.id, etiqueta: fila.etiqueta })),
+          eventos: filas.filter((fila) => fila.tipo === "evento").map((fila) => ({ id: fila.id, etiqueta: fila.etiqueta })),
+          productos: filas.filter((fila) => fila.tipo === "producto").map((fila) => ({ id: fila.id, etiqueta: fila.etiqueta })),
+          cobros: filas.filter((fila) => fila.tipo === "cobro").map((fila) => ({ id: fila.id, etiqueta: fila.etiqueta })),
+        },
+      });
+      if (!loteResult.ok) advertencias.push(`No pudimos registrar el lote en la auditoría: ${loteResult.error}`);
     }
 
     requestAdminRefresh();
-    setResultado({ creados, vinculados, errores, advertencias });
+    setResultado({ lote, creados, vinculados, filas, errores, advertencias });
     setCreando(false);
     setFase("listo");
   }
@@ -859,6 +950,34 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
       if (!opciones.some((opcion) => opcion.value === candidato.id)) opciones.push({ value: candidato.id, label: etiqueta });
     }
     return opciones;
+  }
+
+  /** Anula un registro creado por el lote (issue #130). */
+  async function anularFila(fila: FilaResultado) {
+    setConfirmandoAnular(null);
+    const result =
+      fila.tipo === "cobro"
+        ? await adminSend(
+            "/api/admin/finance",
+            { kind: "client", paymentId: fila.id, action: "cancel" },
+            "PATCH",
+            { idempotencyKey: true },
+          )
+        : await adminSend("/api/admin/ia/anular", { tipo: fila.tipo, id: fila.id, lote: resultado?.lote ?? "" });
+    setResultado((actual) => {
+      if (!actual) return actual;
+      return {
+        ...actual,
+        filas: actual.filas.map((actualFila) =>
+          actualFila.clave === fila.clave
+            ? result.ok
+              ? { ...actualFila, anulado: true, error: undefined }
+              : { ...actualFila, error: result.error }
+            : actualFila,
+        ),
+      };
+    });
+    requestAdminRefresh();
   }
 
   const partesDetectadas = [
@@ -1557,6 +1676,42 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           ))}
           {resultado.errores.length > 0 ? (
             <AdminNote tone="error">{`No pudimos aplicar ${resultado.errores.length} acción(es): ${resultado.errores.join(" · ")}`}</AdminNote>
+          ) : null}
+          {resultado.filas.length > 0 ? (
+            <div className="admin-ia-lote">
+              <p className="admin-dialog-text">
+                {`Lote ${resultado.lote.slice(0, 8)} · abrí cada registro en su módulo o anulá lo que no corresponda:`}
+              </p>
+              {resultado.filas.map((fila) => (
+                <div key={fila.clave} className="admin-ia-lote-row" data-off={fila.anulado}>
+                  <span className="admin-ia-lote-label">
+                    <strong>{ETIQUETA_TIPO[fila.tipo]}</strong> {fila.etiqueta}
+                  </span>
+                  {fila.error ? <span className="admin-ia-lote-error">{fila.error}</span> : null}
+                  <span className="admin-ia-lote-actions">
+                    <Link className="admin-panel-link" href={RUTA_TIPO[fila.tipo]} title={`Abrir ${ETIQUETA_TIPO[fila.tipo].toLowerCase()} en su módulo`}>
+                      Abrir
+                    </Link>
+                    {fila.anulado ? (
+                      <AdminBadge tone="neutral">Anulado</AdminBadge>
+                    ) : confirmandoAnular === fila.clave ? (
+                      <>
+                        <AdminButton icon="check" onClick={() => void anularFila(fila)}>
+                          Sí, anular
+                        </AdminButton>
+                        <AdminButton icon="close" onClick={() => setConfirmandoAnular(null)}>
+                          No
+                        </AdminButton>
+                      </>
+                    ) : (
+                      <AdminButton icon="trash" title={`Anular ${ETIQUETA_TIPO[fila.tipo].toLowerCase()}`} onClick={() => setConfirmandoAnular(fila.clave)}>
+                        Anular
+                      </AdminButton>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : null}
           <p className="admin-dialog-text">
             Lo aplicado quedó auditado como cualquier operación del panel (los cobros con su movimiento de tesorería); las
