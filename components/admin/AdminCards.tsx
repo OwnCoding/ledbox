@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { AdminTone } from "@/lib/admin-format";
 import { AdminBadge } from "./AdminUI";
 
@@ -39,6 +40,36 @@ export type AdminCardData = {
   /** Acciones de la tarjeta; el pie queda anclado abajo. */
   footer?: React.ReactNode;
 };
+
+/**
+ * Ancho máximo del layout compacto (auditoría móvil, issues #140 y #155).
+ *
+ * Es el mismo punto donde el shell pasa a drawer (≤980 px): en vez de exigir el
+ * desplazamiento horizontal de la tabla, la lista se cuenta como tarjetas
+ * (entidad, estado, fecha/monto y acción principal). En escritorio manda la
+ * densidad de la tabla.
+ */
+export const ADMIN_COMPACT_MAX_WIDTH = 980;
+
+/**
+ * ¿La lista va en tarjetas? La regla es una sola para todo el panel: la usan
+ * las listas que reemplazan su `AdminTable` por `AdminCardGrid` en pantalla
+ * chica. Antes de montar devuelve `false` (el SSR no conoce la ventana), así el
+ * primer render coincide con el del servidor y no hay parpadeo de hidratación.
+ */
+export function useAdminCompactList(maxWidth = ADMIN_COMPACT_MAX_WIDTH): boolean {
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [maxWidth]);
+
+  return compact;
+}
 
 /** Grilla de tarjetas con pie anclado: `repeat(auto-fill, minmax(15rem, 1fr))`. */
 export function AdminCardGrid({ label, cards }: { label: string; cards: AdminCardData[] }) {

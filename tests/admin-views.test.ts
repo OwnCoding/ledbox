@@ -4,14 +4,16 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 /**
- * Regla de las vistas del panel (issue #57): un módulo que dibuja la cuadrícula
- * de tarjetas (`AdminCardGrid`) tiene que ofrecerla en su conmutador y recordar
- * la vista por usuario (`useAdminModuleView`). Si la cuadrícula queda sin opción
- * en el conmutador, el objeto es inalcanzable: este test lo frena.
+ * Regla de las vistas del panel (issues #57, #140 y #155): un módulo que dibuja
+ * la cuadrícula de tarjetas (`AdminCardGrid`) tiene que hacerla alcanzable por
+ * alguna de las dos vías del kit: el conmutador recordado por usuario
+ * (`useAdminModuleView` + `AdminViewSwitch` + `"grid"`) o la lista compacta
+ * (≤980 px la tabla densa se reemplaza por tarjetas, `useAdminCompactList`).
+ * Si la cuadrícula no se puede alcanzar por ninguna, este test lo frena.
  */
 const MODULES_DIR = join(process.cwd(), "components", "admin", "modules");
 
-test("los módulos con cuadrícula la ofrecen en el conmutador y recuerdan la vista", () => {
+test("los módulos con cuadrícula la ofrecen en el conmutador o en la lista compacta", () => {
   const files = readdirSync(MODULES_DIR).filter((file) => file.endsWith(".tsx"));
   const withGrid = files.filter((file) => readFileSync(join(MODULES_DIR, file), "utf8").includes("AdminCardGrid"));
 
@@ -19,13 +21,16 @@ test("los módulos con cuadrícula la ofrecen en el conmutador y recuerdan la vi
 
   for (const file of withGrid) {
     const source = readFileSync(join(MODULES_DIR, file), "utf8");
-    assert.match(
-      source,
-      /useAdminModuleView\(/,
-      `${file}: la vista no se recuerda con useAdminModuleView`,
-    );
-    assert.match(source, /AdminViewSwitch/, `${file}: falta el conmutador de vistas`);
-    assert.match(source, /["']grid["']/, `${file}: la cuadrícula no está declarada entre las vistas`);
+    if (/useAdminModuleView\(/.test(source)) {
+      assert.match(source, /AdminViewSwitch/, `${file}: falta el conmutador de vistas`);
+      assert.match(source, /["']grid["']/, `${file}: la cuadrícula no está declarada entre las vistas`);
+    } else {
+      assert.match(
+        source,
+        /useAdminCompactList/,
+        `${file}: la cuadrícula no es alcanzable (sin conmutador ni lista compacta)`,
+      );
+    }
   }
 });
 
