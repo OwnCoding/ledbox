@@ -58,7 +58,11 @@ test("Eventos deja lo mínimo a la vista y crea clientes desde el selector", () 
   assert.match(module, /Nuevo cliente\n/, "falta el botón «+ Nuevo cliente»");
   assert.match(module, /setNewClientName\(name\)/, "el combobox ofrece crear con el texto tipeado");
   assert.match(module, /<ClientQuickDialog/, "falta el diálogo de alta rápida");
-  assert.match(module, /<AdminDisclosure title="Más datos" hint="lugar y ciudad">/, "lugar y ciudad van plegados");
+  assert.match(module, /<AdminDisclosure title="Más datos" hint="lugar, ciudad y fin">/, "lugar, ciudad y fin van plegados");
+  // El fin se sumó al alta completa en #131 (el quick de presupuestos ya lo mandaba).
+  assert.match(module, /label="Fin"[\s\S]{0,200}onChange=\{\(value\) => setForm\(\{ \.\.\.form, endsAt: value \}\)\}/, "falta el «Fin» en Más datos");
+  assert.match(module, /endsAt: form\.endsAt \|\| undefined/, "el fin tiene que viajar en el alta");
+  assert.match(module, /Elegí el cliente del evento\./, "el check del cliente va en es-PY");
   // Al crear, el cliente queda elegido y el catálogo se refresca.
   assert.match(module, /function selectCreatedClient[\s\S]{0,300}clientId: client\.id[\s\S]{0,200}clients\.reload\(\)/, "el cliente creado tiene que quedar elegido");
 });
