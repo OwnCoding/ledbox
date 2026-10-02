@@ -53,6 +53,7 @@ import {
   AdminCountdown,
   AdminDataState,
   AdminDialog,
+  AdminDisclosure,
   AdminEmpty,
   AdminFormPanel,
   AdminIconLink,
@@ -1468,12 +1469,16 @@ export function PresupuestosModule() {
             value={form.unitPrice}
             onChange={(value) => setForm({ ...form, unitPrice: value })}
           />
-          <MoneyField
-            label="Costo unitario"
-            hint="Para el margen estimado"
-            value={form.costPrice}
-            onChange={(value) => setForm({ ...form, costPrice: value })}
-          />
+          {/* El costo interno sale del camino del alta (issue #132): vive en
+              «Más datos» y no se pierde al plegarlo. */}
+          <AdminDisclosure title="Más datos" hint="costo interno">
+            <MoneyField
+              label="Costo unitario"
+              hint="Para el margen estimado"
+              value={form.costPrice}
+              onChange={(value) => setForm({ ...form, costPrice: value })}
+            />
+          </AdminDisclosure>
           <InventoryLinkPicker
             label="Artículo de inventario (opcional)"
             hint={

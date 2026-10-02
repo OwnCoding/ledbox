@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const requestId = typeof body.requestId === "string" ? body.requestId : "";
   const decision = body.decision === "accept" ? "accept" : body.decision === "reject" ? "reject" : "";
   const note = typeof body.responseNote === "string" ? body.responseNote.trim() : "";
-  if (!requestId || !decision) return jsonError("requestId and decision are required.", 400);
+  if (!requestId || !decision) return jsonError("Falta la solicitud o la decisión.", 400);
   if (note.length > MAX_NOTE) return jsonError(`La nota no puede superar los ${MAX_NOTE} caracteres.`, 400);
   if (decision === "reject" && note.length < 3) return jsonError("Indicá la nota del rechazo.", 400);
 

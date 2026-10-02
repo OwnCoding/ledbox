@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   const budgetId = typeof body.budgetId === "string" ? body.budgetId : "";
   const decision = body.decision === "approve" ? "approve" : body.decision === "request_revision" ? "request_revision" : "";
   const note = typeof body.note === "string" ? body.note.trim() : "";
-  if (!budgetId || !decision) return jsonError("budgetId and decision are required.", 400);
+  if (!budgetId || !decision) return jsonError("Falta el presupuesto o la decisión.", 400);
   if (note.length > MAX_NOTE) return jsonError(`La nota no puede superar los ${MAX_NOTE} caracteres.`, 400);
   if (decision === "request_revision" && !note) return jsonError("Indicá qué cambios se piden.", 400);
 
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     where: { id: budgetId, organizationId },
     select: { id: true, title: true, status: true, approvedAt: true, client: { select: { name: true, company: true } } },
   });
-  if (!budget) return jsonError("Budget not found.", 404);
+  if (!budget) return jsonError("Presupuesto no encontrado.", 404);
   const clientLabel = budget.client.company?.trim() || budget.client.name;
   let reservations: BudgetReservation | null = null;
 

@@ -184,13 +184,15 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response;
   const { organizationId } = auth.context;
   const body = await readJson(request) as Record<string, unknown>;
-  if (typeof body.clientId !== "string" || typeof body.title !== "string") return jsonError("Client and title are required.", 400);
+  if (typeof body.clientId !== "string" || typeof body.title !== "string") {
+    return jsonError("Elegí el cliente y escribí el título del presupuesto.", 400);
+  }
   const client = await db.client.findFirst({ where: { id: body.clientId, organizationId }, select: { id: true } });
-  if (!client) return jsonError("Client not found.", 404);
+  if (!client) return jsonError("El cliente no existe en esta empresa.", 404);
   const eventId = typeof body.eventId === "string" ? body.eventId : "";
   if (eventId) {
     const event = await db.event.findFirst({ where: { id: eventId, organizationId }, select: { id: true } });
-    if (!event) return jsonError("Event not found.", 404);
+    if (!event) return jsonError("El evento no existe en esta empresa.", 404);
   }
   const rawItems = Array.isArray(body.items) ? body.items : [];
   // Vínculo con inventario (issue #18): solo artículos de la empresa activa.
@@ -199,6 +201,11 @@ export async function POST(request: Request) {
     return jsonError("El artículo de inventario vinculado no existe en esta empresa.", 400);
   }
   const items = parseBudgetItems(rawItems, validInventoryIds).map((item) => ({ ...item, id: randomUUID() }));
+  // Sin ítems no hay presupuesto (issue #132): el required del form se puede
+  // saltear y el API no puede aceptar un documento vacío.
+  if (items.length === 0) {
+    return jsonError("El presupuesto necesita al menos un ítem con nombre.", 400);
+  }
   const subtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
   const discount = Math.max(0, Number(body.discount || 0));
   const total = Math.max(0, subtotal - discount);
@@ -301,16 +308,16 @@ export async function PATCH(request: Request) {
   const { organizationId } = auth.context;
   const body = await readJson(request) as Record<string, unknown>;
   const budgetId = typeof body.budgetId === "string" ? body.budgetId : "";
-  if (!budgetId) return jsonError("budgetId is required.", 400);
+  if (!budgetId) return jsonError("Falta el presupuesto.", 400);
 
   if (body.status !== undefined) {
     const status = typeof body.status === "string" ? body.status.toUpperCase() : "";
-    if (!Object.values(CommercialStatus).includes(status as CommercialStatus)) return jsonError("Invalid budget status.", 400);
+    if (!Object.values(CommercialStatus).includes(status as CommercialStatus)) return jsonError("El estado del presupuesto no es válido.", 400);
     const budget = await db.budget.findFirst({
       where: { id: budgetId, organizationId },
       select: { id: true, title: true, status: true, client: { select: { name: true, company: true } } },
     });
-    if (!budget) return jsonError("Budget not found.", 404);
+    if (!budget) return jsonError("Presupuesto no encontrado.", 404);
     if (budget.status === status) {
       return Response.json({ budget: { id: budget.id, status: budget.status }, unchanged: true });
     }
@@ -332,7 +339,7 @@ export async function PATCH(request: Request) {
 
   if (body.kind === "item-link") {
     const itemId = typeof body.itemId === "string" ? body.itemId : "";
-    if (!itemId) return jsonError("itemId is required.", 400);
+    if (!itemId) return jsonError("Falta el ítem.", 400);
     const rawInventoryId = typeof body.inventoryId === "string" ? body.inventoryId.trim() : "";
     const budget = await db.budget.findFirst({
       where: { id: budgetId, organizationId },
@@ -343,7 +350,7 @@ export async function PATCH(request: Request) {
         items: { select: { id: true, name: true, inventoryId: true, inventory: { select: { name: true } } } },
       },
     });
-    if (!budget) return jsonError("Budget not found.", 404);
+    if (!budget) return jsonError("Presupuesto no encontrado.", 404);
     const item = budget.items.find((row) => row.id === itemId);
     if (!item) return jsonError("El ítem no pertenece a este presupuesto.", 404);
     const inventory = rawInventoryId
@@ -398,7 +405,7 @@ export async function PATCH(request: Request) {
       client: { select: { name: true, company: true } },
     },
   });
-  if (!budget) return jsonError("Budget not found.", 404);
+  if (!budget) return jsonError("Presupuesto no encontrado.", 404);
 
   const data: Prisma.BudgetUpdateInput = {};
   if (body.advanceAmount !== undefined) {
@@ -510,7 +517,7 @@ async function patchBudgetItems(params: {
       items: { select: { id: true, name: true, inventoryId: true } },
     },
   });
-  if (!budget) return jsonError("Budget not found.", 404);
+  if (!budget) return jsonError("Presupuesto no encontrado.", 404);
   if (budget.approvedAt) return jsonError("El presupuesto ya está aprobado: sus ítems no se pueden cambiar.", 409);
   if (budget.status === "LOST" || budget.status === "CANCELLED") return jsonError("Este presupuesto ya no está en juego.", 409);
 
@@ -617,7 +624,7 @@ async function patchBudgetCommercial(params: {
       client: { select: { name: true, company: true } },
     },
   });
-  if (!budget) return jsonError("Budget not found.", 404);
+  if (!budget) return jsonError("Presupuesto no encontrado.", 404);
 
   // Qué se puede tocar: el precio y las condiciones del cliente quedan
   // congelados con la aprobación; los costos internos se corrigen siempre.

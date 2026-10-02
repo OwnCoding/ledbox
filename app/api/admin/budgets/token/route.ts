@@ -23,13 +23,13 @@ export async function POST(request: Request) {
   const body = (await readJson(request)) as Record<string, unknown>;
   const budgetId = typeof body.budgetId === "string" ? body.budgetId : "";
   const action = body.action === "generate" ? "generate" : body.action === "revoke" ? "revoke" : "";
-  if (!budgetId || !action) return jsonError("budgetId and action are required.", 400);
+  if (!budgetId || !action) return jsonError("Falta el presupuesto o la acción.", 400);
 
   const budget = await db.budget.findFirst({
     where: { id: budgetId, organizationId },
     select: { id: true, title: true, client: { select: { name: true, company: true } } },
   });
-  if (!budget) return jsonError("Budget not found.", 404);
+  if (!budget) return jsonError("Presupuesto no encontrado.", 404);
   const clientLabel = budget.client.company?.trim() || budget.client.name;
 
   const updated = await db.budget.update({
