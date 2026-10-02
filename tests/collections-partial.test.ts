@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { expectedPaymentStatusLabel, expectedPaymentStatusTone } from "../lib/admin-format";
-import { expectedPaymentNeedsAction } from "../lib/admin-types";
+import {
+  accountsForPaymentMethod,
+  COLLECTED_PAYMENT_METHODS,
+  expectedPaymentNeedsAction,
+  PAYMENT_METHODS,
+  PENDING_PAYMENT_METHOD,
+  TERM_PAYMENT_METHODS,
+} from "../lib/admin-types";
 import { portalBudgetView } from "../lib/server/budget-portal";
 
 /**
@@ -150,4 +157,66 @@ test("el panel usa las cuentas reales y ofrece el monto de la seña y la divisi�
   // La seña de un cobro libre declara el total acordado y el vencimiento del saldo.
   assert.match(module, /label="Total acordado \(seña\)"/);
   assert.match(module, /label="Vence el saldo"/);
+});
+
+/**
+ * Método unificado y «Pendiente» (issue #135): una sola lista en los tipos
+ * —usada por el panel, la carga con IA y los pagos—, «Pendiente» dice que la
+ * plata todavía no entró/salió (sin cuenta) y el formulario elige método o
+ * cuenta de forma coherente (efectivo → caja, transferencia → banco).
+ */
+test("la lista de métodos es única y «Pendiente» no lleva cuenta (issue #135)", () => {
+  // Una sola fuente: Pendiente en la lista completa, fuera de la de cobrados.
+  assert.ok((PAYMENT_METHODS as readonly string[]).includes(PENDING_PAYMENT_METHOD));
+  assert.ok(!(COLLECTED_PAYMENT_METHODS as readonly string[]).includes(PENDING_PAYMENT_METHOD));
+  assert.equal(TERM_PAYMENT_METHODS[0], PENDING_PAYMENT_METHOD, "a crédito se propone «Pendiente»");
+
+  // Cuenta coherente con el método: método o cuenta, nunca las dos cosas.
+  const accounts = [
+    { id: "caja", type: "CASH" },
+    { id: "banco", type: "BANK" },
+    { id: "cheques", type: "CHEQUE" },
+    { id: "otra", type: "OTHER" },
+  ];
+  assert.deepEqual(accountsForPaymentMethod("Efectivo", accounts).map((a) => a.id), ["caja"]);
+  assert.deepEqual(accountsForPaymentMethod("Transferencia", accounts).map((a) => a.id), ["banco", "cheques", "otra"]);
+  assert.deepEqual(accountsForPaymentMethod("Tarjeta", accounts).map((a) => a.id), ["banco", "cheques", "otra"]);
+  assert.deepEqual(accountsForPaymentMethod("Cheque", accounts).map((a) => a.id), ["banco", "cheques"]);
+  assert.deepEqual(accountsForPaymentMethod("Otro", accounts).map((a) => a.id), ["caja", "banco", "cheques", "otra"]);
+
+  // Sin variantes locales: la lista vive en los tipos y todos la importan.
+  const finance = repoFile("app/api/admin/finance/route.ts");
+  assert.match(finance, /TERM_PAYMENT_METHODS/);
+  assert.doesNotMatch(finance, /const TERM_METHODS = \[/);
+  const ia = repoFile("components/admin/AdminCargaIa.tsx");
+  assert.match(ia, /const METODOS_PLAZO: string\[\] = \[\.\.\.TERM_PAYMENT_METHODS\]/);
+  assert.match(ia, /Método real con el que entró la plata|método real con el que entró la plata/);
+  const proveedores = repoFile("components/admin/modules/ProveedoresModule.tsx");
+  assert.match(proveedores, /const METHOD_OPTIONS = \[\.\.\.PAYMENT_METHODS\]/);
+  const module = repoFile("components/admin/modules/FinanzasModule.tsx");
+  assert.doesNotMatch(module, /Sin especificar/, "no queda el default «Sin especificar»");
+  assert.match(module, /const METHOD_OPTIONS = \[\.\.\.COLLECTED_PAYMENT_METHODS\]/);
+  assert.match(module, /const TERM_METHOD_OPTIONS = \[\.\.\.TERM_PAYMENT_METHODS\]/);
+});
+
+test("a crédito el API no pide cuenta y al cobrarse pide el método real (issue #135)", () => {
+  const finance = repoFile("app/api/admin/finance/route.ts");
+  // A plazo con «Pendiente»: sin cuenta (y rechaza cuenta explícita).
+  assert.match(finance, /if \(method === PENDING_PAYMENT_METHOD && requestedAccount\)/);
+  assert.match(finance, /method === PENDING_PAYMENT_METHOD\s*\n\s*\? null\s*\n\s*: requestedAccount \?\?/);
+  // Un cobro cobrado no puede quedar «Pendiente».
+  assert.match(finance, /Un cobro cobrado necesita su método real/);
+  // Al cobrar un pendiente se exige el método real y se guarda en el cobro.
+  assert.match(finance, /Indicá el método real con el que se cobró \(no «Pendiente»\)\./);
+  assert.match(finance, /const collectedMethod = requestedMethod \?\? storedMethod/);
+  assert.match(finance, /method: collectedMethod,/);
+
+  // El panel: el cobro a crédito no muestra el selector de cuenta y el cobro
+  // real de un pendiente tiene su diálogo.
+  const module = repoFile("components/admin/modules/FinanzasModule.tsx");
+  assert.match(module, /const accountIsPending = term && form\.method === PENDING_PAYMENT_METHOD/);
+  assert.match(module, /A crédito: la plata todavía no entró, la cuenta se elige al cobrarlo\./);
+  assert.match(module, /function openCollect\(/);
+  assert.match(module, /function CollectPaymentDialog\(/);
+  assert.match(module, /treasuryAccountId: accountIsPending \? undefined : effectiveAccountId \|\| undefined/);
 });

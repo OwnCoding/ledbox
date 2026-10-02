@@ -8,7 +8,7 @@ import { adminApiGet, adminSend, requestAdminRefresh } from "@/lib/admin-api";
 import { ADMIN_ROOT_ID } from "@/lib/admin-theme";
 import { publicConfig } from "@/lib/public-config";
 import { formatMoney } from "@/lib/admin-format";
-import { PAYMENT_METHODS } from "@/lib/admin-types";
+import { COLLECTED_PAYMENT_METHODS, PAYMENT_METHODS, TERM_PAYMENT_METHODS } from "@/lib/admin-types";
 import { canWriteFinance } from "@/lib/admin-policy";
 import {
   IA_TEXTO_MAX,
@@ -153,13 +153,13 @@ const TIPO_CLIENTE: Array<{ value: string; label: string }> = [
   { value: "RESELLER", label: "Mayorista" },
 ];
 
-/** Métodos que Finanzas acepta para un cobro a plazo (saldo). */
-const METODOS_PLAZO = ["Transferencia", "Efectivo", "Cheque"];
+/** Métodos que Finanzas acepta para un cobro a plazo (saldo), issue #135. */
+const METODOS_PLAZO: string[] = [...TERM_PAYMENT_METHODS];
 
-const METODO_PAGO: Array<{ value: string; label: string }> = [
-  { value: "", label: "— Sin especificar —" },
-  ...PAYMENT_METHODS.map((metodo) => ({ value: metodo, label: metodo })),
-];
+const METODO_PAGO: Array<{ value: string; label: string }> = PAYMENT_METHODS.map((metodo) => ({
+  value: metodo,
+  label: metodo,
+}));
 
 const aTexto = (valor: number | null | undefined) => (valor === null || valor === undefined ? "" : String(valor));
 
@@ -600,7 +600,8 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
         montoTexto: cobro.montoTexto,
         fecha: cobro.fecha,
         fechaTexto: cobro.fechaTexto,
-        metodo: cobro.metodo ?? "",
+        // Un cobro de esta carga ya entró: método real por defecto (issue #135).
+        metodo: cobro.metodo || "Transferencia",
         referencia: cobro.referencia ?? "",
         plazo: cobro.plazo ?? false,
         vencimiento: cobro.vencimiento ?? null,
@@ -776,7 +777,7 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           if (pendiente) {
             const metodoPlazo = METODOS_PLAZO.includes(cobro.metodo) ? cobro.metodo : "";
             if (!metodoPlazo) {
-              errores.push(`Cobro de «${etiqueta}»: el saldo a plazo necesita método (transferencia, efectivo o cheque).`);
+              errores.push(`Cobro de «${etiqueta}»: el saldo a plazo necesita método (pendiente, transferencia, efectivo o cheque).`);
               continue;
             }
             const result = await adminSend(
@@ -817,6 +818,13 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
           if (result.ok) creados.cobros += 1;
           else errores.push(`Cobro de «${etiqueta}»: ${result.error}`);
         }
+        continue;
+      }
+
+      // Un cobro cobrado necesita método real (issue #135): «Pendiente» solo
+      // vale para saldos a plazo (arriba), no para plata que ya entró.
+      if (!(COLLECTED_PAYMENT_METHODS as readonly string[]).includes(cobro.metodo)) {
+        errores.push(`Cobro de «${etiqueta}»: elegí el método real con el que entró la plata (no «Pendiente»).`);
         continue;
       }
 
