@@ -675,12 +675,35 @@ export type ExpenseCategoryValue = (typeof EXPENSE_CATEGORIES)[number];
 /** Métodos de pago del panel: misma lista que valida el API de finanzas. */
 export const PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"] as const;
 
+/**
+ * Métodos válidos de un cobro a plazo (issue #129): sin tarjeta (no se difiere)
+ * y sin «otro». Es la misma lista que valida el API y ofrece el contrato de
+ * métodos/cuentas, para el panel y la carga con IA.
+ */
+export const TERM_PAYMENT_METHODS = ["Transferencia", "Efectivo", "Cheque"] as const;
+
 /** Referencia mínima de una cuenta de tesorería dentro de otro registro. */
 export type AdminTreasuryAccountRef = { id: string; name: string; type: string };
+
+/**
+ * Cuenta de tesorería como opción de cobro/pago (issue #129): lo que viaja en el
+ * contrato de métodos/cuentas —banco, número y alias incluidos— para el panel y
+ * la carga con IA.
+ */
+export type AdminTreasuryAccountOption = AdminTreasuryAccountRef & {
+  bank: string | null;
+  number: string | null;
+  alias: string | null;
+  currency: string;
+};
 
 /** Cuenta de tesorería con su saldo derivado. */
 export type AdminTreasuryAccountRow = AdminTreasuryAccountRef & {
   bank: string | null;
+  /** Número de cuenta (issue #129): dato para transferir. */
+  number: string | null;
+  /** Alias de la cuenta (issue #129). */
+  alias: string | null;
   currency: string;
   openingBalance: number;
   sortOrder: number;
@@ -848,6 +871,8 @@ export type AdminExpectedPaymentRow = {
   installmentNumber: number | null;
   label: string;
   amount: number;
+  /** Monto ya cobrado contra el concepto (issue #129): la seña o parciales. */
+  paidAmount: number;
   dueAt: string | null;
   status: string;
   /** Observación del equipo (el cliente ve el motivo en el portal). */
@@ -885,6 +910,15 @@ export type AdminExpectedPaymentRow = {
     reference: string | null;
     treasuryAccountId: string | null;
   } | null;
+  /** Seña y cobros parciales imputados (issue #129); el más reciente primero. */
+  partialPayments?: Array<{
+    id: string;
+    amount: number;
+    method: string | null;
+    collectedAt: string | null;
+    reference: string | null;
+    treasuryAccountId: string | null;
+  }>;
 };
 
 export type AdminExpectedPaymentAmount = { count: number; total: number };
@@ -893,6 +927,8 @@ export type AdminExpectedPaymentAmount = { count: number; total: number };
 export type AdminExpectedPaymentSummary = {
   awaiting: AdminExpectedPaymentAmount;
   proof: AdminExpectedPaymentAmount;
+  /** Señas/parciales (issue #129): el saldo que queda por cobrar de cada uno. */
+  partial: AdminExpectedPaymentAmount;
   overdue: AdminExpectedPaymentAmount;
   confirmed: AdminExpectedPaymentAmount;
   /** Necesita acción: comprobantes en revisión + vencidos sin comprobante. */
@@ -902,7 +938,7 @@ export type AdminExpectedPaymentSummary = {
 /** ¿Necesita acción hoy? Con comprobante en revisión o vencido sin comprobante. */
 export function expectedPaymentNeedsAction(row: Pick<AdminExpectedPaymentRow, "status" | "dueAt">): boolean {
   if (row.status === "PROOF") return true;
-  return row.status === "AWAITING" && isOverdue(row.dueAt);
+  return (row.status === "AWAITING" || row.status === "PARTIAL") && isOverdue(row.dueAt);
 }
 
 // ── Plantillas de mensajes (issue #35) ──────────────────────────────────────

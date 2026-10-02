@@ -62,3 +62,43 @@ test("Eventos deja lo mínimo a la vista y crea clientes desde el selector", () 
   // Al crear, el cliente queda elegido y el catálogo se refresca.
   assert.match(module, /function selectCreatedClient[\s\S]{0,300}clientId: client\.id[\s\S]{0,200}clients\.reload\(\)/, "el cliente creado tiene que quedar elegido");
 });
+
+/**
+ * Alta de presupuesto (auditoría #123 §2.4, issue #132): el costo interno vive
+ * en «Más datos» —fuera del camino del alta—, el API rechaza un presupuesto sin
+ * ítems y los mensajes de los endpoints del alta están en español.
+ */
+test("el alta de presupuesto pliega el costo interno y el API rechaza sin ítems (issue #132)", () => {
+  const module = repoFile("components/admin/modules/PresupuestosModule.tsx");
+  const formSection = module.match(/title="Nuevo presupuesto"[\s\S]*?<\/AdminFormPanel>/)?.[0] ?? "";
+  assert.ok(formSection, "el alta de presupuesto existe");
+  const priceIndex = formSection.indexOf('label="Precio unitario"');
+  const disclosureIndex = formSection.indexOf('title="Más datos"');
+  const costIndex = formSection.indexOf('label="Costo unitario"');
+  assert.ok(priceIndex > 0, "el precio unitario queda a la vista");
+  assert.ok(disclosureIndex > priceIndex && costIndex > disclosureIndex, "el costo interno va plegado después del precio");
+  assert.match(
+    formSection,
+    /<AdminDisclosure title="Más datos" hint="costo interno">[\s\S]*?label="Costo unitario"[\s\S]*?<\/AdminDisclosure>/,
+    "el costo unitario vive dentro de «Más datos»",
+  );
+
+  // API: sin ítems no se crea el presupuesto y el error es claro.
+  const route = repoFile("app/api/admin/budgets/route.ts");
+  assert.match(
+    route,
+    /if \(items\.length === 0\) \{[\s\S]{0,120}El presupuesto necesita al menos un ítem con nombre\./,
+    "el POST tiene que rechazar un presupuesto sin ítems",
+  );
+  assert.match(route, /Elegí el cliente y escribí el título del presupuesto\./);
+  assert.match(route, /El cliente no existe en esta empresa\./);
+  // Mensajes es-PY: sin literales en inglés en los endpoints del alta.
+  for (const file of [
+    "app/api/admin/budgets/route.ts",
+    "app/api/admin/budgets/token/route.ts",
+    "app/api/admin/budgets/approval/route.ts",
+    "app/api/admin/budgets/requests/route.ts",
+  ]) {
+    assert.doesNotMatch(repoFile(file), /(is|are) required\.|not found\./i, `${file}: mensaje en inglés`);
+  }
+});

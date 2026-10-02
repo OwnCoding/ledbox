@@ -46,6 +46,9 @@ export const dynamic = "force-dynamic";
 const MAX_AMOUNT = 99_000_000_000;
 const MAX_NAME = 120;
 const MAX_BANK = 120;
+/** Número y alias de la cuenta (issue #129): datos para transferir. */
+const MAX_ACCOUNT_NUMBER = 40;
+const MAX_ACCOUNT_ALIAS = 60;
 const MAX_NOTES = 1000;
 const MAX_RECEIPT = 120;
 const MAX_SORT_ORDER = 9_999;
@@ -54,7 +57,7 @@ const accountSelect = { id: true, name: true, type: true } as const;
 const movementInclude = { account: { select: accountSelect }, counterAccount: { select: accountSelect } } as const;
 
 /** Campos que se auditan al crear o editar una cuenta. */
-const ACCOUNT_AUDIT_FIELDS = ["name", "type", "bank", "currency", "openingBalance", "sortOrder", "active"] as const;
+const ACCOUNT_AUDIT_FIELDS = ["name", "type", "bank", "number", "alias", "currency", "openingBalance", "sortOrder", "active"] as const;
 /** Campos que se auditan al crear un movimiento. */
 const MOVEMENT_AUDIT_FIELDS = [
   "direction",
@@ -261,6 +264,9 @@ export async function POST(request: Request) {
         const sortOrder = body.sortOrder === undefined ? 0 : toInteger(body.sortOrder, 0, MAX_SORT_ORDER);
         if (sortOrder === null) return jsonError(`El orden tiene que ser un número entre 0 y ${MAX_SORT_ORDER}.`, 400);
         const bank = type === "BANK" ? (optionalText(body.bank, MAX_BANK) ?? null) : null;
+        // Número y alias (issue #129): con ellos el cobro se comparte para transferir.
+        const number = optionalText(body.number, MAX_ACCOUNT_NUMBER) ?? null;
+        const alias = optionalText(body.alias, MAX_ACCOUNT_ALIAS) ?? null;
 
         const duplicate = await tx.treasuryAccount.findFirst({ where: { organizationId, name }, select: { id: true } });
         if (duplicate) return jsonError(`Ya existe una cuenta llamada «${name}».`, 409);
@@ -272,6 +278,8 @@ export async function POST(request: Request) {
             name: name.slice(0, MAX_NAME),
             type,
             bank,
+            number,
+            alias,
             currency: "PYG",
             openingBalance,
             sortOrder,
@@ -493,6 +501,9 @@ export async function PATCH(request: Request) {
         ? account.bank
         : optionalText(body.bank, MAX_BANK) ?? null
       : null;
+    // Número y alias (issue #129): se editan con la cuenta, sin depender del tipo.
+    const number = body.number === undefined ? account.number : optionalText(body.number, MAX_ACCOUNT_NUMBER) ?? null;
+    const alias = body.alias === undefined ? account.alias : optionalText(body.alias, MAX_ACCOUNT_ALIAS) ?? null;
 
     const updated = await tx.treasuryAccount.update({
       where: { id: account.id },
@@ -500,6 +511,8 @@ export async function PATCH(request: Request) {
         ...(name !== undefined ? { name: name.slice(0, MAX_NAME) } : {}),
         ...(body.type !== undefined ? { type: nextType } : {}),
         ...(body.type !== undefined || body.bank !== undefined ? { bank } : {}),
+        ...(body.number !== undefined ? { number } : {}),
+        ...(body.alias !== undefined ? { alias } : {}),
         ...(body.openingBalance !== undefined ? { openingBalance } : {}),
         ...(body.sortOrder !== undefined ? { sortOrder } : {}),
         ...(body.active !== undefined ? { active: body.active as boolean } : {}),
