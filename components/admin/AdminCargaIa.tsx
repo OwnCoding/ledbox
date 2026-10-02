@@ -1398,32 +1398,47 @@ export function AdminCargaIaDialog({ onClose, rol }: { onClose: () => void; rol:
                         Se vincula a <strong>{producto.existenteNombre ?? "el ítem existente"}</strong>
                         {producto.confianza !== null ? ` (${producto.confianza} %)` : ""}: no se crea un producto nuevo.
                       </p>
-                      <div className="admin-ia-grid">
-                        <SwitchField
-                          label="Actualizar los precios del producto"
-                          checked={producto.actualizarPrecios}
-                          onChange={(actualizarPrecios) => actualizarProducto(producto.clave, { actualizarPrecios })}
-                          disabled={!producto.incluir}
-                        />
-                        <MoneyField
-                          label="Precio de lista"
-                          value={producto.precioLista}
-                          onChange={(precioLista) => actualizarProducto(producto.clave, { precioLista })}
-                          disabled={!producto.incluir || !producto.actualizarPrecios}
-                        />
-                        <MoneyField
-                          label="Precio mayorista"
-                          value={producto.precioMayorista}
-                          onChange={(precioMayorista) => actualizarProducto(producto.clave, { precioMayorista })}
-                          disabled={!producto.incluir || !producto.actualizarPrecios}
-                        />
-                        <MoneyField
-                          label="Precio mínimo"
-                          value={producto.precioMinimo}
-                          onChange={(precioMinimo) => actualizarProducto(producto.clave, { precioMinimo })}
-                          disabled={!producto.incluir || !producto.actualizarPrecios}
-                        />
-                      </div>
+                      {producto.actualizarPrecios ? (
+                        <div className="admin-ia-grid">
+                          <SwitchField
+                            label="Actualizar los precios del producto"
+                            checked
+                            hint="Al desactivarlo, el ítem del inventario no se toca."
+                            onChange={(actualizarPrecios) => actualizarProducto(producto.clave, { actualizarPrecios })}
+                            disabled={!producto.incluir}
+                          />
+                          <MoneyField
+                            label="Precio de lista"
+                            value={producto.precioLista}
+                            onChange={(precioLista) => actualizarProducto(producto.clave, { precioLista })}
+                            disabled={!producto.incluir}
+                          />
+                          <MoneyField
+                            label="Precio mayorista"
+                            value={producto.precioMayorista}
+                            onChange={(precioMayorista) => actualizarProducto(producto.clave, { precioMayorista })}
+                            disabled={!producto.incluir}
+                          />
+                          <MoneyField
+                            label="Precio mínimo"
+                            value={producto.precioMinimo}
+                            onChange={(precioMinimo) => actualizarProducto(producto.clave, { precioMinimo })}
+                            disabled={!producto.incluir}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          {/* Issue #136: el producto vinculado no pide precios; la
+                              edición de los maestros es una acción explícita. */}
+                          <AdminButton
+                            icon="edit"
+                            onClick={() => actualizarProducto(producto.clave, { actualizarPrecios: true })}
+                            disabled={!producto.incluir}
+                          >
+                            Editar precios del producto
+                          </AdminButton>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="admin-ia-grid">
