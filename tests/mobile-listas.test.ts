@@ -49,6 +49,16 @@ test("clientes: tarjetas en ancho compacto con contacto, deuda, última activida
   assert.match(module, /narrow \? null : \(\n\s*<AdminViewSwitch/);
 });
 
+test("las tarjetas dejan el nombre en su propia línea en ancho compacto", () => {
+  // El encabezado de la tarjeta envuelve en ≤980: los chips bajan debajo y el
+  // nombre no queda aplastado (Clientes llega a tres chips; sin esto el título
+  // se recortaba a un hilo y el dato no se veía).
+  const css = repoFile("app/globals.css");
+  assert.match(css, /\.admin-cards-head \{ flex-wrap: wrap; \}/, "el encabezado tiene que envolver");
+  assert.match(css, /\.admin-cards-title \{ flex: 1 1 100%; \}/, "el nombre ocupa su línea completa");
+  assert.match(css, /\.admin-cards-badges \{ flex-wrap: wrap; \}/, "los chips envuelven");
+});
+
 test("clientes escritorio: sin links de contacto en la grilla y con la tabla más corta", () => {
   const module = repoFile("components/admin/modules/ClientesModule.tsx");
   const table = module.slice(module.indexOf('view="clientes"'));
@@ -67,6 +77,6 @@ test("clientes escritorio: sin links de contacto en la grilla y con la tabla má
   const css = repoFile("app/globals.css");
   const regla = /\.admin-table--clientes \{ --clientes-cols: ([^;]+); --admin-cols: var\(--clientes-cols\); --admin-table-min: ([\d.]+)rem; \}/.exec(css);
   assert.ok(regla, "falta la plantilla de columnas de clientes");
-  assert.equal(regla[1].trim().endsWith("3.25rem"), true, "la columna de acciones tiene que achicarse");
+  assert.equal(regla[1].trim().endsWith("4.75rem"), true, "la columna de acciones tiene que achicarse sin cortar «Acciones»");
   assert.equal(Number(regla[2]) <= 56, true, "el ancho mínimo tiene que bajar");
 });
