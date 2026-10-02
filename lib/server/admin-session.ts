@@ -1,7 +1,8 @@
+import { getAuthenticatedAdmin } from "./auth";
 import { db } from "@/lib/server/db";
 import { loadOrganizationLogos, logoVersions } from "@/lib/server/branding";
 import { loadAdminSecurity } from "@/lib/server/pin";
-import { listAdminOrganizations, type AdminContext } from "@/lib/server/tenancy";
+import { listAdminOrganizations, requireAdminContext, type AdminContext } from "@/lib/server/tenancy";
 import type { AdminSessionPayload } from "@/lib/admin-types";
 
 /**
@@ -42,4 +43,16 @@ export async function buildAdminSessionPayload(context: AdminContext): Promise<A
     lockReason: context.session.lockedAt ? (context.session.lockReason === "manual" ? "manual" : "inactivity") : null,
     lock: security,
   };
+}
+
+/**
+ * ¿Hay una sesión de panel utilizable? (issue #134). Misma resolución que el
+ * layout del panel: sesión válida + contexto de empresa (con `allowLocked`, así
+ * una sesión bloqueada por PIN también cuenta: el shell dibuja el desbloqueo y
+ * no se saltea).
+ */
+export async function sesionDePanelDisponible(): Promise<boolean> {
+  if (!(await getAuthenticatedAdmin())) return false;
+  const context = await requireAdminContext(undefined, { allowLocked: true });
+  return context.ok;
 }

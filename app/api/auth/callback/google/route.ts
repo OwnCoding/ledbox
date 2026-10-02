@@ -5,6 +5,7 @@ import { createSession, normalizeUserEmail } from "@/lib/server/auth";
 import { acceptInvitationWithGoogle } from "@/lib/server/invitations";
 import { resolveActiveOrganizationId } from "@/lib/server/tenancy";
 import { getPublicOrigin } from "@/lib/server/public-origin";
+import { PANEL_HOME } from "@/lib/admin-routes";
 export const runtime = "nodejs";
 
 /** Cookie del token de invitación que arranca `login/google?invitation=…` (issue #31). */
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
       return new Response(null, { status: 302, headers });
     }
     const session = await createSession({ id: user.id, email: user.email, role: result.role }, result.organizationId);
-    headers.set("Location", `${siteUrl}/dashboard`);
+    headers.set("Location", `${siteUrl}${PANEL_HOME}`);
     headers.append("Set-Cookie", `${authConfig.sessionCookieName}=${session.jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=${session.expiresAt.toUTCString()}`);
     return new Response(null, { status: 302, headers });
   }
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
   const activeOrganizationId = await resolveActiveOrganizationId(user.id);
   if (!activeOrganizationId) return Response.redirect(`${loginUrl}?error=google_not_allowed`);
   const session = await createSession({ id: user.id, email: user.email, role: user.role }, activeOrganizationId);
-  const headers = new Headers({ Location: `${siteUrl.replace(/\/$/, "")}/dashboard` });
+  const headers = new Headers({ Location: `${siteUrl.replace(/\/$/, "")}${PANEL_HOME}` });
   headers.append("Set-Cookie", `ledbox_google_state=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
   headers.append("Set-Cookie", `${authConfig.sessionCookieName}=${session.jwt}; HttpOnly; Secure; SameSite=Lax; Path=/; Expires=${session.expiresAt.toUTCString()}`);
   return new Response(null, { status: 302, headers });
