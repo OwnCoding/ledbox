@@ -88,7 +88,8 @@ import {
   AdminToolbar,
   AdminWhatsappTemplateButton,
 } from "../AdminUI";
-import { AdminCardGrid, useAdminCompactList, type AdminCardData } from "../AdminCards";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
 import { Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
 import { adminApiGet, adminSend, useAdminResource } from "@/lib/admin-api";
@@ -1384,7 +1385,7 @@ export function FinanzasModule({ section = "resumen" }: { section?: AdminFinanza
    * sección cambia su tabla densa por tarjetas con entidad, estado, fecha/monto
    * y acción principal. En escritorio se mantiene la tabla.
    */
-  const compact = useAdminCompactList();
+  const compact = useAdminNarrowViewport();
   const payments = useMemo(() => finance.data?.payments ?? [], [finance.data]);
   const jobs = useMemo(() => finance.data?.jobs ?? [], [finance.data]);
   const term = form.mode === "term";

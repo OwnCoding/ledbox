@@ -18,7 +18,8 @@ import {
   validateMessageTemplate,
 } from "@/lib/server/message-templates";
 import { useAdminSession } from "../AdminShell";
-import { AdminCardGrid, useAdminCompactList, type AdminCardData } from "../AdminCards";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import {
   AdminBadge,
   AdminButton,
@@ -79,7 +80,7 @@ export function PlantillasModule() {
   const [deleting, setDeleting] = useState<AdminMessageTemplateRow | null>(null);
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   /** Lista en tarjetas en pantalla chica (auditoría móvil, issue #153). */
-  const compact = useAdminCompactList();
+  const compact = useAdminNarrowViewport();
 
   const templates = useMemo<AdminMessageTemplateRow[]>(() => templatesResource.data ?? [], [templatesResource.data]);
 

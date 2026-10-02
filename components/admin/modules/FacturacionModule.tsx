@@ -46,7 +46,8 @@ import type {
   AdminSupplierRow,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
-import { AdminCardGrid, useAdminCompactList, type AdminCardData } from "../AdminCards";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import {
   AdminBadge,
   AdminButton,
@@ -237,7 +238,7 @@ export function FacturacionModule() {
   const canProfile = canManageFiscalProfile(role) && !demo;
   const canReopen = canReopenFiscalPeriod(role) && !demo;
   /** Listas en tarjetas en pantalla chica (auditoría móvil, issue #153). */
-  const compact = useAdminCompactList();
+  const compact = useAdminNarrowViewport();
 
   const data = fiscal.data;
   const summary = data?.summary ?? EMPTY_SUMMARY;

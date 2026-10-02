@@ -5,10 +5,11 @@ import { test } from "node:test";
 
 /**
  * Facturación y Plantillas en mobile (issue #153, auditoría móvil crítica 3):
- * las listas usan la regla compartida de tarjetas (≤980 px, `useAdminCompactList`)
- * y el texto explicativo del cierre mensual es una sola corriente —el flex viejo
- * lo partía en columnas y palabras sueltas—. Si una pantalla vuelve a la tabla
- * con scroll horizontal o al texto en columnas, estos tests fallan.
+ * las listas usan la regla compartida de tarjetas (≤980 px,
+ * `useAdminNarrowViewport`) y el texto explicativo del cierre mensual es una
+ * sola corriente —el flex viejo lo partía en columnas y palabras sueltas—. Si
+ * una pantalla vuelve a la tabla con scroll horizontal o al texto en columnas,
+ * estos tests fallan.
  */
 const root = process.cwd();
 const facturacion = readFileSync(join(root, "components/admin/modules/FacturacionModule.tsx"), "utf8");
@@ -20,7 +21,7 @@ test("las listas de Facturación y Plantillas ofrecen tarjetas en pantalla chica
     ["Facturación", facturacion],
     ["Plantillas", plantillas],
   ]) {
-    assert.match(source, /useAdminCompactList\(\)/, `${name}: falta la regla compacta del kit`);
+    assert.match(source, /useAdminNarrowViewport\(\)/, `${name}: falta la regla compacta del panel`);
     assert.match(source, /<AdminCardGrid/, `${name}: falta la grilla de tarjetas`);
   }
 });

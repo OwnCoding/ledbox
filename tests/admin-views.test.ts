@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 /**
- * Regla de las vistas del panel (issues #57, #140 y #155): un módulo que dibuja
+ * Regla de las vistas del panel (issues #57 y #139/#140): un módulo que dibuja
  * la cuadrícula de tarjetas (`AdminCardGrid`) tiene que hacerla alcanzable por
  * alguna de las dos vías del kit: el conmutador recordado por usuario
- * (`useAdminModuleView` + `AdminViewSwitch` + `"grid"`) o la lista compacta
- * (≤980 px la tabla densa se reemplaza por tarjetas, `useAdminCompactList`).
- * Si la cuadrícula no se puede alcanzar por ninguna, este test lo frena.
+ * (`useAdminModuleView` + `AdminViewSwitch` + `"grid"`) o el ancho compacto
+ * (≤980 px la tabla densa se reemplaza por tarjetas,
+ * `useAdminNarrowViewport`). Si la cuadrícula no se puede alcanzar por ninguna,
+ * este test lo frena.
  */
 const MODULES_DIR = join(process.cwd(), "components", "admin", "modules");
 
@@ -27,8 +28,8 @@ test("los módulos con cuadrícula la ofrecen en el conmutador o en la lista com
     } else {
       assert.match(
         source,
-        /useAdminCompactList/,
-        `${file}: la cuadrícula no es alcanzable (sin conmutador ni lista compacta)`,
+        /useAdminNarrowViewport/,
+        `${file}: la cuadrícula no es alcanzable (sin conmutador ni ancho compacto)`,
       );
     }
   }

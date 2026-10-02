@@ -12,7 +12,6 @@ import { test } from "node:test";
  */
 const root = process.cwd();
 const moduleSource = readFileSync(join(root, "components/admin/modules/FinanzasModule.tsx"), "utf8");
-const cardsKit = readFileSync(join(root, "components/admin/AdminCards.tsx"), "utf8");
 const conciliacion = readFileSync(join(root, "components/admin/modules/ConciliacionBancaria.tsx"), "utf8");
 
 /** Secciones y rutas tal como las publica el brief del issue #140. */
@@ -64,11 +63,12 @@ test("la barra de subtabs sale de la lista única de secciones", () => {
 });
 
 test("pantalla chica: las listas de Finanzas pasan a tarjetas", () => {
-  // Regla compartida del kit: ≤980 px la lista va en tarjetas (mismo punto que el drawer).
-  assert.match(cardsKit, /export const ADMIN_COMPACT_MAX_WIDTH = 980/);
-  assert.match(cardsKit, /export function useAdminCompactList/);
-  assert.match(moduleSource, /useAdminCompactList\(\)/, "Finanzas no usa la regla compacta");
-  assert.match(conciliacion, /useAdminCompactList\(\)/, "Conciliación no usa la regla compacta");
+  // Regla compartida del panel (issues #139/#140): ≤980 px la lista va en
+  // tarjetas, con el mismo corte con el que el shell pasa a drawer.
+  const board = readFileSync(join(root, "components/admin/AdminBoard.tsx"), "utf8");
+  assert.match(board, /export function useAdminNarrowViewport\(\): boolean/);
+  assert.match(moduleSource, /useAdminNarrowViewport\(\)/, "Finanzas no usa la regla compacta");
+  assert.match(conciliacion, /useAdminNarrowViewport\(\)/, "Conciliación no usa la regla compacta");
   assert.match(conciliacion, /<AdminCardGrid/, "Conciliación no dibuja tarjetas");
   // Cada tabla densa de las secciones tiene su par en tarjetas.
   const tables = (moduleSource.match(/<AdminTable\n\s+view="/g) ?? []).length;

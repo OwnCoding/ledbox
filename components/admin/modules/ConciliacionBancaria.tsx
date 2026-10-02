@@ -53,7 +53,8 @@ import {
   AdminSelect,
   AdminTable,
 } from "../AdminUI";
-import { AdminCardGrid, useAdminCompactList, type AdminCardData } from "../AdminCards";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import { Combobox, DateField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { AdminIcon } from "../AdminIcons";
 
@@ -162,7 +163,7 @@ export function ConciliacionBancaria({
   const [dialogRowId, setDialogRowId] = useState("");
   const [busyRowId, setBusyRowId] = useState("");
   /** Filas del extracto en tarjetas en pantalla chica (auditoría móvil, #140). */
-  const compact = useAdminCompactList();
+  const compact = useAdminNarrowViewport();
 
   const periodQuery = datePeriodQuery(period);
   const path = `/api/admin/bank-statements?accountId=${encodeURIComponent(accountId)}&status=${status}${periodQuery ? `&${periodQuery.slice(1)}` : ""}`;
@@ -849,7 +850,7 @@ function ImportStatementDialog({
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState("");
   /** Vista previa del extracto en tarjetas en pantalla chica (issue #140). */
-  const compact = useAdminCompactList();
+  const compact = useAdminNarrowViewport();
 
   /** Lee el texto local (archivo o pegado) y precarga el mapeo sugerido. */
   function readText(nextText: string, nextFileName: string | null) {
