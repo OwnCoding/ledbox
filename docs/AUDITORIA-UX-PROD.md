@@ -120,8 +120,41 @@ La demo solamente expone visualmente Plan; no se pudieron revisar las configurac
 5. Tokens globales de espaciado, tipografía, colores, modales y estados.
 6. Auditoría específica del panel OWNER y configuraciones privadas.
 
+> Hecha en v2.1.63 (issue #149): [`AUDITORIA-OWNER.md`](./AUDITORIA-OWNER.md).
+
 ## Key learnings
 
 1. EventOS ya tiene una identidad visual sólida; el mayor problema es la jerarquía de información.
 2. Las tablas necesitan representaciones móviles propias, no solamente desplazamiento horizontal.
 3. El portal del cliente es el mejor punto de partida para estandarizar el resto de la experiencia.
+
+## Segunda pasada — móvil (01-10 23:45)
+
+### Auditoría móvil de producción — v2.1.61 (segunda pasada)
+
+Fuente: dueño, 01-10-2026 11:45 PM. Producción EventOS v2.1.61; no se modificaron datos ni configuraciones durante la revisión.
+
+#### Problemas críticos
+
+1. **Avisos en móvil:** el panel se superpone completamente y queda ilegible.
+2. **Cierre mensual móvil:** el texto explicativo se rompe en columnas y palabras sueltas.
+3. **Tablas no responsive:** Proveedores, Leads, Plantillas, Facturación, Auditoría y Usuarios exigen desplazamiento horizontal.
+4. **Detalles mal posicionados:** Leads e Inventario abren el detalle debajo de tablas largas sin llevar al usuario hasta ahí.
+5. **Fechas técnicas:** aparecen placeholders `yyyy-mm-dd` en Inventario y Auditoría.
+6. **Kanban móvil:** Proveedores y Leads muestran columnas cortadas.
+
+#### Paneles que funcionan bien
+
+- Promotoras usando vista cuadrícula.
+- Calendario mensual y semanal.
+- Perfil.
+- Buscador global.
+- Carga con IA.
+- Navegación móvil.
+- Modo claro y oscuro.
+- Ajustes de Empresa, Correo, Plan y Usuarios.
+- Estado del sistema y respaldos.
+
+#### Key learnings
+
+1. La prioridad no es cambiar el estilo visual: es **reemplazar las tablas desktop por tarjetas responsive** y **corregir overlays y detalles en móvil**.
