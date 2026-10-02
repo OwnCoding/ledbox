@@ -1299,7 +1299,11 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    del cliente (issue #36), que suman hasta cinco links de contacto. */
 .admin-cell--actions .admin-iconbtn,
 .admin-cell--actions .admin-btn--only-icon { width: 28px; height: 28px; min-height: 28px; }
-.admin-note { display: flex; align-items: center; gap: 8px; color: var(--a-muted-2); font-size: 12.5px; }
+/* La nota es una sola corriente de texto (issue #153): el flex viejo partía el
+   párrafo en items —texto, <strong>, link— y en mobile el cierre mensual quedaba
+   en columnas de palabras sueltas. El ícono, si lo hay, va en línea. */
+.admin-note { display: block; color: var(--a-muted-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: break-word; }
+.admin-note > .admin-icon { margin-right: 8px; vertical-align: -2px; }
 .admin-note[data-tone="ok"] { color: var(--a-ok); }
 .admin-note[data-tone="warn"] { color: var(--a-warn); }
 .admin-note[data-tone="error"] { color: var(--a-danger); }
