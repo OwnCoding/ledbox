@@ -66,10 +66,32 @@ test("textos y SEO intactos", () => {
   }
   assert.match(page, /alternates: \{ canonical: publicConfig\.productUrl \}/, "cambió el canonical");
   assert.match(page, /"@type": "FAQPage"/, "cambió el JSON-LD");
-  assert.equal((page.match(/\] as const;/g) ?? []).length, 3, "cambiaron los bloques de contenido (módulos, pasos o FAQ)");
+  assert.equal((page.match(/\] as const;/g) ?? []).length, 5, "cambiaron los bloques de contenido (módulos, pasos, FAQ, resultados o perfiles)");
+});
+
+test("el header usa la marca de EventOS, no el logo de otra marca", () => {
+  assert.match(page, /<BrandMark className="producto-brand-mark" size=\{26\} \/>/, "el header no usa la marca de EventOS");
+  assert.doesNotMatch(page, /producto-brand-mark[^>]{0,200}icon-192/, "el header volvió al logo de LedBox");
+  assert.doesNotMatch(css, /producto-brand-mark \{ border-radius/, "quedó el ajuste de la imagen vieja");
+});
+
+test("flujo visual y secciones de la 2ª pasada", () => {
+  assert.match(page, /className="producto-flow"/, "falta el flujo visual");
+  for (const verb of ["Cotizá", "Aprobá", "Operá", "Cobrá"]) {
+    assert.ok(page.includes(`<li>${verb}</li>`), `falta el paso ${verb}`);
+  }
+  assert.match(page, /id="resultados"/, "faltan los resultados cuantificables");
+  for (const eyebrow of ["Tiempo", "Faltantes", "Margen"]) {
+    assert.ok(page.includes(`["${eyebrow}",`), `falta el beneficio ${eyebrow}`);
+  }
+  assert.match(page, /id="para-quien"/, "falta la sección para quién es");
+  for (const audience of ["Productoras de eventos", "Alquiladores de equipos", "Agencias"]) {
+    assert.ok(page.includes(audience), `falta el perfil ${audience}`);
+  }
 });
 
 test("responsive y pie con versión real", () => {
+  assert.match(css, /\.producto-section \{ padding: clamp\(30px, 4\.5vw, 48px\) 0; scroll-margin-top: 76px; \}/, "cambió el ritmo de las secciones o el ancla");
   assert.match(css, /@media \(max-width: 860px\) \{/, "falta el corte de la barra");
   assert.match(css, /@media \(max-width: 480px\) \{/, "falta el ajuste de mobile chico");
   assert.match(page, /<AppFooter variant="app" \/>/, "la landing perdió el pie compartido");

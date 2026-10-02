@@ -459,3 +459,13 @@ sitio, y los radios pasan a 18/26.
   privacidad (#92) y escala de urgencia no aplican.
 - **Pie**: el compartido (`AppFooter variant="app"`) con la versión real de
   `lib/version.ts`. Textos y SEO (`metadata`, JSON-LD) intactos.
+
+**2ª pasada (02-10-2026, auditoría UX de producción):** la marca del header pasa
+del isotipo de LedBox al vector de EventOS (mismo `BrandMark` que el panel: dos
+logos juntos se leían superpuestos); el hero se aprieta (aire 130 → 112 px a
+1440) y el CTA queda sobre el pliegue (382/900 y 338/844); el hero suma el flujo
+**Cotizá → Aprobá → Operá → Cobrá**; se agregan **«Lo que cambia en la
+operación»** (tiempo, faltantes, margen: el mecanismo concreto, sin métricas
+inventadas) y **«Para quién es»** (productoras, alquiladores, agencias); las
+secciones quedan más cerca (128 → 96 px entre «Cómo funciona» y «Preguntas») y
+las anclas ya no aterrizan bajo la barra pegajosa (`scroll-margin-top: 76px`).

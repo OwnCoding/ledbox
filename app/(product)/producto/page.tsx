@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { AppFooter } from "@/components/app-footer";
+import { BrandMark } from "@/components/brand-mark";
 import { publicConfig } from "@/lib/public-config";
 import { PRODUCT_BOOT_SCRIPT, PRODUCT_ROOT_ID } from "@/lib/site-theme";
 
@@ -47,6 +48,24 @@ const faqs = [
   ["¿Se puede probar?", "Sí, hay una demo pública con datos simulados de una operación real, sin instalar nada."],
 ] as const;
 
+/**
+ * Resultados (issue #133, 2ª pasada): lo que cambia en la operación, con el
+ * mecanismo concreto del producto. Sin métricas inventadas: cada tarjeta dice
+ * qué se deja de hacer o qué se ve antes.
+ */
+const benefits = [
+  ["Tiempo", "Un dato, un solo camino", "El presupuesto aprobado se convierte en evento, reserva de equipos y cobro sin volver a cargar nada: menos retipeo y menos planillas paralelas."],
+  ["Faltantes", "Disponibilidad por fecha", "Cada equipo se reserva para su evento y la salida y la devolución se registran con daños y faltantes: lo que falta se ve antes del montaje, no en el camión."],
+  ["Margen", "Costos y precios en la misma ficha", "Costos, descuentos y plan de pagos viven en el presupuesto, con trazabilidad de cada cambio: el margen se controla mientras se cotiza."],
+] as const;
+
+/** Para quién es (issue #133, 2ª pasada): los tres perfiles que ya lo usan. */
+const audiences = [
+  ["Productoras de eventos", "Presupuesto, cronograma y checklist por evento, con el cliente aprobando online y el equipo sabiendo qué hace cada día."],
+  ["Alquiladores de equipos", "Inventario por fecha, asignaciones por evento, sustitutos y devolución con faltantes: la disponibilidad manda."],
+  ["Agencias", "Varias empresas y clientes en la misma cuenta, con roles, marcas propias y trazabilidad de cada propuesta enviada."],
+] as const;
+
 const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
@@ -87,7 +106,7 @@ export default function ProductoPage() {
 
       <header className="producto-top">
         <span className="producto-brand">
-          <Image src="/assets/icon-192.png" alt="" width={28} height={28} className="producto-brand-mark" aria-hidden="true" />
+          <BrandMark className="producto-brand-mark" size={26} />
           EventOS<span className="producto-brand-dot">.</span>
         </span>
         <nav className="producto-nav" aria-label="Secciones">
@@ -124,6 +143,12 @@ export default function ProductoPage() {
             </a>
           </div>
           <p className="producto-note">La demo es pública, con datos simulados de una operación real y solo lectura.</p>
+          <ul className="producto-flow" aria-label="Del presupuesto al cobro">
+            <li>Cotizá</li>
+            <li>Aprobá</li>
+            <li>Operá</li>
+            <li>Cobrá</li>
+          </ul>
           <Image
             className="producto-hero-shot"
             src="/assets/producto/panel-finanzas.jpg"
@@ -132,6 +157,31 @@ export default function ProductoPage() {
             height={800}
             priority
           />
+        </section>
+
+        <section id="resultados" className="producto-section">
+          <h2>Lo que cambia en la operación</h2>
+          <div className="producto-grid">
+            {benefits.map(([eyebrow, claim, text]) => (
+              <article key={eyebrow} className="producto-card">
+                <span className="producto-card-eyebrow">{eyebrow}</span>
+                <h3>{claim}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="para-quien" className="producto-section">
+          <h2>Para quién es</h2>
+          <div className="producto-grid">
+            {audiences.map(([name, text]) => (
+              <article key={name} className="producto-card">
+                <h3>{name}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section id="modulos" className="producto-section">
