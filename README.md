@@ -43,7 +43,7 @@ En desarrollo, `npm run dev` deja el panel en `http://localhost:3000/dashboard` 
 
 ## Puesta en marcha
 
-Requisitos: Node.js >= 20.9 y PostgreSQL.
+Requisitos: Node.js >= 22 (LTS) y PostgreSQL.
 
 ```bash
 npm install

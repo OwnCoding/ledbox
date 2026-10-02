@@ -51,7 +51,7 @@
     "deepmerge-ts": "^8.0.2"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
