@@ -33,11 +33,11 @@ import {
   AdminToolbar,
   AdminWhatsappLink,
 } from "../AdminUI";
-import { DateField, PhoneField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
+import { DateField, EmailField, PhoneField, SearchField, SelectField, TextAreaField, TextField } from "../AdminFields";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
-import { normalizePhone } from "@/lib/field-rules";
+import { FIELD_MESSAGES, emailValid, normalizePhone, personNameValid } from "@/lib/field-rules";
 
-const EMPTY_FORM = { name: "", phone: "", specialties: "" };
+const EMPTY_FORM = { name: "", phone: "", email: "", specialties: "" };
 
 /** Estados del enum `PromoterAvailability`: misma etiqueta en toda la app. */
 const AVAILABILITY_OPTIONS = PROMOTER_AVAILABILITIES.map((value) => ({
@@ -104,6 +104,15 @@ export function PromotorasModule() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Avisos es-PY del front con las reglas del kit (issue #131); el API revalida.
+    if (!personNameValid(form.name)) {
+      setFormError(FIELD_MESSAGES.name);
+      return;
+    }
+    if (form.email && !emailValid(form.email)) {
+      setFormError(FIELD_MESSAGES.email);
+      return;
+    }
     setBusy(true);
     setFormError("");
     setNotice("");
@@ -111,6 +120,7 @@ export function PromotorasModule() {
       kind: "promoter",
       name: form.name,
       phone: normalizePhone(form.phone) || undefined,
+      email: form.email.trim() || undefined,
       specialties: form.specialties || undefined,
     });
     setBusy(false);
@@ -230,6 +240,15 @@ export function PromotorasModule() {
             hint="Con código de país"
             value={form.phone}
             onChange={(value) => setForm({ ...form, phone: value })}
+          />
+          {/* Correo en el alta (issue #131): el modelo lo tiene y la auditoría lo registra. */}
+          <EmailField
+            label="Correo"
+            hint="Opcional"
+            value={form.email}
+            onChange={(value) => setForm({ ...form, email: value })}
+            placeholder="promotora@correo.com"
+            error={form.email && !emailValid(form.email) ? FIELD_MESSAGES.email : null}
           />
           <TextField
             label="Especialidades"

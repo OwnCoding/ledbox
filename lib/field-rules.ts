@@ -70,6 +70,8 @@ export const FIELD_LIMITS = {
   email: 200,
   /** Seriales/IMEI. */
   serial: 40,
+  /** SKU de un ítem de inventario (issue #131). */
+  sku: 60,
   /** Imagen de un ítem de inventario: ruta interna o URL http(s). */
   image: 400,
   /** Código de unidad de inventario (issue #112). */
@@ -88,6 +90,7 @@ export const FIELD_MESSAGES = {
   phone: "Ingresá un teléfono válido con código de país.",
   email: "Ingresá un correo válido.",
   serial: "El serial solo admite letras, números, guiones y guiones bajos.",
+  sku: "El SKU solo admite letras, números, espacios, puntos y guiones (2 a 60).",
   image: "Usá una ruta interna (/assets/…) o una URL http(s) válida.",
   price: "Ingresá un precio válido en guaraníes (hasta Gs 10.000.000.000).",
   priceDays: "Ingresá los días de la regla (0 a 3.650).",
@@ -355,6 +358,25 @@ export function inventoryImageError(value: string | null | undefined): string | 
   const image = normalizeInventoryImage(value);
   if (!image) return null;
   return inventoryImageValid(image) ? null : FIELD_MESSAGES.image;
+}
+
+/**
+ * SKU del ítem (issue #131): opcional y corto, legible a mano
+ * (`LED-P3-500`, `P·01`). Vacío no es error; el API revalida siempre.
+ */
+export function normalizeInventorySku(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
+export function inventorySkuValid(value: string | null | undefined): boolean {
+  return /^[A-Za-z0-9 ._·-]{2,60}$/.test(normalizeInventorySku(value));
+}
+
+/** Error del SKU: `null` también cuando viene vacío (el campo es opcional). */
+export function inventorySkuError(value: string | null | undefined): string | null {
+  const sku = normalizeInventorySku(value);
+  if (!sku) return null;
+  return inventorySkuValid(sku) ? null : FIELD_MESSAGES.sku;
 }
 
 /**

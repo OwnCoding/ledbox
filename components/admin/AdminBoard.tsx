@@ -88,6 +88,29 @@ export function useAdminModuleView(
   return [view, change];
 }
 
+/**
+ * ¿El panel está en ancho compacto (issue #139)? Hasta **980 px** —el mismo
+ * corte con el que el shell pasa a la barra lateral de íconos— las listas
+ * largas se leen como tarjetas en vez de tabla: en 390 la tabla se cortaba y el
+ * nombre del registro quedaba fuera de la vista (auditoría UX prod).
+ *
+ * El primer render (SSR y primera hidratación) devuelve `false` para no romper
+ * la hidratación; el `matchMedia` corrige en el efecto y sigue los cambios de
+ * ancho. El módulo decide qué dibujar: las tarjetas ya existen en la
+ * cuadrícula, así que el ancho compacto no agrega una representación nueva.
+ */
+export function useAdminNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 980px)");
+    const update = () => setNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
 /** Etiqueta e ícono de cada vista del conmutador. */
 const MODULE_VIEW_OPTIONS: Record<AdminModuleView, { label: string; icon: "menu" | "overview" | "calendar" }> = {
   list: { label: "Lista", icon: "menu" },

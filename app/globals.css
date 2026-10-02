@@ -1697,10 +1697,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 /* Plantillas de columnas por vista */
 /* Clientes con la ficha 360 (issue #34): contratado y última actividad entran
    al lugar del RUC (que sigue en el título de la fila, la ficha y la búsqueda).
-   La columna de acciones (issue #36) entra con los links compactos de contacto
-   (WhatsApp, Instagram, web y correo, más la ficha); el ancho mínimo entra sin
-   scroll horizontal en desktop (1440). */
-.admin-table--clientes { --clientes-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.2fr) 5.5rem 5.5rem 2.75rem 2.75rem 5.25rem minmax(4.5rem, .9fr) 4.75rem 9.75rem; --admin-cols: var(--clientes-cols); --admin-table-min: 62rem; }
+   Simplificada en #139: Instagram, web, correo y WhatsApp salen de la grilla
+   (viven en la ficha) y la columna de acciones queda con «Ver la ficha», así la
+   tabla entra sin scroll horizontal en desktop (1440). */
+.admin-table--clientes { --clientes-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.2fr) 5.5rem 5.5rem 2.75rem 2.75rem 5.25rem minmax(4.5rem, .9fr) 4.75rem 4.75rem; --admin-cols: var(--clientes-cols); --admin-table-min: 56rem; }
 .admin-table--eventos { --eventos-cols: 7.5rem 7rem minmax(8.5rem, 1.6fr) minmax(6.5rem, 1.1fr) minmax(5.5rem, 1fr) 4rem 4.5rem 5.75rem 7.5rem; --admin-cols: var(--eventos-cols); --admin-table-min: 61rem; }
 .admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5.5rem 5rem 5.25rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
 /* Firmas (issue #81): documento con su presupuesto de origen, destinatario
@@ -2428,6 +2428,12 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-user { padding: 4px; }
   .admin-user > .admin-icon { display: none; }
   .admin-user-info { display: none; }
+  /* Tarjetas de las listas (issue #139): en ancho compacto el nombre va
+     primero y en su propia línea; los chips bajan y se envuelven, así no lo
+     aplastan (Clientes llega a tres chips y el nombre quedaba en un hilo). */
+  .admin-cards-head { flex-wrap: wrap; }
+  .admin-cards-title { flex: 1 1 100%; }
+  .admin-cards-badges { flex-wrap: wrap; }
 }
 @media (max-width: 720px) {
   .admin-hide-sm { display: none; }

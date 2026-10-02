@@ -22,9 +22,11 @@ import {
   inventoryImageValid,
   inventoryPriceValue,
   inventoryPriceWarning,
+  inventorySkuError,
   inventoryUnitCodeError,
   inventoryUnitCodeValid,
   normalizeInventoryUnitCode,
+  personNameValid,
   readInventoryPriceValues,
   type InventoryPriceValues,
 } from "@/lib/field-rules";
@@ -45,6 +47,7 @@ import {
   AdminCountdown,
   AdminDataState,
   AdminDialog,
+  AdminDisclosure,
   AdminEmpty,
   AdminFormPanel,
   AdminKpi,
@@ -91,6 +94,8 @@ const INVENTARIO_VIEWS = ["list", "grid"] as const;
 const EMPTY_FORM = {
   name: "",
   category: "",
+  /** SKU opcional del alta (issue #131), detrás de «Más datos». */
+  sku: "",
   inventoryKind: "REUSABLE",
   quantity: "1",
   /** «Visible en la web» (issue #111): arranca apagado, nada se publica solo. */
@@ -587,6 +592,16 @@ export function InventarioModule() {
     setFormError("");
     setPhotoError("");
     setNotice("");
+    // Nombre y SKU con las reglas del kit (issue #131): mismo mensaje que el API.
+    if (!personNameValid(form.name)) {
+      setFormError(FIELD_MESSAGES.name);
+      return;
+    }
+    const sku = form.sku.trim();
+    if (sku && inventorySkuError(sku)) {
+      setFormError(FIELD_MESSAGES.sku);
+      return;
+    }
     const image = form.imageUrl.trim();
     const imageError = inventoryImageError(image);
     if (imageError) {
@@ -604,6 +619,7 @@ export function InventarioModule() {
       kind: "inventory",
       name: form.name,
       category: form.category || "General",
+      sku: sku || undefined,
       inventoryKind: form.inventoryKind,
       quantity: Number(form.quantity) || 1,
       visibleOnWeb: form.visibleOnWeb,
@@ -1042,7 +1058,8 @@ export function InventarioModule() {
           status={formError}
           statusNote={!formError && formPriceWarning ? <AdminNote tone="warn">{formPriceWarning}</AdminNote> : undefined}
         >
-          {/* Datos del ítem (issue #109): campos finos; la cantidad va corta. */}
+          {/* Datos del ítem (issues #109 y #131): campos finos; la cantidad va
+              corta, el SKU vive en «Más datos» y precios y foto van plegados. */}
           <div className="admin-form-group admin-form-group--item">
             <span className="admin-form-group-title">Ítem</span>
             <TextField
@@ -1086,59 +1103,76 @@ export function InventarioModule() {
               onChange={(value) => setForm({ ...form, quantity: value })}
               hint="Se crean las unidades con código automático."
             />
+          </div>
+
+          {/* SKU opcional (issue #131): vive en «Más datos» y el POST lo acepta. */}
+          <AdminDisclosure title="Más datos" hint="SKU">
+            <TextField
+              label="SKU"
+              maxLength={FIELD_LIMITS.sku}
+              value={form.sku}
+              onChange={(value) => setForm({ ...form, sku: value })}
+              placeholder="Ej.: LED-P3-500"
+              hint="Opcional; ayuda a cruzar el catálogo."
+              error={inventorySkuError(form.sku)}
+            />
+          </AdminDisclosure>
+
+          {/* Foto (issue #109): URL manual o archivo subido (uno de los dos). */}
+          <AdminDisclosure title="Foto y web" hint="foto y visibilidad">
+            <PhotoFields
+              urlValue={form.imageUrl}
+              onUrlChange={(value) => {
+                setPendingPhoto(null);
+                setPhotoError("");
+                setForm({ ...form, imageUrl: value });
+              }}
+              previewUrl={photoPreview}
+              hasPhoto={hasPhoto}
+              onSelectFile={(file) => void selectPhotoFile(file)}
+              onClearPhoto={clearPhoto}
+              error={photoError}
+              disabled={busy || photoBusy}
+            />
             <SwitchField
               label="Visible en la web"
               checked={form.visibleOnWeb}
               onChange={(checked) => setForm({ ...form, visibleOnWeb: checked })}
               hint="Para el catálogo público."
             />
-          </div>
-
-          {/* Foto (issue #109): URL manual o archivo subido (uno de los dos). */}
-          <PhotoFields
-            urlValue={form.imageUrl}
-            onUrlChange={(value) => {
-              setPendingPhoto(null);
-              setPhotoError("");
-              setForm({ ...form, imageUrl: value });
-            }}
-            previewUrl={photoPreview}
-            hasPhoto={hasPhoto}
-            onSelectFile={(file) => void selectPhotoFile(file)}
-            onClearPhoto={clearPhoto}
-            error={photoError}
-            disabled={busy || photoBusy}
-          />
+          </AdminDisclosure>
 
           {/* Precios por frente (issue #110): normal, umbral «desde X días» y
               precio desde esos días; el mínimo es el piso de venta. */}
-          <PriceFrontFields
-            title="Precio cliente final"
-            normalValue={form.listPrice}
-            daysValue={form.listFromDays}
-            fromValue={form.listFromPrice}
-            onNormal={(value) => setForm({ ...form, listPrice: value })}
-            onDays={(value) => setForm({ ...form, listFromDays: value })}
-            onFrom={(value) => setForm({ ...form, listFromPrice: value })}
-          />
-          <PriceFrontFields
-            title="Precio mayorista"
-            normalValue={form.wholesalePrice}
-            daysValue={form.wholesaleFromDays}
-            fromValue={form.wholesaleFromPrice}
-            onNormal={(value) => setForm({ ...form, wholesalePrice: value })}
-            onDays={(value) => setForm({ ...form, wholesaleFromDays: value })}
-            onFrom={(value) => setForm({ ...form, wholesaleFromPrice: value })}
-          />
-          <div className="admin-form-group admin-form-group--min">
-            <span className="admin-form-group-title">Precio mínimo</span>
-            <MoneyField
-              label="Piso de venta"
-              value={form.minimumPrice}
-              onChange={(value) => setForm({ ...form, minimumPrice: value })}
-              hint="Piso de venta del ítem."
+          <AdminDisclosure title="Precios" hint="final, mayorista y mínimo">
+            <PriceFrontFields
+              title="Precio cliente final"
+              normalValue={form.listPrice}
+              daysValue={form.listFromDays}
+              fromValue={form.listFromPrice}
+              onNormal={(value) => setForm({ ...form, listPrice: value })}
+              onDays={(value) => setForm({ ...form, listFromDays: value })}
+              onFrom={(value) => setForm({ ...form, listFromPrice: value })}
             />
-          </div>
+            <PriceFrontFields
+              title="Precio mayorista"
+              normalValue={form.wholesalePrice}
+              daysValue={form.wholesaleFromDays}
+              fromValue={form.wholesaleFromPrice}
+              onNormal={(value) => setForm({ ...form, wholesalePrice: value })}
+              onDays={(value) => setForm({ ...form, wholesaleFromDays: value })}
+              onFrom={(value) => setForm({ ...form, wholesaleFromPrice: value })}
+            />
+            <div className="admin-form-group admin-form-group--min">
+              <span className="admin-form-group-title">Precio mínimo</span>
+              <MoneyField
+                label="Piso de venta"
+                value={form.minimumPrice}
+                onChange={(value) => setForm({ ...form, minimumPrice: value })}
+                hint="Piso de venta del ítem."
+              />
+            </div>
+          </AdminDisclosure>
         </AdminFormPanel>
       ) : null}
 

@@ -34,7 +34,7 @@ import {
   type AdminPromoterOption,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
-import { AdminViewSwitch, useAdminModuleView, type AdminModuleView } from "../AdminBoard";
+import { AdminViewSwitch, useAdminModuleView, useAdminNarrowViewport, type AdminModuleView } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { CalendarioModule } from "./CalendarioModule";
 import {
@@ -104,7 +104,7 @@ const EVENTOS_VIEWS = ["list", "grid"] as const;
 /** `id` del `<datalist>` con el catálogo de ciudades (owncoding-ui) del campo Ciudad. */
 const EVENT_CITY_LIST_ID = "eventos-ciudad-opciones";
 
-const EMPTY_EVENT_FORM = { clientId: "", name: "", location: "", city: "", startsAt: "" };
+const EMPTY_EVENT_FORM = { clientId: "", name: "", location: "", city: "", startsAt: "", endsAt: "" };
 const EMPTY_TASK_FORM = { eventId: "", title: "", type: "EVENT", dueAt: "", promoterId: "" };
 const EMPTY_ASSIGN_FORM = { inventoryId: "", quantity: "1", startsAt: "", endsAt: "" };
 const EMPTY_MOVEMENT_FORM = { at: "", condition: ITEM_CONDITIONS[0] as string, damaged: "0", missing: "0", notes: "" };
@@ -232,6 +232,10 @@ export function EventosModule() {
     setCalendarOpen(calendarRequested);
   }, [calendarRequested]);
   const activeView: AdminModuleView = calendarOpen ? "calendar" : view;
+  // En ancho compacto la lista también se lee como tarjetas (issue #139): es la
+  // única forma de que el nombre del evento entre en 390 sin scroll horizontal.
+  const narrow = useAdminNarrowViewport();
+  const cardView = narrow || activeView === "grid";
   function changeView(next: AdminModuleView) {
     setCalendarOpen(false);
     setView(next);
@@ -338,6 +342,69 @@ export function EventosModule() {
     );
   }
 
+  /**
+   * Tarjetas del evento (issues #119 y #139): las comparten la cuadrícula y la
+   * lista en ancho compacto, así el nombre va primero también en 390 y la
+   * tarjeta muestra cliente, fecha/lugar, urgencia, avance y equipos.
+   */
+  const eventCards: AdminCardData[] = rows.map((event) => {
+    const units = event.assignments.reduce((sum, assignment) => sum + assignment.quantity, 0);
+    const progress = checklistProgress(event.tasks, { risk: isUpcomingEvent(event) });
+    const equipmentNames = event.assignments.map((assignment) => assignment.inventory.name).join(", ");
+    const closed = event.status === "COMPLETED" || event.status === "CANCELLED";
+    return {
+      id: event.id,
+      title: event.name,
+      titleTooltip: `${event.name} · ${eventStatusLabel(event.status)}`,
+      subtitle: event.client.company || event.client.name,
+      badges: [{ label: eventStatusLabel(event.status), tone: statusTone(event.status) }],
+      fields: [
+        {
+          label: "Fecha",
+          value: event.startsAt ? `${formatDateShort(event.startsAt)} · ${formatTime(event.startsAt)}` : "A confirmar",
+          title: event.startsAt ? formatDateTime(event.startsAt) : "Fecha a confirmar",
+        },
+        {
+          label: "Falta",
+          value:
+            event.status === "IN_PROGRESS" ? (
+              <AdminBadge tone="warn">En curso</AdminBadge>
+            ) : closed || !event.startsAt ? (
+              "—"
+            ) : (
+              <AdminCountdown value={event.startsAt} title={`Cuánto falta para el inicio: ${event.name}`} />
+            ),
+          title:
+            event.status === "IN_PROGRESS"
+              ? `En curso: ${event.name}`
+              : event.startsAt
+                ? `Inicio: ${formatDateTime(event.startsAt)}`
+                : "Fecha a confirmar",
+        },
+        {
+          label: "Lugar",
+          value: [event.location, event.city].filter(Boolean).join(" · ") || "—",
+          title: [event.location, event.city].filter(Boolean).join(" · ") || "Sin lugar definido",
+        },
+        {
+          label: "Equipos",
+          value: formatNumber(units),
+          title: equipmentNames || "Sin equipos asignados",
+        },
+        {
+          label: "Checklist",
+          value: event.tasks.length > 0 ? (
+            <AdminBadge tone={progress.tone} title={progress.title}>{progress.label}</AdminBadge>
+          ) : (
+            "—"
+          ),
+          title: progress.title,
+        },
+      ],
+      footer: eventActions(event),
+    };
+  });
+
   const checklistEntries = useMemo<ChecklistEntry[]>(() => {
     const all = events.flatMap((event) => event.tasks.map((task) => ({ task, eventName: event.name })));
     const filtered = taskFilter === "ALL" ? all : all.filter(({ task }) => !task.completedAt);
@@ -433,16 +500,23 @@ export function EventosModule() {
 
   async function submitEvent(formEvent: React.FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
-    setBusy(true);
     setFormError("");
     setFormLimit("");
     setFormNotice("");
+    // Check del front en es-PY (issue #131): faltaba y el alta caía en el error
+    // en inglés del API.
+    if (!form.clientId.trim()) {
+      setFormError("Elegí el cliente del evento.");
+      return;
+    }
+    setBusy(true);
     const result = await adminSend("/api/admin/events", {
       clientId: form.clientId,
       name: form.name,
       location: form.location || undefined,
       city: form.city || undefined,
       startsAt: form.startsAt || undefined,
+      endsAt: form.endsAt || undefined,
     });
     setBusy(false);
     if (!result.ok) {
@@ -681,7 +755,11 @@ export function EventosModule() {
         {activeView === "calendar" ? null : (
           <AdminSelect value={status} onChange={setStatus} label="Filtrar por estado" options={STATUS_OPTIONS} />
         )}
-        <AdminViewSwitch view={calendarOpen ? "calendar" : view} onChange={changeView} views={EVENTOS_VIEWS} label="Vista de eventos" />
+        {/* En ancho compacto lista y cuadrícula se ven igual (tarjetas): el
+            conmutador no aporta y se retira de la barra (issue #139). */}
+        {narrow ? null : (
+          <AdminViewSwitch view={calendarOpen ? "calendar" : view} onChange={changeView} views={EVENTOS_VIEWS} label="Vista de eventos" />
+        )}
         {writable ? (
           <AdminButton
             variant="primary"
@@ -716,7 +794,8 @@ export function EventosModule() {
           }
         >
           {/* Alta rápida (issue #106): Nombre con foco + Cliente + Inicio; el
-              lugar y la ciudad viven en «Más datos» y no se pierden al plegarlos. */}
+              lugar, la ciudad y el fin viven en «Más datos» y no se pierden al
+              plegarlos (el fin se sumó en #131). */}
           <TextField
             label="Nombre del evento"
             required
@@ -757,7 +836,7 @@ export function EventosModule() {
             value={form.startsAt}
             onChange={(value) => setForm({ ...form, startsAt: value })}
           />
-          <AdminDisclosure title="Más datos" hint="lugar y ciudad">
+          <AdminDisclosure title="Más datos" hint="lugar, ciudad y fin">
             <TextField
               label="Lugar"
               maxLength={160}
@@ -777,6 +856,12 @@ export function EventosModule() {
                   ? `Departamento: ${cityArea}`
                   : "Se permite texto libre; sugerencias del catálogo de ciudades."
               }
+            />
+            <DateTimeField
+              label="Fin"
+              hint="Fecha y hora de cierre"
+              value={form.endsAt}
+              onChange={(value) => setForm({ ...form, endsAt: value })}
             />
             <datalist id={EVENT_CITY_LIST_ID}>
               {CITY_OPTIONS.map((option) => (
@@ -807,64 +892,8 @@ export function EventosModule() {
       >
         {rows.length === 0 ? (
           <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá el filtro de estado." />
-        ) : activeView === "grid" ? (
-          <AdminCardGrid label="Eventos" cards={rows.map((event): AdminCardData => {
-            const units = event.assignments.reduce((sum, assignment) => sum + assignment.quantity, 0);
-            const progress = checklistProgress(event.tasks, { risk: isUpcomingEvent(event) });
-            const equipmentNames = event.assignments.map((assignment) => assignment.inventory.name).join(", ");
-            const closed = event.status === "COMPLETED" || event.status === "CANCELLED";
-            return {
-              id: event.id,
-              title: event.name,
-              titleTooltip: `${event.name} · ${eventStatusLabel(event.status)}`,
-              subtitle: event.client.company || event.client.name,
-              badges: [{ label: eventStatusLabel(event.status), tone: statusTone(event.status) }],
-              fields: [
-                {
-                  label: "Fecha",
-                  value: event.startsAt ? `${formatDateShort(event.startsAt)} · ${formatTime(event.startsAt)}` : "A confirmar",
-                  title: event.startsAt ? formatDateTime(event.startsAt) : "Fecha a confirmar",
-                },
-                {
-                  label: "Falta",
-                  value:
-                    event.status === "IN_PROGRESS" ? (
-                      <AdminBadge tone="warn">En curso</AdminBadge>
-                    ) : closed || !event.startsAt ? (
-                      "—"
-                    ) : (
-                      <AdminCountdown value={event.startsAt} title={`Cuánto falta para el inicio: ${event.name}`} />
-                    ),
-                  title:
-                    event.status === "IN_PROGRESS"
-                      ? `En curso: ${event.name}`
-                      : event.startsAt
-                        ? `Inicio: ${formatDateTime(event.startsAt)}`
-                        : "Fecha a confirmar",
-                },
-                {
-                  label: "Lugar",
-                  value: [event.location, event.city].filter(Boolean).join(" · ") || "—",
-                  title: [event.location, event.city].filter(Boolean).join(" · ") || "Sin lugar definido",
-                },
-                {
-                  label: "Equipos",
-                  value: formatNumber(units),
-                  title: equipmentNames || "Sin equipos asignados",
-                },
-                {
-                  label: "Checklist",
-                  value: event.tasks.length > 0 ? (
-                    <AdminBadge tone={progress.tone} title={progress.title}>{progress.label}</AdminBadge>
-                  ) : (
-                    "—"
-                  ),
-                  title: progress.title,
-                },
-              ],
-              footer: eventActions(event),
-            };
-          })} />
+        ) : cardView ? (
+          <AdminCardGrid label="Eventos" cards={eventCards} />
         ) : (
           <>
             <AdminTable

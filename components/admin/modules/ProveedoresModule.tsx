@@ -58,6 +58,7 @@ import {
   TextField,
 } from "../AdminFields";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
+import { FIELD_MESSAGES, emailValid, personNameValid } from "@/lib/field-rules";
 
 /**
  * Flujo de proveedores: directorio con alta y edición, y trabajos por evento con
@@ -66,6 +67,25 @@ import { adminSend, useAdminResource } from "@/lib/admin-api";
  */
 
 const METHOD_OPTIONS = ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"];
+
+/**
+ * Condiciones de pago del proveedor (issue #131): select con las opciones
+ * acordadas (Contado, 15/30/60) en vez de texto libre. Lo guardado antes como
+ * texto libre se conserva como opción extra al editar, así no se pierde nada.
+ */
+const PAYMENT_TERM_OPTIONS = [
+  { value: "", label: "Sin definir" },
+  { value: "Contado", label: "Contado" },
+  { value: "15 días", label: "15 días" },
+  { value: "30 días", label: "30 días" },
+  { value: "60 días", label: "60 días" },
+];
+
+function paymentTermChoices(current: string) {
+  const value = current.trim();
+  if (!value || PAYMENT_TERM_OPTIONS.some((option) => option.value === value)) return PAYMENT_TERM_OPTIONS;
+  return [...PAYMENT_TERM_OPTIONS, { value, label: `${value} (cargado)` }];
+}
 
 const CATEGORY_OPTIONS = SUPPLIER_CATEGORIES.map((value) => ({ value, label: supplierCategoryLabel(value) }));
 
@@ -296,6 +316,15 @@ export function ProveedoresModule() {
   async function submitSupplier(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supplierForm) return;
+    // Avisos es-PY del front con las reglas del kit (issue #131); el API revalida.
+    if (!personNameValid(supplierForm.name)) {
+      setSupplierError(FIELD_MESSAGES.name);
+      return;
+    }
+    if (supplierForm.email && !emailValid(supplierForm.email)) {
+      setSupplierError(FIELD_MESSAGES.email);
+      return;
+    }
     setSupplierBusy(true);
     setSupplierError("");
     setNotice("");
@@ -819,6 +848,7 @@ export function ProveedoresModule() {
               value={supplierForm.email}
               onChange={(value) => setSupplierForm({ ...supplierForm, email: value })}
               placeholder="proveedor@correo.com"
+              error={supplierForm.email && !emailValid(supplierForm.email) ? FIELD_MESSAGES.email : null}
             />
             <SelectField
               label="Rubro"
@@ -826,13 +856,12 @@ export function ProveedoresModule() {
               onChange={(value) => setSupplierForm({ ...supplierForm, category: value })}
               options={CATEGORY_OPTIONS}
             />
-            <TextField
+            <SelectField
               label="Condiciones de pago"
-              hint="Ej.: 50% anticipo, 30 días"
-              maxLength={200}
+              hint="Contado o a plazo"
               value={supplierForm.paymentTerms}
               onChange={(value) => setSupplierForm({ ...supplierForm, paymentTerms: value })}
-              placeholder="Opcional"
+              options={paymentTermChoices(supplierForm.paymentTerms)}
             />
             <SelectField
               label="Estado"

@@ -22,11 +22,14 @@ import {
   inventoryPriceDaysValue,
   inventoryPriceValue,
   inventoryPriceWarning,
+  inventorySkuError,
+  inventorySkuValid,
   readInventoryPriceValues,
   moneyInputDisplay,
   moneyInputMaxLength,
   normalizeEmail,
   normalizeInventoryImage,
+  normalizeInventorySku,
   normalizePersonName,
   normalizePhone,
   normalizeSerial,
@@ -166,6 +169,25 @@ test("imagen de inventario: ruta interna o URL http(s), sin HTML ni espacios", (
   assert.equal(inventoryImageError("   "), null);
   assert.equal(inventoryImageError("/assets/products/totem-led.png"), null);
   assert.equal(inventoryImageError("no-es-una-imagen"), FIELD_MESSAGES.image);
+});
+
+/**
+ * SKU del ítem (issue #131): opcional en el alta, corto y legible; el API
+ * revalida con la misma regla y el mismo mensaje.
+ */
+test("SKU: opcional, legible y con el mismo mensaje en front y API", () => {
+  assert.equal(normalizeInventorySku("  LED-P3-500 "), "LED-P3-500");
+  assert.equal(inventorySkuValid("LED-P3-500"), true);
+  assert.equal(inventorySkuValid("P·01"), true);
+  assert.equal(inventorySkuValid("P3.9 500x500"), true);
+  assert.equal(inventorySkuValid("a"), false);
+  assert.equal(inventorySkuValid("<script>"), false);
+  assert.equal(inventorySkuValid(`SKU-${"x".repeat(FIELD_LIMITS.sku)}`), false);
+  assert.equal(inventorySkuError(""), null);
+  assert.equal(inventorySkuError("   "), null);
+  assert.equal(inventorySkuError("LED-P3-500"), null);
+  assert.equal(inventorySkuError("<script>"), FIELD_MESSAGES.sku);
+  assert.equal(FIELD_MESSAGES.sku.includes("2 a 60"), true);
 });
 
 test("precios de venta: enteros ≥ 0 dentro del tope; vacío no cambia, basura se rechaza", () => {
