@@ -197,6 +197,7 @@ export function instruccionesIa(): string {
     "- Los cobros («Fulano me pagó 750 mil», «me transfirió Juan»): `cliente` obligatorio; `monto` y `fecha` copialos TAL CUAL aparecen (no conviertas «750 mil» ni «ayer»); `metodo` (transferencia/efectivo/tarjeta/cheque) y `referencia` (número de transferencia o cheque) si aparecen.",
     "- Si el pago es a crédito, plazo o fiado («a crédito 7 días», «a 30 días», «me debe»), NO está cobrado: completá `plazoDias` con los días y dejá `fecha` vacía. El plazo jamás va en `referencia`.",
     "- No inventes RUC, teléfonos, correos, fechas, montos, SKU ni referencias: si no están en el texto, van null.",
+    "- Si un monto está en otra moneda (USD, U$S, dólares, EUR, BRL), copialo tal cual con su moneda; nunca lo conviertas a guaraníes.",
     "- Un mismo texto puede traer varios hechos: devolvé cada uno en su tipo, agrupados, sin duplicarlos.",
     "- A un cliente mencionado solo en un cobro o evento no lo repitas en `clientes` salvo que el texto lo describa (empresa, contacto, etc.).",
     `- Como máximo ${IA_REGISTROS_MAX} registros por tipo; no repitas registros.`,
@@ -413,6 +414,27 @@ export function fechaDeTexto(
 
 // ── Montos ──────────────────────────────────────────────────────────────────
 
+/**
+ * Moneda extranjera mencionada en un monto (issue #130): la app no tiene
+ * cotización, así que **no se interpreta** — se avisa y se carga a mano.
+ */
+const MONEDAS_EXTRANJERAS: Array<[RegExp, string]> = [
+  [/\bu\$s\b|\bus\$|\busd\b/, "USD"],
+  [/\bdolares?\b/, "USD"],
+  [/\beuros?\b|\beur\b|[€]/, "EUR"],
+  [/\bbrl\b|\breales\b|r\$/, "BRL"],
+];
+
+export function monedaExtranjeraDeTexto(valor: string | number | null | undefined): string | null {
+  if (typeof valor === "number") return null;
+  const texto = normalizarBusqueda(String(valor ?? ""));
+  if (!texto) return null;
+  for (const [patron, moneda] of MONEDAS_EXTRANJERAS) {
+    if (patron.test(texto)) return moneda;
+  }
+  return null;
+}
+
 /** Número desde un token con separadores: decimales fuera (PYG entero). */
 function numeroDeToken(token: string): number | null {
   const limpio = token.replace(/[^\d.,]/g, "");
@@ -436,6 +458,8 @@ export function montoDeTexto(valor: string | number | null | undefined): number 
     if (!Number.isFinite(valor) || valor < 0) return null;
     return Math.round(valor);
   }
+  // «USD 100» no es Gs 100: sin cotización, el monto queda vacío (issue #130).
+  if (monedaExtranjeraDeTexto(valor)) return null;
   let texto = normalizarBusqueda(valor ?? "").replace(/[₲]/g, " ").replace(/\bgs\b|\bguaranies\b/g, " ");
   texto = texto.replace(/\s+/g, " ").trim();
   if (!texto) return null;
@@ -661,6 +685,11 @@ export function normalizarProducto(datos: z.infer<typeof productoEsquema>, verif
   // «1.500.000», «850 mil» o un número directo; lo ilegible queda en null.
   const precio = (valor: unknown, etiqueta: string): number | null => {
     if (valor === null || valor === undefined) return null;
+    const moneda = monedaExtranjeraDeTexto(valor as string | number);
+    if (moneda) {
+      avisos.push(`${etiqueta}: monto en ${moneda}; cargalo a mano en guaraníes.`);
+      return null;
+    }
     const monto = montoDeTexto(valor as string | number);
     if (monto === null) avisos.push(`${etiqueta}: no pudimos leerlo; revisalo.`);
     return monto === null ? null : Math.min(monto, FIELD_LIMITS.amountSales);
@@ -698,8 +727,10 @@ export function normalizarCobro(datos: z.infer<typeof cobroEsquema>, hoy?: strin
   const referenciaBruta = String(datos.referencia ?? "").trim();
   const fechaBruta = String(datos.fecha ?? "").trim();
   const montoTexto = datos.monto === null || datos.monto === undefined ? null : String(datos.monto).trim() || null;
+  const moneda = monedaExtranjeraDeTexto(datos.monto);
   const monto = montoDeTexto(datos.monto);
-  if (!montoTexto) avisos.push("Sin monto: escribilo para poder registrar el cobro.");
+  if (moneda) avisos.push(`Monto en ${moneda}: cargalo a mano en guaraníes (no lo convertimos).`);
+  else if (!montoTexto) avisos.push("Sin monto: escribilo para poder registrar el cobro.");
   else if (monto === null || monto <= 0) avisos.push("Monto: no pudimos leerlo, revisalo.");
 
   // «a crédito 7 días» es un plazo, no un cobro (issue #126): no se registra y
