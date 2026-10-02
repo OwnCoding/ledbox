@@ -2915,6 +2915,26 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 @keyframes portal-spin { to { transform: rotate(360deg); } }
 .portal-btn--primary.portal-btn--block { box-shadow: 0 10px 28px color-mix(in srgb, var(--led) 18%, transparent); }
 .portal-mobile-sticky { display: none; }
+.portal-mobile-sticky-due { color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.portal-mobile-sticky-due[data-tone="warn"] { color: var(--p-warn); }
+.portal-mobile-sticky-due[data-tone="danger"] { color: var(--p-danger); }
+/* Éxito post-autorización (issue #144): próximos pasos concretos y descarga. */
+.portal-success-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--muted-2); font-size: 13px; line-height: 1.5; }
+.portal-success-steps li::marker { color: var(--p-ok); font-weight: 800; }
+.portal-success-steps strong { color: var(--text); }
+/* Secciones plegables del portal (issue #144): Cronología y el detalle del
+   resumen no compiten con la decisión. */
+.portal-disclosure { padding: 0; }
+.portal-disclosure > summary { display: flex; align-items: center; gap: 10px; padding: 16px; cursor: pointer; list-style: none; }
+.portal-disclosure > summary::-webkit-details-marker { display: none; }
+.portal-disclosure > summary::after { content: "▾"; margin-left: auto; color: var(--muted); font-size: 12px; transition: transform .15s ease; }
+.portal-disclosure[open] > summary::after { transform: rotate(180deg); }
+.portal-disclosure > :not(summary) { margin: 0 16px 16px; }
+.portal-disclosure .portal-card-head { padding: 0; }
+.portal-disclosure-hint { color: var(--muted); font-size: 11.5px; }
+.portal-disclosure--inner { border-color: var(--border); background: var(--surface-2); }
+.portal-disclosure--inner > summary { padding: 10px 12px; color: var(--muted-2); font-size: 12.5px; font-weight: 600; }
+.portal-disclosure--inner > :not(summary) { margin: 0 12px 12px; }
 .portal-pay-now--aside { display: grid; gap: 4px; justify-items: start; }
 .portal-chip { display: inline-flex; align-items: center; padding: 5px 10px; border: 1px solid var(--border-2); border-radius: 999px; color: var(--muted-2); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
 .portal-chip[data-tone="accent"] { border-color: color-mix(in srgb, var(--led) 40%, transparent); background: var(--led-soft); color: var(--led); }
@@ -2929,7 +2949,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-countdown[data-tone="warn"] { border-color: color-mix(in srgb, var(--p-warn) 40%, transparent); background: color-mix(in srgb, var(--p-warn) 8%, transparent); color: var(--p-warn); }
 .portal-countdown[data-tone="danger"] { border-color: color-mix(in srgb, var(--p-danger) 40%, transparent); background: color-mix(in srgb, var(--p-danger) 8%, transparent); color: var(--p-danger); }
 .portal-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--p-radius-lg); background: var(--surface); box-shadow: var(--p-shadow-card); }
-.portal-card-title { display: flex; align-items: center; gap: 8px; color: var(--muted-2); font: 700 11px var(--font-body); letter-spacing: .16em; text-transform: uppercase; }
+/* Títulos de sección en caja natural (issue #144): el portal tenía todas las
+   secciones en mayúsculas y el cliente perdía jerarquía; las etiquetas chicas
+   (chips, th) siguen en mayúscula. */
+.portal-card-title { display: flex; align-items: center; gap: 8px; color: var(--text); font: 700 13.5px var(--font-body); letter-spacing: .01em; }
 .portal-card-title .admin-icon { flex: 0 0 auto; color: var(--led); }
 .portal-card-lead { color: var(--muted-2); font-size: 13px; line-height: 1.55; }
 .portal-card--action { border-color: var(--border-2); }
@@ -2963,7 +2986,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-banner--demo a { color: var(--led); text-decoration: none; }
 .portal-banner--demo a:hover { text-decoration: underline; }
 .portal-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2px; }
-.portal-banner-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 17px; letter-spacing: .02em; text-transform: uppercase; }
+.portal-banner-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 17px; letter-spacing: .02em; }
 .portal-banner-title .admin-icon { flex: 0 0 auto; color: var(--led); }
 .portal-banner--ok .portal-banner-title .admin-icon { color: var(--p-ok); }
 .portal-banner--warn .portal-banner-title .admin-icon { color: var(--p-warn); }
@@ -3043,6 +3066,23 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .portal-table--expected td.portal-item-cell { display: block; padding-top: 0; }
   .portal-table--expected td.portal-item-cell::before { content: none; }
   .portal-table--expected td[data-label="Estado"] { align-items: flex-start; flex-direction: column; }
+}
+/* Plan de pagos propuesto (issue #144): sin conceptos del portal, cada cuota es
+   una ficha con su vencimiento completo (antes la tabla se desplazaba y el
+   vencimiento quedaba fuera de la vista). */
+@media (max-width: 640px) {
+  .portal-table--plan:not(.portal-table--expected) { min-width: 0; }
+  .portal-table--plan:not(.portal-table--expected) thead { display: none; }
+  .portal-table--plan:not(.portal-table--expected),
+  .portal-table--plan:not(.portal-table--expected) tbody,
+  .portal-table--plan:not(.portal-table--expected) tr,
+  .portal-table--plan:not(.portal-table--expected) td { display: block; width: 100%; }
+  .portal-table--plan:not(.portal-table--expected) tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
+  .portal-table--plan:not(.portal-table--expected) td { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
+  .portal-table--plan:not(.portal-table--expected) td + td { border-top: 1px solid var(--border); }
+  .portal-table--plan:not(.portal-table--expected) td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .portal-table--plan:not(.portal-table--expected) td:first-child { display: block; padding-top: 0; color: var(--text); font-weight: 700; }
+  .portal-table--plan:not(.portal-table--expected) td:first-child::before { content: none; }
 }
 .portal-expected-note { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 .portal-card--pay { border-color: color-mix(in srgb, var(--p-ok) 35%, transparent); }
@@ -3159,7 +3199,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 }
 
 @media (max-width: 1023px) {
-  .portal-budget-aside { order: -1; }
+  /* En mobile manda el orden de la decisión (productos → condiciones →
+     decisión, issue #144): el resumen queda después y la barra fija cubre
+     total, vencimiento y acceso a la decisión mientras se recorre. */
   .portal-budget-grid { grid-template-columns: minmax(0, 1fr); }
 }
 

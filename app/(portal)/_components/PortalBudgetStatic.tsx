@@ -89,20 +89,21 @@ export function PortalHeadFacts({ budget }: { budget: PortalBudget }) {
 }
 
 /**
- * Cronología cliente (issue #33): los hitos reales del presupuesto. Es de solo
- * lectura y no cambia con lo que hace el visitante, así que va del servidor.
+ * Cronología cliente (issues #33 y #144): los hitos reales del presupuesto. Es
+ * de solo lectura y no cambia con lo que hace el visitante, así que va del
+ * servidor; plegada, no compite con la decisión.
  */
 export function PortalTimeline({ entries }: { entries: AdminTimelineEntry[] }) {
   return (
-    <section className="portal-card" aria-labelledby="portal-timeline">
-      <div className="portal-card-head">
+    <details className="portal-card portal-disclosure" aria-labelledby="portal-timeline">
+      <summary className="portal-card-head">
         <PortalCardTitle id="portal-timeline" icon="clock">
           Cronología
         </PortalCardTitle>
-        <p className="portal-card-lead">
-          Todo lo que pasó con tu presupuesto, con la fecha real de cada paso: envío, cambios, autorización, pagos y evento.
-        </p>
-      </div>
+        <span className="portal-disclosure-hint">
+          {entries.length === 1 ? "1 paso registrado" : `${entries.length} pasos registrados`} · tocá para ver el detalle
+        </span>
+      </summary>
       <ol className="portal-timeline">
         {entries.map((entry) => (
           <li className="portal-timeline-step" key={entry.id} data-tone={entry.tone}>
@@ -118,6 +119,6 @@ export function PortalTimeline({ entries }: { entries: AdminTimelineEntry[] }) {
           </li>
         ))}
       </ol>
-    </section>
+    </details>
   );
 }
