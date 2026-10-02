@@ -220,3 +220,12 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - registrar la segunda pasada móvil v2.1.61 (#155)
 - la landing de EventOS corrige el header y suma resultados, perfiles y flujo
 
+## v2.1.65 — 2026-10-02
+
+- resumen sticky, plan en tarjetas, secciones plegadas y éxito post-autorización
+- filtros y pestañas de estado, próximo paso, menú de acciones y solicitudes comparativas
+- una sola regla de ancho compacto para las tarjetas
+- cierre mensual legible y tarjetas móviles en Plantillas/Facturación
+- subnavegación por secciones y tarjetas móviles
+- método unificado y «Pendiente» sin cuenta para lo a crédito
+
