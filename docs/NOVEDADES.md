@@ -229,3 +229,7 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - subnavegación por secciones y tarjetas móviles
 - método unificado y «Pendiente» sin cuenta para lo a crédito
 
+## v2.1.66 — 2026-10-03
+
+- Kanban sin corte y plan de pagos sin desbordes
+
