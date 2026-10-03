@@ -24,12 +24,13 @@ import {
   type AdminSupplierRow,
 } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
-import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, useAdminNarrowViewport, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 
 /** Fila del panel de trabajos (issue #68): referencias mínimas de proveedor y evento. */
 type JobRow = AdminSupplierJobPanelRow;
 import {
+  AdminActionsMenu,
   AdminBadge,
   AdminButton,
   AdminCell,
@@ -42,10 +43,10 @@ import {
   AdminNote,
   AdminPanel,
   AdminRow,
-  AdminSelect,
   AdminTable,
   AdminToolbar,
   AdminWhatsappLink,
+  type AdminMenuItem,
 } from "../AdminUI";
 import {
   Combobox,
@@ -90,12 +91,6 @@ function paymentTermChoices(current: string) {
 }
 
 const CATEGORY_OPTIONS = SUPPLIER_CATEGORIES.map((value) => ({ value, label: supplierCategoryLabel(value) }));
-
-const JOB_STATUS_OPTIONS = [
-  { value: "ALL", label: "Todos los estados" },
-  { value: "OPEN", label: "Abiertos" },
-  ...SUPPLIER_JOB_STATUSES.map((value) => ({ value, label: jobStatusLabel(value) })),
-];
 
 /** Tablero kanban de trabajos: una columna por estado real de la máquina del API. */
 const JOB_BOARD_COLUMNS: AdminBoardColumn[] = SUPPLIER_JOB_STATUSES.map((value) => ({ value, label: jobStatusLabel(value) }));
@@ -186,6 +181,8 @@ export function ProveedoresModule() {
   const [jobStatus, setJobStatus] = useState("ALL");
   const [jobsView, setJobsView] = useAdminModuleView("trabajos");
   const [suppliersView, setSuppliersView] = useAdminModuleView("proveedores", PROVEEDORES_VIEWS);
+  /** Ancho compacto (issue #151): pestañas de estado y tarjetas, sin tablero. */
+  const narrow = useAdminNarrowViewport();
   const [supplierForm, setSupplierForm] = useState<SupplierForm | null>(null);
   const [supplierBusy, setSupplierBusy] = useState(false);
   const [supplierError, setSupplierError] = useState("");
@@ -206,7 +203,7 @@ export function ProveedoresModule() {
     [suppliers, query],
   );
 
-  /** Búsqueda compartida por lista y tablero: el filtro de estado es de la lista. */
+  /** Búsqueda compartida por lista, tarjetas y tablero. */
   const searchedJobs = useMemo(
     () =>
       jobs.filter((job) =>
@@ -215,20 +212,38 @@ export function ProveedoresModule() {
     [jobs, query],
   );
 
-  const jobRows = useMemo(
+  /**
+   * Filtro de estado compartido por las pestañas, la lista, las tarjetas y el
+   * tablero (issue #151): «Abiertos» agrupa los estados vivos de la máquina.
+   */
+  const filteredJobs = useMemo(
     () =>
-      searchedJobs
-        .filter((job) => (jobStatus === "ALL" ? true : jobStatus === "OPEN" ? isSupplierJobOpen(job.status) : job.status === jobStatus))
-        .sort((a, b) => {
-          const openDifference = (isSupplierJobOpen(a.status) ? 0 : 1) - (isSupplierJobOpen(b.status) ? 0 : 1);
-          if (openDifference !== 0) return openDifference;
-          const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
-          const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
-          if (aDue !== bDue) return aDue - bDue;
-          return a.description.localeCompare(b.description, "es");
-        }),
+      searchedJobs.filter((job) =>
+        jobStatus === "ALL" ? true : jobStatus === "OPEN" ? isSupplierJobOpen(job.status) : job.status === jobStatus,
+      ),
     [searchedJobs, jobStatus],
   );
+
+  const jobRows = useMemo(
+    () =>
+      [...filteredJobs].sort((a, b) => {
+        const openDifference = (isSupplierJobOpen(a.status) ? 0 : 1) - (isSupplierJobOpen(b.status) ? 0 : 1);
+        if (openDifference !== 0) return openDifference;
+        const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.POSITIVE_INFINITY;
+        const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.POSITIVE_INFINITY;
+        if (aDue !== bDue) return aDue - bDue;
+        return a.description.localeCompare(b.description, "es");
+      }),
+    [filteredJobs],
+  );
+
+  /** Conteo por estado para las pestañas (issue #151): total y abiertos. */
+  const jobStatusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const job of jobs) counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+    return counts;
+  }, [jobs]);
+  const openJobsCount = useMemo(() => jobs.filter((job) => isSupplierJobOpen(job.status)).length, [jobs]);
 
   // Tablero de trabajos: respeta la máquina de estados del API (`supplierJobNextStatuses`);
   // el drag/menú solo ofrece transiciones reales y el API revalida.
@@ -237,7 +252,7 @@ export function ProveedoresModule() {
     const result = await adminSend("/api/admin/suppliers/jobs", { id: job.id, status: nextStatus }, "PATCH", { idempotencyKey: true });
     return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
   }, []);
-  const board = useAdminBoardMove({ rows: jobs, move: moveJob, onError: setBoardError });
+  const board = useAdminBoardMove({ rows: filteredJobs, move: moveJob, onError: setBoardError });
 
   const boardCards = useMemo<AdminBoardCardData[]>(
     () =>
@@ -281,6 +296,121 @@ export function ProveedoresModule() {
         };
       }),
     [board.rows, writable],
+  );
+
+  /**
+   * Tarjetas de trabajos del ancho compacto (issue #151): proveedor, vencimiento
+   * y montos, con las mismas acciones de la fila dentro del menú «⋯».
+   */
+  const jobCards = useMemo<AdminCardData[]>(
+    () =>
+      jobRows.map((job) => {
+        const balance = supplierJobBalance(job);
+        const open = isSupplierJobOpen(job.status);
+        const canAdvance = supplierJobTransitions(job.status).length > 0;
+        const paymentDetail = [job.paymentMethod, job.receipt ? `comprobante ${job.receipt}` : null].filter(Boolean).join(" · ");
+        const menuItems: AdminMenuItem[] = writable
+          ? [{ label: "Editar trabajo", icon: "edit", onClick: () => openJobEdit(job), title: `Editar trabajo: ${job.description}` }]
+          : [];
+        return {
+          id: job.id,
+          title: job.description,
+          titleTooltip: paymentDetail ? `${job.description} · ${paymentDetail}` : job.description,
+          subtitle: [job.supplier.name, job.event?.name ?? null].filter(Boolean).join(" · "),
+          badges: [{ label: jobStatusLabel(job.status), tone: statusTone(job.status) }],
+          fields: [
+            {
+              label: "Vence",
+              value: job.dueAt ? (
+                <>
+                  <span className="admin-nowrap">{formatDateShort(job.dueAt)}</span>{" "}
+                  {open ? (
+                    <AdminCountdown
+                      value={job.dueAt}
+                      className="admin-countdown--inline"
+                      title={`Cuánto falta para el vencimiento: ${job.description}`}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                "—"
+              ),
+              title: job.dueAt ? `${formatDateTime(job.dueAt)} · ${jobStatusLabel(job.status)}` : "Sin fecha prevista",
+            },
+            { label: "Total", value: formatMoney(job.total), title: `Total ${formatMoney(job.total)}` },
+            { label: "Anticipo", value: formatMoney(job.advance), title: `Anticipo pagado ${formatMoney(job.advance)}` },
+            { label: "Saldo", value: <strong>{formatMoney(balance)}</strong>, title: `Saldo pendiente ${formatMoney(balance)}` },
+          ],
+          footer:
+            writable && open && canAdvance ? (
+              <span className="admin-actions">
+                <AdminButton
+                  icon="arrow-right"
+                  title={`Avanzar estado: ${job.description}`}
+                  aria-label={`Avanzar estado: ${job.description}`}
+                  onClick={() => openJobStatus(job)}
+                />
+                {menuItems.length > 0 ? (
+                  <AdminActionsMenu label={`Acciones del trabajo ${job.description}`} items={menuItems} />
+                ) : null}
+              </span>
+            ) : menuItems.length > 0 ? (
+              <span className="admin-actions">
+                <AdminActionsMenu label={`Acciones del trabajo ${job.description}`} items={menuItems} />
+              </span>
+            ) : undefined,
+        };
+      }),
+    [jobRows, writable],
+  );
+
+  /**
+   * Tarjetas del directorio (issues #57 y #151): las comparten la cuadrícula y
+   * el ancho compacto; las acciones secundarias viven en el menú «⋯».
+   */
+  const supplierCards = useMemo<AdminCardData[]>(
+    () =>
+      supplierRows.map((supplier): AdminCardData => {
+        const jobCount = supplier._count?.jobs ?? 0;
+        const menuItems: AdminMenuItem[] = [
+          ...(supplier.email
+            ? [{ label: "Enviar correo", icon: "mail" as const, href: `mailto:${supplier.email}`, title: `Enviar correo a ${supplier.name}` }]
+            : []),
+          ...(writable
+            ? [{ label: "Editar proveedor", icon: "edit" as const, onClick: () => openSupplierEdit(supplier), title: `Editar proveedor: ${supplier.name}` }]
+            : []),
+        ];
+        return {
+          id: supplier.id,
+          title: supplier.name,
+          titleTooltip: `${supplier.name} · ${formatNumber(jobCount)} trabajos`,
+          subtitle: supplier.company || null,
+          badges: [
+            {
+              label: supplierCategoryLabel(supplier.category),
+              tone: supplier.category === "OTHER" ? "neutral" : "info",
+            },
+            { label: supplier.active ? "Activo" : "Inactivo", tone: supplier.active ? "ok" : "neutral" },
+          ],
+          fields: [
+            { label: "Trabajos", value: formatNumber(jobCount), title: `${formatNumber(jobCount)} trabajos` },
+            { label: "Teléfono", value: supplier.phone || "—", title: supplier.phone || "Sin teléfono" },
+            { label: "Correo", value: supplier.email || "—", title: supplier.email || "Sin correo" },
+            {
+              label: "Condiciones",
+              value: supplier.paymentTerms || "—",
+              title: supplier.paymentTerms || "Sin condiciones cargadas",
+            },
+          ],
+          footer: (
+            <span className="admin-actions">
+              <AdminWhatsappLink phone={supplier.phone} name={supplier.name} />
+              {menuItems.length > 0 ? <AdminActionsMenu label={`Acciones de ${supplier.name}`} items={menuItems} /> : null}
+            </span>
+          ),
+        };
+      }),
+    [supplierRows, writable],
   );
 
   const totals = useMemo(() => {
@@ -450,9 +580,6 @@ export function ProveedoresModule() {
 
       <AdminToolbar>
         <SearchField value={query} onChange={setQuery} label="Buscar proveedores y trabajos" placeholder="Buscar por proveedor, trabajo, evento o rubro…" />
-        {jobsView === "list" ? (
-          <AdminSelect value={jobStatus} onChange={setJobStatus} label="Filtrar trabajos por estado" options={JOB_STATUS_OPTIONS} />
-        ) : null}
       </AdminToolbar>
 
       {notice ? <AdminNote tone="ok">{notice}</AdminNote> : null}
@@ -463,7 +590,7 @@ export function ProveedoresModule() {
         meta={`${formatNumber(jobRows.length)} de ${formatNumber(jobs.length)}`}
         action={
           <span className="admin-panel-actions">
-            <AdminViewSwitch view={jobsView} onChange={setJobsView} label="Vista de trabajos" />
+            {narrow ? null : <AdminViewSwitch view={jobsView} onChange={setJobsView} label="Vista de trabajos" />}
             {writable ? (
               <AdminButton variant="primary" icon="plus" onClick={openJobCreate} aria-expanded={jobPanel?.mode === "create"}>
                 Nuevo trabajo
@@ -689,6 +816,44 @@ export function ProveedoresModule() {
           />
         ) : null}
 
+        {/* Pestañas de estado (issue #151): encima de la lista y del tablero; en
+            ancho compacto reemplazan al Kanban, que quedaba cortado en 390. */}
+        <nav className="admin-subtabs" aria-label="Filtrar trabajos por estado">
+          <button
+            type="button"
+            className="admin-subtab"
+            data-active={jobStatus === "ALL" ? "true" : undefined}
+            aria-pressed={jobStatus === "ALL"}
+            onClick={() => setJobStatus("ALL")}
+          >
+            Todos
+            <span className="admin-subtab-count">{formatNumber(jobs.length)}</span>
+          </button>
+          <button
+            type="button"
+            className="admin-subtab"
+            data-active={jobStatus === "OPEN" ? "true" : undefined}
+            aria-pressed={jobStatus === "OPEN"}
+            onClick={() => setJobStatus("OPEN")}
+          >
+            Abiertos
+            <span className="admin-subtab-count">{formatNumber(openJobsCount)}</span>
+          </button>
+          {SUPPLIER_JOB_STATUSES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              className="admin-subtab"
+              data-active={jobStatus === value ? "true" : undefined}
+              aria-pressed={jobStatus === value}
+              onClick={() => setJobStatus(value)}
+            >
+              {jobStatusLabel(value)}
+              <span className="admin-subtab-count">{formatNumber(jobStatusCounts.get(value) ?? 0)}</span>
+            </button>
+          ))}
+        </nav>
+
         <AdminDataState
           loading={jobsResource.loading}
           error={jobsResource.error}
@@ -697,8 +862,14 @@ export function ProveedoresModule() {
           emptyTitle="Sin trabajos de proveedor" emptyIcon="suppliers"
           emptyHint="Cargá el trabajo contratado para seguir el anticipo, la entrega y el saldo."
         >
-        {jobsView === "board" ? (
-          searchedJobs.length === 0 ? (
+        {narrow ? (
+          jobRows.length === 0 ? (
+            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá la pestaña de estado." />
+          ) : (
+            <AdminCardGrid label="Trabajos de proveedores" cards={jobCards} />
+          )
+        ) : jobsView === "board" ? (
+          filteredJobs.length === 0 ? (
             <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda." />
           ) : (
             <AdminBoard
@@ -803,7 +974,9 @@ export function ProveedoresModule() {
         meta={`${formatNumber(supplierRows.length)} de ${formatNumber(suppliers.length)}`}
         action={
           <span className="admin-panel-actions">
-            <AdminViewSwitch view={suppliersView} onChange={setSuppliersView} label="Vista de proveedores" views={PROVEEDORES_VIEWS} />
+            {narrow ? null : (
+              <AdminViewSwitch view={suppliersView} onChange={setSuppliersView} label="Vista de proveedores" views={PROVEEDORES_VIEWS} />
+            )}
             {writable ? (
               <AdminButton variant="primary" icon="plus" onClick={openSupplierCreate} aria-expanded={supplierForm !== null && !supplierForm.id}>
                 Nuevo proveedor
@@ -896,49 +1069,8 @@ export function ProveedoresModule() {
         >
           {supplierRows.length === 0 ? (
             <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda." />
-          ) : suppliersView === "grid" ? (
-            <AdminCardGrid label="Proveedores" cards={supplierRows.map((supplier): AdminCardData => {
-              const jobCount = supplier._count?.jobs ?? 0;
-              return {
-                id: supplier.id,
-                title: supplier.name,
-                titleTooltip: `${supplier.name} · ${formatNumber(jobCount)} trabajos`,
-                subtitle: supplier.company || null,
-                badges: [
-                  {
-                    label: supplierCategoryLabel(supplier.category),
-                    tone: supplier.category === "OTHER" ? "neutral" : "info",
-                  },
-                  { label: supplier.active ? "Activo" : "Inactivo", tone: supplier.active ? "ok" : "neutral" },
-                ],
-                fields: [
-                  { label: "Trabajos", value: formatNumber(jobCount), title: `${formatNumber(jobCount)} trabajos` },
-                  { label: "Teléfono", value: supplier.phone || "—", title: supplier.phone || "Sin teléfono" },
-                  { label: "Correo", value: supplier.email || "—", title: supplier.email || "Sin correo" },
-                  {
-                    label: "Condiciones",
-                    value: supplier.paymentTerms || "—",
-                    title: supplier.paymentTerms || "Sin condiciones cargadas",
-                  },
-                ],
-                footer: (
-                  <span className="admin-actions">
-                    <AdminWhatsappLink phone={supplier.phone} name={supplier.name} />
-                    {supplier.email ? (
-                      <AdminIconLink href={`mailto:${supplier.email}`} icon="mail" label={`Enviar correo a ${supplier.name}`} />
-                    ) : null}
-                    {writable ? (
-                      <AdminButton
-                        icon="edit"
-                        title={`Editar proveedor: ${supplier.name}`}
-                        aria-label={`Editar proveedor: ${supplier.name}`}
-                        onClick={() => openSupplierEdit(supplier)}
-                      />
-                    ) : null}
-                  </span>
-                ),
-              };
-            })} />
+          ) : narrow || suppliersView === "grid" ? (
+            <AdminCardGrid label="Proveedores" cards={supplierCards} />
           ) : (
             <AdminTable
               view="proveedores"
