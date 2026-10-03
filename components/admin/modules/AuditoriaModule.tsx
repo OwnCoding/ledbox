@@ -10,10 +10,13 @@ import {
   formatDate,
   formatNumber,
   formatTime,
+  type AdminAuditLine,
 } from "@/lib/admin-format";
-import { AUDIT_ENTITIES } from "@/lib/admin-types";
+import { AUDIT_ENTITIES, type AdminAuditRow } from "@/lib/admin-types";
 import { useAdminSession } from "../AdminShell";
 import { AdminIcon } from "../AdminIcons";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import {
   AdminBadge,
   AdminButton,
@@ -27,7 +30,7 @@ import {
   AdminTable,
   AdminToolbar,
 } from "../AdminUI";
-import { DateField, SearchField } from "../AdminFields";
+import { DayField, SearchField } from "../AdminFields";
 import { useAdminResource } from "@/lib/admin-api";
 
 /**
@@ -37,6 +40,10 @@ import { useAdminResource } from "@/lib/admin-api";
  *
  * Solo OWNER y ADMIN: el API responde 403 al resto (mismo criterio que
  * Usuarios) y acá directamente no se monta la vista ni se pide el historial.
+ *
+ * En ancho compacto (≤980 px, issue #154) la lista se dibuja como tarjetas:
+ * la tabla exigía desplazamiento horizontal y el resumen quedaba fuera de la
+ * vista en 390. El detalle vive dentro de la tarjeta.
  */
 
 const ENTITY_OPTIONS = [
@@ -55,7 +62,42 @@ export function AuditoriaModule() {
   return <AuditoriaView />;
 }
 
+/** Detalle expandible del cambio, compartido por la tabla y las tarjetas. */
+function AuditDetail({ log, lines }: { log: AdminAuditRow; lines: AdminAuditLine[] }) {
+  return (
+    <div className="admin-audit-detail" id={`audit-detail-${log.id}`}>
+      {lines.length > 0 ? (
+        <dl className="admin-audit-lines">
+          {lines.map((line, index) => (
+            <div className="admin-audit-line" key={`${index}-${line.label}`}>
+              <dt>{line.label}</dt>
+              <dd>
+                {line.from !== undefined || line.to !== undefined ? (
+                  <>
+                    <span className="admin-audit-from">{line.from}</span>
+                    <span className="admin-audit-arrow"> → </span>
+                    <span className="admin-audit-to">{line.to}</span>
+                  </>
+                ) : (
+                  <span className="admin-audit-to">{line.value}</span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="admin-muted">El cambio no registró campos con valores anteriores o nuevos.</p>
+      )}
+      <p className="admin-audit-meta">
+        Registro: <span className="admin-code">{log.entityId}</span> · {formatDate(log.createdAt)} ·{" "}
+        {formatTime(log.createdAt)}
+      </p>
+    </div>
+  );
+}
+
 function AuditoriaView() {
+  const compact = useAdminNarrowViewport();
   const [entityFilter, setEntityFilter] = useState("ALL");
   const [actorFilter, setActorFilter] = useState("ALL");
   const [from, setFrom] = useState("");
@@ -135,6 +177,52 @@ function AuditoriaView() {
     });
   }
 
+  function toggleDetail(id: string) {
+    setOpenId((current) => (current === id ? "" : id));
+  }
+
+  const cards: AdminCardData[] = logs.map((log) => {
+    const lines = auditDetailLines(log.entity, log.detail);
+    const detailText = auditDetailText(log.entity, log.detail);
+    const open = openId === log.id;
+    const dateTime = `${formatDate(log.createdAt)} · ${formatTime(log.createdAt)}`;
+    const entity = auditEntityLabel(log.entity);
+    return {
+      id: log.id,
+      title: log.summary,
+      titleTooltip: detailText ? `${log.summary} — ${detailText}` : log.summary,
+      subtitle: `${log.actorName} · ${log.actorEmail}`,
+      badges: [{ label: auditActionLabel(log.action), tone: auditActionTone(log.action), title: auditActionLabel(log.action) }],
+      fields: [
+        { label: "Fecha y hora", value: dateTime, title: dateTime },
+        {
+          label: "Entidad",
+          value: (
+            <>
+              {entity} <span className="admin-code">#{log.entityId.slice(0, 8)}</span>
+            </>
+          ),
+          title: `${entity} · ${log.entityId}`,
+        },
+      ],
+      footer: (
+        <>
+          <AdminButton
+            icon={open ? "close" : "info"}
+            onClick={() => toggleDetail(log.id)}
+            aria-expanded={open}
+            aria-controls={`audit-detail-${log.id}`}
+            title={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
+            aria-label={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
+          >
+            {open ? "Ocultar detalle" : "Ver detalle"}
+          </AdminButton>
+          {open ? <AuditDetail log={log} lines={lines} /> : null}
+        </>
+      ),
+    };
+  });
+
   return (
     <div className="admin-module-page">
       <section className="admin-kpis" aria-label="Indicadores de auditoría">
@@ -168,7 +256,7 @@ function AuditoriaView() {
           options={actorOptions}
         />
         <div className="admin-field--filter">
-          <DateField
+          <DayField
             label="Desde"
             max={to || undefined}
             value={from}
@@ -176,7 +264,7 @@ function AuditoriaView() {
           />
         </div>
         <div className="admin-field--filter">
-          <DateField
+          <DayField
             label="Hasta"
             min={from || undefined}
             value={to}
@@ -213,88 +301,63 @@ function AuditoriaView() {
         }
         rows={6}
       >
-        <AdminTable
-          view="auditoria"
-          label="Historial de cambios"
-          columns={[
-            { label: "Fecha y hora" },
-            { label: "Actor" },
-            { label: "Acción" },
-            { label: "Entidad" },
-            { label: "Resumen" },
-            { label: "Detalle", end: true },
-          ]}
-        >
-          {logs.map((log) => {
-            const lines = auditDetailLines(log.entity, log.detail);
-            const detailText = auditDetailText(log.entity, log.detail);
-            const open = openId === log.id;
-            return (
-              <Fragment key={log.id}>
-                <AdminRow>
-                  <AdminCell title={`${formatDate(log.createdAt)} · ${formatTime(log.createdAt)}`}>
-                    <span className="admin-nowrap">
-                      {formatDate(log.createdAt)} · {formatTime(log.createdAt)}
-                    </span>
-                  </AdminCell>
-                  <AdminCell title={`${log.actorName} · ${log.actorEmail}`}>
-                    <strong>{log.actorName}</strong> <span className="admin-cell-sub">{log.actorEmail}</span>
-                  </AdminCell>
-                  <AdminCell>
-                    <AdminBadge tone={auditActionTone(log.action)}>{auditActionLabel(log.action)}</AdminBadge>
-                  </AdminCell>
-                  <AdminCell title={`${auditEntityLabel(log.entity)} · ${log.entityId}`}>
-                    {auditEntityLabel(log.entity)} <span className="admin-code">#{log.entityId.slice(0, 8)}</span>
-                  </AdminCell>
-                  <AdminCell title={detailText ? `${log.summary} — ${detailText}` : log.summary}>{log.summary}</AdminCell>
-                  <AdminCell end>
-                    <button
-                      type="button"
-                      className="admin-iconbtn"
-                      onClick={() => setOpenId(open ? "" : log.id)}
-                      aria-expanded={open}
-                      aria-controls={`audit-detail-${log.id}`}
-                      title={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
-                      aria-label={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
-                    >
-                      <AdminIcon name={open ? "close" : "info"} size={15} />
-                    </button>
-                  </AdminCell>
-                </AdminRow>
-                {open ? (
-                  <div className="admin-audit-detail" id={`audit-detail-${log.id}`}>
-                    {lines.length > 0 ? (
-                      <dl className="admin-audit-lines">
-                        {lines.map((line, index) => (
-                          <div className="admin-audit-line" key={`${index}-${line.label}`}>
-                            <dt>{line.label}</dt>
-                            <dd>
-                              {line.from !== undefined || line.to !== undefined ? (
-                                <>
-                                  <span className="admin-audit-from">{line.from}</span>
-                                  <span className="admin-audit-arrow"> → </span>
-                                  <span className="admin-audit-to">{line.to}</span>
-                                </>
-                              ) : (
-                                <span className="admin-audit-to">{line.value}</span>
-                              )}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    ) : (
-                      <p className="admin-muted">El cambio no registró campos con valores anteriores o nuevos.</p>
-                    )}
-                    <p className="admin-audit-meta">
-                      Registro: <span className="admin-code">{log.entityId}</span> · {formatDate(log.createdAt)} ·{" "}
-                      {formatTime(log.createdAt)}
-                    </p>
-                  </div>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </AdminTable>
+        {compact ? (
+          <AdminCardGrid label="Historial de cambios" cards={cards} />
+        ) : (
+          <AdminTable
+            view="auditoria"
+            label="Historial de cambios"
+            columns={[
+              { label: "Fecha y hora" },
+              { label: "Actor" },
+              { label: "Acción" },
+              { label: "Entidad" },
+              { label: "Resumen" },
+              { label: "Detalle", end: true },
+            ]}
+          >
+            {logs.map((log) => {
+              const lines = auditDetailLines(log.entity, log.detail);
+              const detailText = auditDetailText(log.entity, log.detail);
+              const open = openId === log.id;
+              return (
+                <Fragment key={log.id}>
+                  <AdminRow>
+                    <AdminCell title={`${formatDate(log.createdAt)} · ${formatTime(log.createdAt)}`}>
+                      <span className="admin-nowrap">
+                        {formatDate(log.createdAt)} · {formatTime(log.createdAt)}
+                      </span>
+                    </AdminCell>
+                    <AdminCell title={`${log.actorName} · ${log.actorEmail}`}>
+                      <strong>{log.actorName}</strong> <span className="admin-cell-sub">{log.actorEmail}</span>
+                    </AdminCell>
+                    <AdminCell>
+                      <AdminBadge tone={auditActionTone(log.action)}>{auditActionLabel(log.action)}</AdminBadge>
+                    </AdminCell>
+                    <AdminCell title={`${auditEntityLabel(log.entity)} · ${log.entityId}`}>
+                      {auditEntityLabel(log.entity)} <span className="admin-code">#{log.entityId.slice(0, 8)}</span>
+                    </AdminCell>
+                    <AdminCell title={detailText ? `${log.summary} — ${detailText}` : log.summary}>{log.summary}</AdminCell>
+                    <AdminCell end>
+                      <button
+                        type="button"
+                        className="admin-iconbtn"
+                        onClick={() => toggleDetail(log.id)}
+                        aria-expanded={open}
+                        aria-controls={`audit-detail-${log.id}`}
+                        title={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
+                        aria-label={open ? "Ocultar el detalle del cambio" : "Ver el detalle del cambio"}
+                      >
+                        <AdminIcon name={open ? "close" : "info"} size={15} />
+                      </button>
+                    </AdminCell>
+                  </AdminRow>
+                  {open ? <AuditDetail log={log} lines={lines} /> : null}
+                </Fragment>
+              );
+            })}
+          </AdminTable>
+        )}
 
         <div className="admin-audit-pager">
           <AdminButton icon="arrow-left" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} title="Página anterior" aria-label="Página anterior">

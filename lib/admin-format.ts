@@ -18,6 +18,7 @@ const dateFormat = new Intl.DateTimeFormat("es-PY", { timeZone: TIME_ZONE, day: 
 const dateShortFormat = new Intl.DateTimeFormat("es-PY", { timeZone: TIME_ZONE, day: "2-digit", month: "short" });
 const dateTimeFormat = new Intl.DateTimeFormat("es-PY", { timeZone: TIME_ZONE, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const timeFormat = new Intl.DateTimeFormat("es-PY", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const monthKeyFormat = new Intl.DateTimeFormat("es-PY", { timeZone: "UTC", month: "long", year: "numeric" });
 
 function toDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
@@ -58,6 +59,55 @@ export function formatDateTime(value: string | Date | null | undefined): string 
 export function formatTime(value: string | Date | null | undefined): string {
   const date = toDate(value);
   return date ? timeFormat.format(date) : "—";
+}
+
+/**
+ * Día puro (`AAAA-MM-DD`) dibujado es-PY sin corrimiento de zona (issue #154):
+ * se ancla al mediodía UTC para que el día no cambie de un hemisferio a otro.
+ * Un valor que no sea clave de día se delega a `formatDate`.
+ */
+export function formatDayKey(value: string | null | undefined): string {
+  if (!value) return "—";
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDate(`${value}T12:00:00.000Z`) : formatDate(value);
+}
+
+/** Mes y año de una clave `AAAA-MM` («septiembre 2026»). */
+export function formatMonthKey(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(value ?? "");
+  if (!match) return value ? value : "—";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return value as string;
+  return monthKeyFormat.format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+/** Texto de un campo de día es-PY: `2026-09-21` → `21/09/2026` (vacío queda vacío). */
+export function dayInputText(dayKey: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey ?? "");
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+}
+
+/**
+ * Clave `AAAA-MM-DD` de un texto `dd/mm/aaaa`; `null` si está incompleto o el
+ * día no existe (31/02). La UI ayuda, el API revalida siempre.
+ */
+export function parseDayInput(text: string | null | undefined): string | null {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((text ?? "").trim());
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+/** Máscara progresiva del campo de día: solo dígitos, con las barras en su lugar (8 dígitos). */
+export function maskDayInput(text: string | null | undefined): string {
+  const digits = (text ?? "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 }
 
 /**
@@ -1518,6 +1568,22 @@ export function auditFieldLabel(field: string): string {
   return AUDIT_FIELD[field] ?? field;
 }
 
+/**
+ * Fecha de un detalle de auditoría en texto es-PY; `null` si el valor no es una
+ * fecha ISO. Los días puros y los guardados como día (mediodía UTC o las 00:00
+ * de Asunción) se dibujan sin hora; el resto, con fecha y hora (issue #154).
+ */
+function formatAuditDateValue(text: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return formatDayKey(text);
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?Z$/.exec(text);
+  if (!match) return null;
+  const [, day, hour, minute, second = "00"] = match;
+  const dayOnly =
+    hour === "12" ||
+    (minute === "00" && second === "00" && (hour === "00" || hour === "03" || hour === "04"));
+  return dayOnly ? formatDayKey(day) : formatDateTime(new Date(text));
+}
+
 /** Valor de un cambio en formato legible (estados, roles, fechas y montos incluidos). */
 export function auditValueLabel(entity: string | null | undefined, field: string | null | undefined, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -1551,6 +1617,12 @@ export function auditValueLabel(entity: string | null | undefined, field: string
     const amount = Number(text);
     return Number.isFinite(amount) ? formatMoney(amount) : text;
   }
+  // Fechas ISO que llegan crudas al detalle (issue #154): se dibujan es-PY,
+  // sin hora cuando el valor es un día (vencimientos, períodos) y con hora
+  // cuando es un instante real.
+  const auditDate = formatAuditDateValue(text);
+  if (auditDate) return auditDate;
+  if (/^\d{4}-\d{2}$/.test(text)) return formatMonthKey(text);
   if (/(At|Date)$/.test(key)) {
     const date = new Date(text);
     return Number.isNaN(date.getTime()) ? text : formatDateTime(date);
