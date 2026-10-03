@@ -1846,6 +1846,19 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-plan-list { display: grid; gap: 8px; }
 .admin-plan-row { display: grid; grid-template-columns: minmax(9rem, 1.4fr) minmax(8rem, 1fr) minmax(9rem, 1fr) auto; gap: 8px; align-items: end; padding: 12px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel-2); }
 .admin-plan-row .admin-field input { min-height: 34px; }
+/* Plan de pagos en mobile (issue #141): la fila de cuota apila campos; la
+   grilla de 4 columnas desbordaba el diálogo en 390. */
+@media (max-width: 720px) {
+  .admin-plan-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .admin-plan-row > .admin-countdown-field { grid-column: 1 / -1; }
+  .admin-plan-row > .admin-btn { grid-column: 2; justify-self: end; }
+}
+@media (max-width: 420px) {
+  .admin-plan-row { grid-template-columns: minmax(0, 1fr); }
+  .admin-plan-row > .admin-countdown-field,
+  .admin-plan-row > .admin-btn { grid-column: auto; }
+  .admin-plan-row > .admin-btn { justify-self: end; }
+}
 .admin-bank-preview { display: flex; align-items: center; gap: 8px; padding: 12px 12px; border: 1px solid var(--a-line); border-radius: var(--a-radius); background: var(--a-panel-2); }
 .admin-bank-preview strong { color: var(--a-text-strong); font-size: 13px; }
 .admin-bank-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 8px; color: #fff; font: 800 13px var(--font-body); letter-spacing: .04em; }
@@ -2307,11 +2320,19 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-viewswitch-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--a-muted-2); cursor: pointer; transition: background .15s, color .15s; }
 .admin-viewswitch-btn:hover { color: var(--a-accent); }
 .admin-viewswitch-btn[aria-pressed="true"] { background: var(--a-accent-soft); color: var(--a-accent); }
-.admin-board-wrap { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; scrollbar-width: none; scroll-snap-type: x proximity; }
-.admin-board-wrap::-webkit-scrollbar { display: none; }
+/* Tablero (issue #141): las columnas se reparten el ancho disponible y recién
+   cuando no entran (con un piso legible de 11rem) el contenedor se desliza. El
+   scroll es visible y con aviso: nada queda escondido sin señal. */
+.admin-board-wrap { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: var(--a-line-2) transparent; scroll-snap-type: x proximity; }
+.admin-board-wrap::-webkit-scrollbar { height: 8px; }
+.admin-board-wrap::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--a-line-2); }
+.admin-board-wrap::-webkit-scrollbar-track { background: transparent; }
 .admin-panel .admin-board-wrap { padding: 0 12px 12px; }
-.admin-board { display: flex; align-items: stretch; gap: 8px; width: max-content; min-width: 100%; }
-.admin-board-col { display: flex; flex-direction: column; gap: 8px; flex: 0 0 var(--a-board-col, 16.5rem); width: var(--a-board-col, 16.5rem); min-height: 9.5rem; padding: 8px; border: 1px solid var(--a-line); border-radius: var(--a-radius-lg); background: var(--a-bg-2); scroll-snap-align: start; transition: border-color .15s, background .15s; }
+.admin-board { display: flex; align-items: stretch; gap: 8px; width: 100%; }
+.admin-board-col { display: flex; flex-direction: column; gap: 8px; flex: 1 1 var(--a-board-col, 16.5rem); min-width: 11rem; max-width: 24rem; min-height: 9.5rem; padding: 8px; border: 1px solid var(--a-line); border-radius: var(--a-radius-lg); background: var(--a-bg-2); scroll-snap-align: start; transition: border-color .15s, background .15s; }
+/* Aviso del deslizamiento: solo se dibuja cuando hay columnas a la derecha. */
+.admin-board-more { display: inline-flex; align-items: center; gap: 6px; color: var(--a-muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.admin-board-more .admin-icon { color: var(--a-accent); }
 .admin-board-col[data-over="true"] { border-color: var(--a-accent); background: var(--a-accent-soft); }
 .admin-board-col-head { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 .admin-board-col-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--a-muted); }
@@ -2354,6 +2375,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-board-card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
 .admin-board-card-facts { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .admin-board-card-amount { color: var(--a-text-strong); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* La aclaración del monto (saldo, cobrado) va debajo: en columnas angostas la
+   línea única desbordaba la tarjeta (issue #141). */
+.admin-board-card-amount small { display: block; font-weight: 400; }
 .admin-board-card-date { display: inline-flex; align-items: center; gap: 8px; color: var(--a-muted); font-size: 11px; }
 .admin-board-card-detail { overflow: hidden; color: var(--a-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-board-card-move { display: flex; }
