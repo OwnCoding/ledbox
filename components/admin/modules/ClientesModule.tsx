@@ -655,7 +655,7 @@ export function ClientesModule() {
               />
             </div>
 
-            <div className="admin-form-group admin-form-group--image">
+            <div className="admin-form-group admin-form-group--image admin-client-logo">
               <span className="admin-form-group-title">Logo</span>
               <AdminImageUpload
                 label="Logo del cliente"
