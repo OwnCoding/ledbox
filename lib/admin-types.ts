@@ -299,7 +299,7 @@ export type AdminEventOption = {
 };
 
 /** Cliente embebido mínimo del panel de eventos (issue #68). */
-export type AdminEventClientRef = Pick<AdminClientRef, "id" | "name" | "company" | "phone" | "tradeName" | "legalName">;
+export type AdminEventClientRef = Required<Pick<AdminClientRef, "id" | "name" | "company" | "phone" | "tradeName" | "legalName">>;
 
 /**
  * Evento del panel de operación (issue #68): lo que devuelve
