@@ -20,7 +20,7 @@
   "hubApplicationsPath": "/api/v1/applications",
   "hubDeploymentsPath": "/api/v1/deployments/applications/{uuid}",
   "applicationUUID": "shgn0g8bfuitauifyf69noeq",
-  "canonicalRepository": "OwnCoding/ledbox",
+  "canonicalRepository": "dariodeoli/ledbox",
   "canonicalRepositoryId": 1312274819,
   "autodeployWaitMs": 60000,
   "smokeTimeoutMs": 540000,

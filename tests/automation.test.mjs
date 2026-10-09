@@ -164,7 +164,7 @@ test("release retry no vuelve a versionar/POST y timeout smoke reanuda sólo GET
 
 test("Hub token recargado, alias cotejado, SOURCE_COMMIT requerido y ningún POST de red real", async () => {
   const dir = temp(), file = join(dir, "deploy.env");
-  const config = { deployEnvFile: file, hubApplicationsPath: "/api/v1/applications", hubDeploymentsPath: "/api/v1/deployments/applications/{uuid}", applicationUUID: "qa-uuid", liveBranch: LIVE, canonicalRepository: "OwnCoding/ledbox", canonicalRepositoryId: 1312274819 };
+  const config = { deployEnvFile: file, hubApplicationsPath: "/api/v1/applications", hubDeploymentsPath: "/api/v1/deployments/applications/{uuid}", applicationUUID: "qa-uuid", liveBranch: LIVE, canonicalRepository: "dariodeoli/ledbox", canonicalRepositoryId: 1312274819 };
   const listApp = { uuid: "qa-uuid", git_repository: "dariodeoli/ledbox", git_branch: LIVE };
   const app = { ...listApp, settings: { is_auto_deploy_enabled: true, include_source_commit_in_build: false } };
   let requests = 0;
@@ -192,8 +192,16 @@ test("Hub token recargado, alias cotejado, SOURCE_COMMIT requerido y ningún POS
     }
     app.settings = { ...settings, is_auto_deploy_enabled: false };
     assert.equal((await client.preflight()).automatic, false);
+    app.git_repository = "OwnCoding/ledbox";
+    assert.equal((await client.preflight()).repository, "owncoding/ledbox", "alias con ID cotejado conserva repo");
+    config.canonicalRepositoryId = 0;
+    await assert.rejects(client.preflight(), /cotejo/);
+    config.canonicalRepositoryId = 1312274819;
+    config.canonicalRepository = "OwnCoding/ledbox";
+    await assert.rejects(client.preflight(), /cotejo/, "canónico anterior no sustituye nueva configuración");
+    config.canonicalRepository = "dariodeoli/ledbox";
     assert.equal((await client.deployments("a".repeat(40))).length, 1);
-    assert.equal(requests, 12);
+    assert.equal(requests, 15);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

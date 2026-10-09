@@ -44,8 +44,8 @@ export function hubClient(config, fetcher = fetch) {
       const repo = repository(app.git_repository);
       const aliases = ["owncoding/ledbox", "dariodeoli/ledbox"];
       if (!aliases.includes(repo) || app.git_branch !== config.liveBranch) throw new Error("Hub repository/branch no corresponde a LedBox vivo");
-      // Alias histórico fue cotejado por integrador vía GitHub repo ID 1312274819.
-      if (config.canonicalRepositoryId !== 1312274819 || config.canonicalRepository !== "OwnCoding/ledbox") throw new Error("Falta cotejo de alias canónico GitHub");
+      // Transferencia 2026-10-09: alias OwnCoding sólo con ID cotejado por integrador.
+      if (config.canonicalRepositoryId !== 1312274819 || config.canonicalRepository !== "dariodeoli/ledbox") throw new Error("Falta cotejo de alias canónico GitHub");
       const settings = app.settings;
       if (!settings || Array.isArray(settings) || typeof settings !== "object" || typeof settings.is_auto_deploy_enabled !== "boolean" || typeof settings.include_source_commit_in_build !== "boolean") throw new Error("Detalle Hub sin settings/flags booleanos contractuales");
       if (settings.include_source_commit_in_build !== true) throw new Error("Hub no inyecta SOURCE_COMMIT verificable; requiere configuración autorizada del integrador");

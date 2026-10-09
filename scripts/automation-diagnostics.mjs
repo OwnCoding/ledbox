@@ -21,7 +21,7 @@ export function slotStatus(cwd) {
 }
 function issue173(cwd) {
   try {
-    return JSON.parse(execFileSync("gh", ["issue", "view", "173", "--repo", "OwnCoding/ledbox", "--json", "number,title,state,url"], { cwd, encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }));
+    return JSON.parse(execFileSync("gh", ["issue", "view", "173", "--repo", "dariodeoli/ledbox", "--json", "number,title,state,url"], { cwd, encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }));
   } catch { return { number: 173, status: "UNAVAILABLE" }; }
 }
 function ownerPending(cwd) {

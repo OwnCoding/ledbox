@@ -131,7 +131,7 @@ HEAD final limpio; no editar un pending para hacer coincidir un PASS viejo.
 
 Tras PASS exacto, el preflight autenticado GET comprueba el detalle de
 `/api/v1/applications/shgn0g8bfuitauifyf69noeq`, UUID, rama viva y repo. Acepta
-`OwnCoding/ledbox` o el alias histórico `dariodeoli/ledbox`, cotejado por el
+`dariodeoli/ledbox` como canónico o el alias histórico `OwnCoding/ledbox`, cotejado por el
 integrador con GitHub repo ID **1312274819**. Hub 4.4.6 devuelve flags sólo en
 `app.settings`: ambos deben ser booleanos y `include_source_commit_in_build`
 debe ser **true**. La lista de aplicaciones no es fuente de esos flags.
@@ -140,6 +140,21 @@ Con el flag false falta un anclaje remoto verificable: **se bloquea antes de
 crear metadata/publicar**. El script no hace PATCH ni infiere un SOURCE_COMMIT
 heredado. La habilitación del flag corresponde al dueño/integrador por su canal
 autorizado. El estado auditado durante implementación era false.
+
+### Transferencia de repositorios — 2026-10-09
+
+El canónico vuelve de OwnCoding a **dariodeoli**; origin principal es
+`https://github.com/dariodeoli/ledbox.git`. El integrador valida vía API la
+identidad persistente `1312274819`; el alias `OwnCoding/ledbox` sólo se acepta
+con ese ID cotejado en configuración. Este script no deduce identidad por redirects.
+
+La dependencia `owncoding-ui` también cambia de propietario a `dariodeoli`,
+conservando **el mismo SHA completo** `9dc9ec44216d22e92fad72fc1ad08bf3296a8da2`; no se actualiza
+el código del kit. PANEL es dueño de package.json/package-lock.json para esa
+migración. Plataforma entrega este ajuste local commiteado, sin push ni cambios
+de package/lock, CI o Docker. Después de integrar PANEL, el integrador añade
+su script de testautomation. El gate final queda bloqueado hasta los checks y
+QA del SHA integrado; la barrera SOURCE_COMMIT sigue vigente.
 
 Luego crea un único commit hijo del candidato, `chore(release): vX.Y.Z (Refs #173)`:
 sólo versiones de package/lock y `docs/NOVEDADES.md`. Rechaza cambios de código
