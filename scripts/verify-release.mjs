@@ -17,10 +17,12 @@ const hosts = [
 const results = await Promise.all(hosts.map(async ([origin, surface]) => {
   const host = origin.replace(/\/$/, "");
   try {
-    const response = await fetch(`${host}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(20000) });
+    const response = await fetch(`${host}/api/health`, { cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(20000) });
     const health = await response.json();
-    const page = await fetch(`${host}${surface}`, { redirect: "follow", signal: AbortSignal.timeout(20000) });
-    const ok = response.ok && page.ok && health.status === "ok" && health.database === "ok"
+    // No seguir redirects hacia endpoints de sesión/demo con efectos laterales.
+    const page = await fetch(`${host}${surface}`, { redirect: "manual", signal: AbortSignal.timeout(20000) });
+    const reachable = page.ok || [301, 302, 303, 307, 308].includes(page.status);
+    const ok = response.ok && reachable && health.status === "ok" && health.database === "ok"
       && Number.isInteger(health.migrations) && health.version === version && health.sha === sha.toLowerCase();
     return { host, ok, surfaceStatus: page.status, healthStatus: response.status,
       version: health.version ?? null, sha: health.sha ?? null, database: health.database, migrations: health.migrations };
