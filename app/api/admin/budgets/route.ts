@@ -538,6 +538,8 @@ async function patchBudgetItems(params: {
   if (parsed.length !== rawItems.length) return jsonError("Completá todos los ítems con cantidades y montos válidos.", 400);
 
   const existingIds = new Set(budget.items.map((item) => item.id));
+  const suppliedIds = parsed.flatMap((item) => item.id ? [item.id] : []);
+  if (new Set(suppliedIds).size !== suppliedIds.length) return jsonError("No repitas el identificador de un ítem.", 400);
   if (parsed.some((item) => item.id && !existingIds.has(item.id))) {
     return jsonError("Uno de los ítems no pertenece a este presupuesto.", 400);
   }

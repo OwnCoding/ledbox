@@ -3,7 +3,7 @@ import { requireAdminContext } from "@/lib/server/tenancy";
 import { roleCan } from "@/lib/server/permissions";
 import { jsonError, readJson } from "@/lib/server/http";
 import { recordAudit } from "@/lib/server/audit";
-import { QuoteComparisonError, withQuoteCommercialEdit } from "@/lib/server/quote-comparison";
+import { QuoteComparisonError } from "@/lib/server/quote-comparison";
 export const runtime = "nodejs";
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAdminContext("budgets.write");
@@ -14,10 +14,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!name || name.length > 160) return jsonError("El nombre del evento debe tener entre 1 y 160 caracteres.", 400);
   const { id } = await params;
   try {
-    const event = await withQuoteCommercialEdit(id, auth.context.organizationId, true, async (tx) => {
-      const budget = await tx.budget.findUniqueOrThrow({ where: { id } });
+    const event = await db.$transaction(async (tx) => {
+      const budget = await tx.budget.findFirst({ where: { id, organizationId: auth.context.organizationId } });
+      if (!budget) throw new QuoteComparisonError(404, "Presupuesto no encontrado.");
       if (!budget.eventId) throw new QuoteComparisonError(400, "El presupuesto no tiene evento.");
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${budget.eventId} FOR UPDATE`;
+      // Lock every sibling in one stable order, shared with approval/signing's
+      // quote-row lock, before checking any accepted document.
+      await tx.$queryRaw`SELECT "id" FROM "Budget" WHERE "eventId" = ${budget.eventId} ORDER BY "id" FOR UPDATE`;
+      const fresh = await tx.budget.findUniqueOrThrow({ where: { id } });
+      if (fresh.eventId !== budget.eventId) throw new QuoteComparisonError(409, "El evento asociado cambió. Actualizá antes de renombrarlo.");
+      if (["LOST", "CANCELLED"].includes(fresh.status)) throw new QuoteComparisonError(409, "El presupuesto está cerrado.");
       const current = await tx.event.findFirst({ where: { id: budget.eventId, organizationId: auth.context.organizationId } });
       if (!current) throw new QuoteComparisonError(404, "Evento no encontrado.");
       if (body.originalName !== current.name) throw new QuoteComparisonError(409, "El evento cambió. Actualizá antes de renombrarlo.");

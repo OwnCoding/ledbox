@@ -7,6 +7,7 @@ import { clientLabel, dayKeyOf, dayStart, isValidDayKey } from "./notifications"
 import { auditChanges, recordAudit, type AuditContext } from "./audit";
 import { collectionSnapshotOf } from "./finance-snapshots";
 import { budgetPlanLedgerError } from "../budget-payment-plan";
+import { QuoteComparisonError } from "./quote-comparison";
 
 /**
  * Pagos esperados del plan de un presupuesto (issue #28): el dinero que el
@@ -166,6 +167,7 @@ export async function syncBudgetExpectedPayments(input: {
           expectedAccountId: true,
           paidAmount: true,
           proofId: true,
+          paymentId: true,
         },
       },
     },
@@ -211,7 +213,7 @@ export async function syncBudgetExpectedPayments(input: {
     existing.delete(item.slot);
     // Lo confirmado y lo parcial no se pisan: la plata ya entró con sus valores
     // reales y el saldo pendiente se completa o se divide a mano (issue #129).
-    if (current.status === "CONFIRMED" || current.status === "PARTIAL" || current.status === "PROOF" || current.slot.startsWith("split:")) continue;
+    if (current.status === "CONFIRMED" || current.status === "PARTIAL" || current.status === "PROOF" || current.paidAmount > 0 || current.proofId || current.label.includes(" · parte ") || current.slot.startsWith("split:")) continue;
 
     const nextStatus: ExpectedStatusValue = current.status === "CANCELLED" ? "AWAITING" : (current.status as ExpectedStatusValue);
     const reviving = current.status === "CANCELLED";
@@ -238,8 +240,8 @@ export async function syncBudgetExpectedPayments(input: {
       ["label", "amount", "dueAt", "concept", "installmentNumber", "status", "expectedAccountId"],
     );
     if (!changes) continue;
-    await db.expectedPayment.update({
-      where: { id: current.id },
+    const applied = await db.expectedPayment.updateMany({
+      where: { id: current.id, status: current.status, amount: current.amount, paidAmount: current.paidAmount, proofId: current.proofId, paymentId: current.paymentId },
       data: {
         label: item.label,
         amount: item.amount,
@@ -252,17 +254,19 @@ export async function syncBudgetExpectedPayments(input: {
         ...(reviving ? { reviewNote: null, reviewedAt: null, reviewedByName: null, cancelledAt: null } : {}),
       },
     });
+    if (!applied.count) throw new QuoteComparisonError(409, "El concepto cambió mientras se sincronizaba. Actualizá el plan: se conservó el cobro o comprobante concurrente.");
     result.updated += 1;
   }
 
   // Conceptos que salieron del plan: se cancelan (lo confirmado queda). Las
   // partes de una división manual (`split:`) no son del plan: se respetan.
   for (const row of existing.values()) {
-    if (row.status === "CONFIRMED" || row.status === "PARTIAL" || row.status === "PROOF" || row.status === "CANCELLED" || row.slot.startsWith("split:")) continue;
-    await db.expectedPayment.update({
-      where: { id: row.id },
+    if (row.status === "CONFIRMED" || row.status === "PARTIAL" || row.status === "PROOF" || row.status === "CANCELLED" || row.paidAmount > 0 || row.proofId || row.label.includes(" · parte ") || row.slot.startsWith("split:")) continue;
+    const applied = await db.expectedPayment.updateMany({
+      where: { id: row.id, status: row.status, amount: row.amount, paidAmount: row.paidAmount, proofId: row.proofId, paymentId: row.paymentId },
       data: { status: "CANCELLED", cancelledAt: now },
     });
+    if (!applied.count) throw new QuoteComparisonError(409, "El concepto cambió mientras se cancelaba. Se conservó el cobro o comprobante concurrente.");
     result.cancelled += 1;
   }
 
@@ -445,6 +449,9 @@ export async function confirmExpectedPayment(input: {
         organizationId: input.organizationId,
         status: { in: ["AWAITING", "PROOF", "PARTIAL"] },
         paidAmount: expected.paidAmount,
+        amount: expected.amount,
+        proofId: expected.proofId,
+        paymentId: expected.paymentId,
       },
       data: isPartial
         ? {

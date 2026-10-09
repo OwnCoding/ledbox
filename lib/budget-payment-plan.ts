@@ -88,7 +88,9 @@ export function budgetPlanLedgerError(desired: ReadonlyArray<{ slot: string; amo
     if (row.status === "CANCELLED") continue;
     if (row.slot.startsWith("split:")) continue;
     const protectedRow = ["CONFIRMED", "PARTIAL", "PROOF"].includes(row.status) || (row.paidAmount ?? 0) > 0 || Boolean(row.proofId) || Boolean(row.label?.includes(" · parte "));
-    if (protectedRow && bySlot.get(row.slot) !== row.amount) return "El plan cambia un concepto con cobros, comprobantes o saldo dividido. Conservá ese importe y revisá los pendientes por separado.";
+    const baseLabel = row.label?.split(" · parte ")[0];
+    const splitAmount = row.label?.includes(" · parte ") ? existing.filter((part) => part.status !== "CANCELLED" && part.slot.startsWith("split:") && part.label?.split(" · parte ")[0] === baseLabel).reduce((sum, part) => sum + part.amount, 0) : 0;
+    if (protectedRow && bySlot.get(row.slot) !== row.amount + splitAmount) return "El plan cambia un concepto con cobros, comprobantes o saldo dividido. Conservá ese importe y revisá los pendientes por separado.";
   }
   return null;
 }

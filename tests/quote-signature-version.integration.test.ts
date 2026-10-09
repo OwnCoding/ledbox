@@ -67,6 +67,7 @@ test("grouped signatures reject stale commercial versions atomically, including 
     // Concurrent HTTP requests: whichever obtains the quote lock first wins.
     // Edits first => stale signature409; signature first => commercial edit409.
     const edits = [
+      { kind: "editor", title: "Edited atomically", items: [{ name: "Service", quantity: 1, days: 1, unitPrice: 2000 }], installmentsJson: [{ label: "Saldo", type: "remainder", moment: "Antes del montaje" }] },
       { kind: "items", items: [{ name: "Service", quantity: 1, days: 1, unitPrice: 2000 }] },
       { kind: "commercial", warranty: "Changed warranty" },
       { paymentTerms: "Changed payment conditions" },

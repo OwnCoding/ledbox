@@ -53,3 +53,8 @@ test("services and existing rentals retain their arithmetic without inferred con
   assert.ok(budgetItemError({ name: "Service", quantity: 0, days: 1, unitPrice: 100, costPrice: 0 }));
   assert.ok(budgetItemError({ name: "Rental", quantity: 9999, days: 9999, unitPrice: 100, costPrice: 0 }));
 });
+test("split balances retain their aggregate without sync restoring the original part", () => {
+  const split = [{ slot: "installment:1", amount: 20, paidAmount: 10, status: "PARTIAL", label: "Reserva · parte 1/2" }, { slot: "split:abc", amount: 30, status: "AWAITING", label: "Reserva · parte 2/2" }];
+  assert.equal(budgetPlanLedgerError([{ slot: "installment:1", amount: 50 }], split), null);
+  assert.ok(budgetPlanLedgerError([{ slot: "installment:1", amount: 70 }], split));
+});
