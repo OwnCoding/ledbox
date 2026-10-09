@@ -49,6 +49,35 @@ Las ramas compartidas se actualizan por merge sin force ni reescritura de histor
 El contrato definitivo y la confirmación RUC se documentan en
 `docs/CONTRATO-CLIENTES-EVENTOS-OWNDATA.md` al integrar la entrega de plataforma.
 
+## Entregas incorporadas
+
+- Plataforma fase 2: `9ef5c19`, corrección de validación destructiva `f4529a2`.
+  Integradas con `6d3c005` y `fb530b6`. El payload mal tipado se rechaza sin
+  borrar u omitir intención; la URL OwnData debe ser raíz HTTPS.
+- Panel fases 1 y 6: `73f9798`, integrado con `2cb7e51`. Ref UI publicada
+  v0.67.1 (`9dc9ec44216d22e92fad72fc1ad08bf3296a8da2`), Node 24.21.0
+  local/CI/Docker, rango `>=24.15.0 <25`. Kit/browser claro y oscuro a
+  360/390/1440; Combobox compatible conservado.
+- Integrador: identidad canónica `92a14f0`; health y sonda multihost por SHA
+  `4d2d4b6`/`49199a5`. El merge conserva tanto el anclaje SHA como
+  `transpilePackages: ["owncoding-ui"]` (necesario para compartir React en SSR).
+- Postgres local aislado `127.0.0.1:55473/ledbox_quote_qa`: 44 migraciones base
+  y migración aditiva de identidad aplicada (45). Prisma validate/typecheck en
+  verde. Con kit/backend reunidos: 493 pruebas, 484 pass, 9 skips con gates
+  locales, cero fallos. No es todavía QA final de presupuestos/operación.
+
+### Gates detectados por QA temprano
+
+Pilot identificó una carrera de sincronización contra confirmación de pago y
+aceptación legacy de IDs de ítems duplicados. Se asignaron a FIN como P1
+bloqueantes para el candidato, con regresiones de concurrencia/consistencia.
+No se declara PASS por el diagnóstico ni por corregir solo el editor.
+
+La lectura autenticada actual del Hub devuelve 401; configuración efectiva de
+runtime/auto-deploy no verificable por ese canal. No se traslada el diagnóstico
+histórico a este estado. La verificación del rollout del alcance requiere
+gates finales y la versión/SHA realmente servidos.
+
 ## Gates de cierre
 
 1. Kit compatible con ref publicada verificable y runtime local/CI/deploy coherentes.
