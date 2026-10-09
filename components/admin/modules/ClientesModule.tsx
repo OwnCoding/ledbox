@@ -25,7 +25,8 @@ import {
   websiteHref,
   whatsappHref,
 } from "@/lib/admin-format";
-import { canWrite, matchesQuery } from "@/lib/admin-policy";
+import { canWriteClients, matchesQuery } from "@/lib/admin-policy";
+import { clientDisplayName, clientLegalName } from "@/lib/client-identity";
 import { clientLogoUrl } from "@/lib/admin-types";
 import type {
   AdminClientBudgetRow,
@@ -33,6 +34,7 @@ import type {
   AdminClientEventRow,
   AdminClientPaymentRow,
   AdminClientRow,
+  AdminClientRucSnapshot,
 } from "@/lib/admin-types";
 import type { PreparedIdentityImage } from "@/lib/identity-image";
 import { AdminIcon } from "../AdminIcons";
@@ -61,9 +63,11 @@ import {
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
 import { SearchField, TextAreaField } from "../AdminFields";
-import { ClientQuickFields, clientQuickErrors, clientQuickFirstError } from "./ClientQuickForm";
+import { ClientQuickFields, EMPTY_CLIENT_QUICK, clientQuickPayload, clientQuickErrors, clientQuickFirstError, type ClientQuickValues } from "./ClientQuickForm";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import { FIELD_LIMITS } from "@/lib/field-rules";
+import { ClientFiscalSnapshot } from "./ClientFiscalFields";
+import { locationLinkValid } from "./OperationQuickRules";
 import { AdminViewSwitch, useAdminModuleView, useAdminNarrowViewport } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 
@@ -99,6 +103,7 @@ const ORDER_OPTIONS = [
  * de guardar, porque necesita el id del cliente.
  */
 const EMPTY_FORM = {
+  ...EMPTY_CLIENT_QUICK,
   name: "",
   company: "",
   type: "FINAL",
@@ -117,8 +122,24 @@ const EMPTY_FORM = {
 
 type ClientForm = typeof EMPTY_FORM;
 
-function formFromClient(client: AdminClientRow): ClientForm {
+function formFromClient(client: AdminClientRow & {
+  tradeName?: string | null; legalName?: string | null; billingEmail?: string | null;
+  city?: string | null; department?: string | null; address?: string | null;
+  addressReference?: string | null; locationUrl?: string | null; contacts?: ClientQuickValues["contacts"];
+  rucSnapshot?: AdminClientRucSnapshot | null;
+}): ClientForm {
   return {
+    tradeName: client.tradeName ?? "",
+    legalName: client.legalName ?? "",
+    billingEmail: client.billingEmail ?? "",
+    city: client.city ?? "",
+    department: client.department ?? "",
+    address: client.address ?? "",
+    addressReference: client.addressReference ?? "",
+    locationUrl: client.locationUrl ?? "",
+    contacts: client.contacts ?? [],
+    rucSnapshot: client.rucSnapshot ?? null,
+    rucConfirmationToken: "",
     name: client.name,
     company: client.company ?? "",
     type: client.type === "RESELLER" ? "RESELLER" : "FINAL",
@@ -136,16 +157,12 @@ function formFromClient(client: AdminClientRow): ClientForm {
   };
 }
 
-function clientLabel(client: Pick<AdminClientRow, "name" | "company">): string {
-  return client.company?.trim() || client.name;
-}
-
 function activityTime(client: Pick<AdminClientRow, "metrics">): number {
   return client.metrics.lastActivityAt ? new Date(client.metrics.lastActivityAt).getTime() : 0;
 }
 
 function compareByName(a: AdminClientRow, b: AdminClientRow): number {
-  return clientLabel(a).localeCompare(clientLabel(b), "es");
+  return clientDisplayName(a).localeCompare(clientDisplayName(b), "es");
 }
 
 function sortClients(list: AdminClientRow[], order: string): AdminClientRow[] {
@@ -227,11 +244,11 @@ function ClientLogo({
   size = 22,
   title,
 }: {
-  client: Pick<AdminClientRow, "id" | "name" | "company" | "logoUpdatedAt">;
+  client: Pick<AdminClientRow, "id" | "name" | "company" | "tradeName" | "logoUpdatedAt">;
   size?: 22 | 40 | 64;
   title?: string;
 }) {
-  const name = clientLabel(client);
+  const name = clientDisplayName(client);
   const src = client.logoUpdatedAt ? clientLogoUrl(client.id, client.logoUpdatedAt) : null;
   return (
     <AdminAvatar
@@ -310,7 +327,7 @@ export function ClientesModule() {
   /** Envío por WhatsApp con plantilla (issue #35) para el cliente elegido. */
   const [templateTarget, setTemplateTarget] = useState<MessageTemplateTarget | null>(null);
 
-  const writable = canWrite(role);
+  const writable = canWriteClients(role);
 
   const rows = useMemo(() => {
     const list = (clients.data ?? [])
@@ -324,6 +341,8 @@ export function ClientesModule() {
       .filter((client) =>
         matchesQuery(query, [
           client.name,
+          clientDisplayName(client),
+          clientLegalName(client),
           client.company,
           client.ruc,
           client.email,
@@ -342,7 +361,7 @@ export function ClientesModule() {
    * actividad y estado— con las mismas acciones que la fila.
    */
   const clientCards: AdminCardData[] = rows.map((client): AdminCardData => {
-    const name = clientLabel(client);
+    const name = clientDisplayName(client);
     const metrics = client.metrics;
     const contact = [client.contactPhone || client.phone, client.contactEmail || client.email].filter(Boolean).join(" · ");
     const lastActivity = metrics.lastActivityAt ? formatDateShort(metrics.lastActivityAt) : null;
@@ -490,6 +509,7 @@ export function ClientesModule() {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     if (firstFieldError) {
       setFormError(firstFieldError);
       return;
@@ -499,19 +519,7 @@ export function ClientesModule() {
     setStatus("");
     const isEditing = Boolean(editingId);
     const payload = {
-      name: form.name,
-      company: form.company || null,
-      type: form.type,
-      ruc: form.ruc || null,
-      phone: form.phone || null,
-      email: form.email || null,
-      contactName: form.contactName || null,
-      contactRole: form.contactRole || null,
-      contactPhone: form.contactPhone || null,
-      contactEmail: form.contactEmail || null,
-      website: form.website || null,
-      instagram: form.instagram || null,
-      whatsapp: form.whatsapp || null,
+      ...clientQuickPayload(form),
       notes: form.notes || null,
     };
 
@@ -555,12 +563,12 @@ export function ClientesModule() {
     }
 
     setBusy(false);
-    setStatus(isEditing ? `Actualizamos «${form.name}».` : `Cliente «${form.name}» registrado.`);
+    setStatus(isEditing ? `Actualizamos «${clientDisplayName(form)}».` : `Cliente «${clientDisplayName(form)}» registrado.`);
     closeForm();
     clients.reload();
   }
 
-  const previewName = form.company || form.name || "Cliente";
+  const previewName = clientDisplayName(form) || "Cliente";
 
   return (
     <div className="admin-module-page">
@@ -716,7 +724,7 @@ export function ClientesModule() {
             ]}
           >
             {rows.map((client) => {
-              const name = clientLabel(client);
+              const name = clientDisplayName(client);
               const metrics = client.metrics;
               // Contacto principal de la fila (issue #139): el teléfono. El
               // correo, Instagram, la web y WhatsApp salen de la grilla —el
@@ -731,7 +739,7 @@ export function ClientesModule() {
                     <span className="admin-identity">
                       <ClientLogo client={client} size={22} />
                       <strong>{name}</strong>
-                      {client.company && client.name !== client.company ? <small className="admin-cell-sub"> · {client.name}</small> : null}
+                      {clientLegalName(client) ? <small className="admin-cell-sub"> · {clientLegalName(client)}</small> : null}
                     </span>
                   </AdminCell>
                   <AdminCell title={contactTitle}>
@@ -854,7 +862,7 @@ function ClientDetailDialog({
   onEdit: (client: AdminClientRow) => void;
   onClose: () => void;
 }) {
-  const name = clientLabel(client);
+  const name = clientDisplayName(client);
   const detail = useAdminResource(`/api/admin/clients/${client.id}`, (payload) => payload.clientDetail ?? null);
 
   return (
@@ -884,7 +892,7 @@ function ClientDetailBody({
   onEdit: (client: AdminClientRow) => void;
 }) {
   const { client, metrics } = detail;
-  const name = clientLabel(client);
+  const name = clientDisplayName(client);
   const budgets = detail.budgets;
   const events = useMemo(() => sortClientEvents(detail.events), [detail.events]);
   const payments = detail.payments;
@@ -901,11 +909,8 @@ function ClientDetailBody({
               <AdminBadge tone={client.type === "RESELLER" ? "accent" : "neutral"}>{clientTypeLabel(client.type)}</AdminBadge>
               <AdminBadge tone={client.active ? "ok" : "neutral"}>{client.active ? "Activo" : "Inactivo"}</AdminBadge>
             </div>
-            {/* Sin encargado cargado se mantiene el responsable del alta (mismo
-                objeto de identidad, sin reordenar ni inventar otro dato). */}
-            {client.company && client.name !== client.company && !client.contactName ? (
-              <span className="admin-client-person">{client.name}</span>
-            ) : null}
+            {/* Identidad fiscal explícita; el nombre histórico no es un contacto inferido. */}
+            {clientLegalName(client) ? <span className="admin-client-person">Razón social: {clientLegalName(client)}</span> : null}
           </div>
           <span className="admin-actions admin-client-links">
             {writable ? (
@@ -944,6 +949,22 @@ function ClientDetailBody({
         </p>
         {client.notes ? <p className="admin-dialog-text">{client.notes}</p> : null}
       </header>
+
+      <dl className="admin-dialog-facts" aria-label="Identidad y ubicación del cliente">
+        <div><dt>Nombre histórico</dt><dd>{client.name}</dd></div>
+        {client.company ? <div><dt>Empresa histórica</dt><dd>{client.company}</dd></div> : null}
+        {client.billingEmail ? <div><dt>Correo de facturación</dt><dd>{client.billingEmail}</dd></div> : null}
+        {(client.city || client.department) ? <div><dt>Localidad</dt><dd>{[client.city, client.department].filter(Boolean).join(" · ")}</dd></div> : null}
+        {client.address ? <div><dt>Dirección</dt><dd>{client.address}</dd></div> : null}
+        {client.addressReference ? <div><dt>Referencia</dt><dd>{client.addressReference}</dd></div> : null}
+        {client.locationUrl && locationLinkValid(client.locationUrl) ? <div><dt>Ubicación</dt><dd><AdminIconLink href={client.locationUrl} icon="globe" label="Abrir ubicación del cliente" external /></dd></div> : null}
+      </dl>
+      <ClientFiscalSnapshot snapshot={client.rucSnapshot ?? null} />
+      {client.contacts?.length ? <AdminPanel title="Contactos por función" icon="clients">
+        <dl className="admin-dialog-facts">{client.contacts.map((person, index) => <div key={index}>
+          <dt>{person.role || "Contacto"}</dt><dd>{person.name}{person.phone ? ` · ${person.phone}` : ""}{person.email ? ` · ${person.email}` : ""}</dd>
+        </div>)}</dl>
+      </AdminPanel> : null}
 
       <section className="admin-kpis" aria-label={`Métricas de ${name}`}>
         <AdminKpi label="Contratos" icon="budgets" value={formatNumber(metrics.contracts)} note="presupuestos aprobados" tone={metrics.contracts > 0 ? "ok" : undefined} />
