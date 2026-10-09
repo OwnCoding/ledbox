@@ -75,8 +75,12 @@ No se declara PASS por el diagnóstico ni por corregir solo el editor.
 
 FIN `9a8da79` integrado con `83a68a9`; OPS `459028e` integrado con
 `c9a5bf4`. Sus pruebas de carril no sustituyen la QA independiente del
-candidato conjunto. Siguen pendientes los incrementales de identidad en
-`event-ops?fields=panel`, cuenta predeterminada PYG y conflicto ledger 409.
+candidato conjunto. Identidad en `event-ops?fields=panel`: incremental
+plataforma `905861c`, integrado con `96221d2`, expone fantasía y razón social
+sin transformar históricos; typecheck y build integrados en verde (sin DB).
+Con FIN y OPS reunidos: 509 pruebas, 498 pass, 11 skips, cero fallos;
+no es PASS independiente final. Siguen pendientes cuenta predeterminada
+PYG, conflicto ledger 409 y preview provisional.
 
 La selección pública **no necesita un hook persistente nuevo**: `propose`
 solo crea una solicitud pendiente; la aceptación en
