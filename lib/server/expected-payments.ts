@@ -6,6 +6,7 @@ import { parseInstallments } from "./budget-portal";
 import { clientLabel, dayKeyOf, dayStart, isValidDayKey } from "./notifications";
 import { auditChanges, recordAudit, type AuditContext } from "./audit";
 import { collectionSnapshotOf } from "./finance-snapshots";
+import { budgetPlanLedgerError } from "../budget-payment-plan";
 
 /**
  * Pagos esperados del plan de un presupuesto (issue #28): el dinero que el
@@ -34,6 +35,7 @@ export type ExpectedConceptValue = "advance" | "installment" | "balance";
 export type ExpectedStatusValue = "AWAITING" | "PROOF" | "PARTIAL" | "CONFIRMED" | "CANCELLED";
 
 export type ExpectedPlanItem = {
+  accountId?: string | null;
   /** Ranura estable dentro del plan: `advance`, `installment:N` o `balance`. */
   slot: string;
   concept: ExpectedConceptValue;
@@ -91,12 +93,14 @@ export function budgetExpectedPlan(input: {
     });
   }
   installments.forEach((installment, index) => {
+    if (installment.amount <= 0) return;
     items.push({
       slot: `installment:${index + 1}`,
       concept: "installment",
       installmentNumber: index + 1,
       label: installment.label || `Cuota ${index + 1}`,
       amount: installment.amount,
+      accountId: installment.accountId,
       dueAt: installment.dueAt ? dayStart(installment.dueAt) : null,
     });
   });
@@ -160,6 +164,8 @@ export async function syncBudgetExpectedPayments(input: {
           dueAt: true,
           status: true,
           expectedAccountId: true,
+          paidAmount: true,
+          proofId: true,
         },
       },
     },
@@ -168,6 +174,8 @@ export async function syncBudgetExpectedPayments(input: {
   if (!budget || !budget.approvedAt) return result;
 
   const desired = budgetExpectedPlan(budget);
+  const ledgerError = budgetPlanLedgerError(desired, budget.expectedPayments);
+  if (ledgerError) throw new Error(ledgerError);
   const existing = new Map(budget.expectedPayments.map((row) => [row.slot, row]));
   const now = new Date();
   let defaultAccountId: string | null | undefined;
@@ -181,7 +189,7 @@ export async function syncBudgetExpectedPayments(input: {
   for (const item of desired) {
     const current = existing.get(item.slot);
     if (!current) {
-      const accountId = await resolveDefaultAccount();
+      const accountId = item.accountId ?? await resolveDefaultAccount();
       await db.expectedPayment.create({
         data: {
           id: randomUUID(),
@@ -203,11 +211,11 @@ export async function syncBudgetExpectedPayments(input: {
     existing.delete(item.slot);
     // Lo confirmado y lo parcial no se pisan: la plata ya entró con sus valores
     // reales y el saldo pendiente se completa o se divide a mano (issue #129).
-    if (current.status === "CONFIRMED" || current.status === "PARTIAL") continue;
+    if (current.status === "CONFIRMED" || current.status === "PARTIAL" || current.status === "PROOF" || current.slot.startsWith("split:")) continue;
 
     const nextStatus: ExpectedStatusValue = current.status === "CANCELLED" ? "AWAITING" : (current.status as ExpectedStatusValue);
     const reviving = current.status === "CANCELLED";
-    const expectedAccountId = current.expectedAccountId ?? (await resolveDefaultAccount());
+    const expectedAccountId = item.accountId ?? current.expectedAccountId ?? (await resolveDefaultAccount());
     const changes = auditChanges(
       {
         label: current.label,
@@ -250,7 +258,7 @@ export async function syncBudgetExpectedPayments(input: {
   // Conceptos que salieron del plan: se cancelan (lo confirmado queda). Las
   // partes de una división manual (`split:`) no son del plan: se respetan.
   for (const row of existing.values()) {
-    if (row.status === "CONFIRMED" || row.status === "CANCELLED" || row.slot.startsWith("split:")) continue;
+    if (row.status === "CONFIRMED" || row.status === "PARTIAL" || row.status === "PROOF" || row.status === "CANCELLED" || row.slot.startsWith("split:")) continue;
     await db.expectedPayment.update({
       where: { id: row.id },
       data: { status: "CANCELLED", cancelledAt: now },

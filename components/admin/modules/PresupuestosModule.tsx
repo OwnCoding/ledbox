@@ -30,6 +30,10 @@ import { InventoryLinkPicker } from "./BudgetInventoryPicker";
 import { counterofferExclusion } from "@/lib/quote-selection";
 import { quoteProductPrice } from "@/lib/quote-sharing";
 import { BudgetPricingDialog } from "./BudgetPricingDialog";
+import { BudgetItemsEditor } from "./BudgetItemsEditor";
+import { BudgetPaymentPlanEditor, conditionDrafts, conditionPayload, type BudgetConditionDraft } from "./BudgetPaymentPlanEditor";
+import { budgetDraftSubtotal, budgetItemError, type BudgetItemDraft } from "@/lib/budget-items";
+import { budgetMoneyValid, resolveBudgetPaymentPlan } from "@/lib/budget-payment-plan";
 import { ClientQuickCreateDialog, EventQuickCreateDialog } from "./BudgetQuickCreate";
 import { canWriteClients, canWriteFinance, canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import {
@@ -141,14 +145,7 @@ const EMPTY_FORM = {
   clientId: "",
   eventId: "",
   title: "",
-  item: "",
-  quantity: "1",
-  days: "1",
-  unitPrice: "",
-  costPrice: "",
-  inventory: null as AdminInventoryLink | null,
 };
-const MAX_INSTALLMENTS = 12;
 
 /** `id` del `<datalist>` con el catálogo de bancos (owncoding-ui) de Datos de pago. */
 const BANK_LIST_ID = "datos-pago-banco-opciones";
@@ -157,7 +154,6 @@ type ApprovalDecision = "approve" | "request_revision";
 type RequestDecision = "accept" | "reject";
 
 /** Cuota en edición dentro del diálogo del plan de pagos. */
-type PlanInstallment = { label: string; amount: string; dueAt: string };
 
 /** Resumen textual del estado del portal, para el `title` de la celda. */
 function portalSummary(budget: AdminBudgetRow): string {
@@ -720,7 +716,9 @@ export function PresupuestosModule() {
   const [status, setStatus] = useState("ALL");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [extraItems, setExtraItems] = useState<Array<typeof EMPTY_FORM>>([]);
+  const [createItems, setCreateItems] = useState<BudgetItemDraft[]>([]);
+  const [eventName, setEventName] = useState("");
+  const [eventEdit, setEventEdit] = useState<AdminBudgetRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   // Catálogos del alta de presupuesto (issue #59): cliente y evento solo se usan
@@ -762,7 +760,7 @@ export function PresupuestosModule() {
   const [counterItems, setCounterItems] = useState<Record<string, { quantity: number; days: number; excluded?: boolean }>>({});
   const [counterDiscount, setCounterDiscount] = useState("");
   const [paymentsOpen, setPaymentsOpen] = useState(false);
-  const [plan, setPlan] = useState<{ budget: AdminBudgetRow; advance: string; terms: string; installments: PlanInstallment[] } | null>(null);
+  const [plan, setPlan] = useState<{ budget: AdminBudgetRow; advance: string; terms: string; installments: BudgetConditionDraft[] } | null>(null);
 
   // Vínculo con inventario y reserva automática (issue #18).
   const [linksBudget, setLinksBudget] = useState<AdminBudgetRow | null>(null);
@@ -916,6 +914,7 @@ export function PresupuestosModule() {
   function budgetMenuItems(budget: AdminBudgetRow): AdminMenuItem[] {
     return [
       ...(writable ? [
+        ...(budget.event && canCreateEvent ? [{ label: "Editar nombre del evento compartido", icon: "edit" as const, onClick: () => { setEventEdit(budget); setEventName(budget.event!.name); setDialogError(""); } }] : []),
         { label: "Editar ítems, precio y documentos", icon: "edit" as const, onClick: () => setPricing(budget) },
         { label: "Plan de pagos", icon: "clock" as const, onClick: () => openPlan(budget) },
         { label: "Inventario", icon: "inventory" as const, onClick: () => setLinksBudget(budget) },
@@ -1092,6 +1091,9 @@ export function PresupuestosModule() {
       setFormError("Elegí el cliente del presupuesto.");
       return;
     }
+    if (!form.title.trim() || !createItems.length || createItems.some((item) => !item.unitPrice.trim() || !item.quantity || !item.days || budgetItemError({ name: item.name, quantity: Number(item.quantity), days: Number(item.days), unitPrice: Number(item.unitPrice), costPrice: Number(item.costPrice) })) || !budgetMoneyValid(budgetDraftSubtotal(createItems))) {
+      setFormError("Completá el título y todos los ítems con cantidades y montos válidos."); return;
+    }
     setBusy(true);
     setFormError("");
     setNotice("");
@@ -1099,17 +1101,7 @@ export function PresupuestosModule() {
       clientId: form.clientId,
       eventId: form.eventId || undefined,
       title: form.title,
-      items: [
-        {
-          name: form.item,
-          quantity: Number(form.quantity) || 1,
-          days: Number(form.days) || 1,
-          unitPrice: Number(form.unitPrice) || 0,
-          costPrice: Number(form.costPrice) || 0,
-          inventoryId: form.inventory?.id || undefined,
-        },
-        ...extraItems.map((item) => ({ name: item.item, quantity: Number(item.quantity) || 1, days: Number(item.days) || 1, unitPrice: Number(item.unitPrice) || 0, costPrice: Number(item.costPrice) || 0, inventoryId: item.inventory?.id || undefined })),
-      ],
+      items: createItems.map((item) => ({ name: item.name, quantity: Number(item.quantity), days: Number(item.days), unitPrice: Number(item.unitPrice), costPrice: Number(item.costPrice), inventoryId: item.inventory?.id, notes: item.notes })),
     });
     setBusy(false);
     if (!result.ok) {
@@ -1117,12 +1109,8 @@ export function PresupuestosModule() {
       return;
     }
     setForm(EMPTY_FORM);
-    setExtraItems([]);
-    setNotice(
-      form.inventory
-        ? `Presupuesto «${form.title}» creado con «${form.inventory.name}» vinculado al inventario.`
-        : `Presupuesto «${form.title}» creado.`,
-    );
+    setCreateItems([]);
+    setNotice(`Presupuesto «${form.title}» creado como borrador. Podés abrir vista previa o enviarlo desde sus acciones.`);
     budgetsResource.reload();
   }
 
@@ -1173,11 +1161,7 @@ export function PresupuestosModule() {
       budget,
       advance: budget.advanceAmount > 0 ? String(budget.advanceAmount) : "",
       terms: budget.paymentTerms ?? "",
-      installments: (Array.isArray(budget.installmentsJson) ? budget.installmentsJson : []).map((installment) => ({
-        label: installment.label,
-        amount: String(installment.amount),
-        dueAt: installment.dueAt ?? "",
-      })),
+      installments: conditionDrafts(budget.installmentsJson ?? []),
     });
   }
 
@@ -1378,25 +1362,9 @@ export function PresupuestosModule() {
       setDialogError("El anticipo debe ser un monto en guaraníes.");
       return;
     }
-    const installments = plan.installments.map((installment) => ({
-      label: installment.label.trim(),
-      amount: Number(installment.amount.replace(/\D/g, "")),
-      dueAt: installment.dueAt,
-    }));
-    for (const [index, installment] of installments.entries()) {
-      if (!installment.label) {
-        setDialogError(`La cuota ${index + 1} necesita una etiqueta.`);
-        return;
-      }
-      if (!Number.isInteger(installment.amount) || installment.amount <= 0) {
-        setDialogError(`El monto de la cuota ${index + 1} debe ser mayor a cero.`);
-        return;
-      }
-      if (!installment.dueAt) {
-        setDialogError(`La cuota ${index + 1} necesita vencimiento.`);
-        return;
-      }
-    }
+    const installments = conditionPayload(plan.installments);
+    const checked = resolveBudgetPaymentPlan(installments, plan.budget.total, advance);
+    if (!checked.ok) { setDialogError(checked.error); return; }
     setDialogBusy(true);
     setDialogError("");
     const result = await adminSend(
@@ -1404,7 +1372,7 @@ export function PresupuestosModule() {
       {
         budgetId: plan.budget.id,
         advanceAmount: advance,
-        paymentTerms: plan.terms.trim() || undefined,
+        paymentTerms: plan.terms.trim(),
         installmentsJson: installments,
       },
       "PATCH",
@@ -1499,14 +1467,9 @@ export function PresupuestosModule() {
       {boardError ? <AdminNote tone="error">{boardError}</AdminNote> : null}
 
       {writable && showForm ? (
-        <AdminFormPanel
-          title="Nuevo presupuesto"
-          submitLabel="Crear presupuesto"
-          onSubmit={submit}
-          onCancel={() => setShowForm(false)}
-          busy={busy}
-          status={formError}
-        >
+        <form className="admin-form-panel" onSubmit={submit} aria-busy={busy}>
+          <h2 className="admin-form-title">Nuevo presupuesto</h2>
+          <div className="admin-form-grid">
           <Combobox
             label="Cliente"
             required
@@ -1545,73 +1508,14 @@ export function PresupuestosModule() {
             onChange={(value) => setForm({ ...form, title: value })}
             placeholder="Ej.: Alquiler pantalla LED 6×3"
           />
-          <TextField
-            label="Producto / servicio"
-            wide
-            required
-            maxLength={160}
-            value={form.item}
-            onChange={(value) => setForm({ ...form, item: value })}
-            placeholder="Ej.: Pantalla LED P3.9 interior"
-          />
-          <NumberField
-            label="Cantidad"
-            required
-            maxLength={4}
-            value={form.quantity}
-            onChange={(value) => setForm({ ...form, quantity: value })}
-          />
-          <NumberField
-            label="Días"
-            required
-            maxLength={4}
-            value={form.days}
-            onChange={(value) => setForm({ ...form, days: value })}
-          />
-          <MoneyField
-            label="Precio unitario"
-            hint="En guaraníes"
-            required
-            value={form.unitPrice}
-            onChange={(value) => setForm({ ...form, unitPrice: value })}
-          />
-          {/* El costo interno sale del camino del alta (issue #132): vive en
-              «Más datos» y no se pierde al plegarlo. */}
-          <AdminDisclosure title="Más datos" hint="costo interno">
-            <MoneyField
-              label="Costo unitario"
-              hint="Para el margen estimado"
-              value={form.costPrice}
-              onChange={(value) => setForm({ ...form, costPrice: value })}
-            />
-          </AdminDisclosure>
-          <InventoryLinkPicker
-            label="Artículo de inventario (opcional)"
-            hint={
-              formRange
-                ? `Al aprobar se reserva stock del evento «${formEvent?.name}» (${eventRangeLabel(formRange)}).`
-                : "Sin evento o sin fechas no se puede calcular la disponibilidad: se muestra la de hoy y la reserva queda pendiente hasta definir el rango."
-            }
-            range={formRange}
-            selected={form.inventory}
-            disabled={busy}
-            onSelect={(item) => setForm({ ...form, inventory: item, ...(item ? { item: item.name, unitPrice: String(quoteProductPrice(item, Number(form.days))) } : {}) })}
-          />
-          {extraItems.map((item, index) => {
-            const update = (patch: Partial<typeof EMPTY_FORM>) => setExtraItems((rows) => rows.map((row, position) => position === index ? { ...row, ...patch } : row));
-            return <div className="admin-quote-create-item" key={index}>
-              <InventoryLinkPicker label={`Producto del ítem ${index + 2} (opcional)`} range={formRange} selected={item.inventory} disabled={busy} onSelect={(product) => update({ inventory: product, ...(product ? { item: product.name, unitPrice: String(quoteProductPrice(product, Number(item.days))) } : {}) })} />
-              <TextField label={`Producto / servicio ${index + 2}`} required value={item.item} maxLength={160} onChange={(value) => update({ item: value })} />
-              <div className="admin-plan-grid">
-                <NumberField label="Cantidad" required value={item.quantity} maxLength={4} onChange={(value) => update({ quantity: value })} />
-                <NumberField label="Días" required value={item.days} maxLength={3} onChange={(value) => update({ days: value })} />
-                <MoneyField label="Precio unitario" required value={item.unitPrice} onChange={(value) => update({ unitPrice: value })} />
-                <AdminButton type="button" icon="close" aria-label={`Quitar ítem ${index + 2}`} disabled={busy} onClick={() => setExtraItems((rows) => rows.filter((_, position) => position !== index))} />
-              </div>
-            </div>;
-          })}
-          <AdminButton type="button" icon="plus" disabled={busy} onClick={() => setExtraItems((rows) => [...rows, { ...EMPTY_FORM }])}>Agregar ítem</AdminButton>
-        </AdminFormPanel>
+          </div>
+          <BudgetItemsEditor items={createItems} onChange={setCreateItems} disabled={busy} range={formRange} />
+          {formError ? <AdminNote tone="error">{formError}</AdminNote> : null}
+          <div className="admin-dialog-foot">
+            <AdminButton type="button" disabled={busy} onClick={() => setShowForm(false)}>Cancelar</AdminButton>
+            <AdminButton type="submit" variant="primary" busy={busy} disabled={!form.clientId || !form.title.trim() || !createItems.length || createItems.some((item) => !item.unitPrice || !item.quantity || !item.days || budgetItemError({ name: item.name, quantity: Number(item.quantity), days: Number(item.days), unitPrice: Number(item.unitPrice), costPrice: Number(item.costPrice) })) || !budgetMoneyValid(budgetDraftSubtotal(createItems))}>Guardar borrador</AdminButton>
+          </div>
+        </form>
       ) : null}
 
       {requestRows.length > 0 ? (
@@ -2254,6 +2158,18 @@ export function PresupuestosModule() {
         </AdminDialog>
       ) : null}
 
+      {eventEdit?.event ? <AdminDialog title="Nombre del evento compartido" onClose={() => setEventEdit(null)}>
+        <AdminNote>Este nombre pertenece al evento y cambia en todos los presupuestos asociados. El título de cada presupuesto se conserva. Las versiones aceptadas o firmadas bloquean el cambio.</AdminNote>
+        <TextField label="Nombre del evento" required maxLength={160} value={eventName} onChange={setEventName} disabled={dialogBusy} />
+        {dialogError ? <AdminNote tone="error">{dialogError}</AdminNote> : null}
+        <div className="admin-dialog-foot"><AdminButton onClick={() => setEventEdit(null)} disabled={dialogBusy}>Cancelar</AdminButton><AdminButton variant="primary" busy={dialogBusy} disabled={!eventName.trim() || eventName.trim() === eventEdit.event.name} onClick={async () => {
+          setDialogBusy(true); setDialogError("");
+          const result = await adminSend(`/api/admin/budgets/${eventEdit.id}/event`, { name: eventName, originalName: eventEdit.event!.name }, "PATCH");
+          setDialogBusy(false);
+          if (!result.ok) { setDialogError(result.error); return; }
+          setNotice(`Evento renombrado a «${eventName.trim()}» en todos sus presupuestos.`); setEventEdit(null); budgetsResource.reload(); events.reload();
+        }}>Guardar nombre</AdminButton></div>
+      </AdminDialog> : null}
       {pricing ? (
         <BudgetPricingDialog
           budget={pricing}
@@ -2289,79 +2205,14 @@ export function PresupuestosModule() {
               placeholder="Ej.: 50 % al confirmar y saldo 7 días antes del evento"
             />
           </div>
-          <div className="admin-plan-list">
-            {plan.installments.map((installment, index) => (
-              <div className="admin-plan-row" key={`installment-${index}`}>
-                <TextField
-                  label={`Cuota ${index + 1}`}
-                  value={installment.label}
-                  maxLength={60}
-                  placeholder="Ej.: Saldo final"
-                  onChange={(value) =>
-                    setPlan({
-                      ...plan,
-                      installments: plan.installments.map((row, position) =>
-                        position === index ? { ...row, label: value } : row,
-                      ),
-                    })
-                  }
-                />
-                <MoneyField
-                  label="Monto (Gs)"
-                  value={installment.amount}
-                  onChange={(value) =>
-                    setPlan({
-                      ...plan,
-                      installments: plan.installments.map((row, position) =>
-                        position === index ? { ...row, amount: value } : row,
-                      ),
-                    })
-                  }
-                />
-                <div className="admin-countdown-field">
-                  <DateField
-                    label="Vencimiento"
-                    value={installment.dueAt}
-                    onChange={(value) =>
-                      setPlan({
-                        ...plan,
-                        installments: plan.installments.map((row, position) =>
-                          position === index ? { ...row, dueAt: value } : row,
-                        ),
-                      })
-                    }
-                  />
-                  <AdminCountdown
-                    value={installment.dueAt}
-                    title={`Cuota ${index + 1}: cuánto falta para el vencimiento`}
-                  />
-                </div>
-                <AdminButton
-                  icon="close"
-                  title={`Quitar la cuota ${index + 1}`}
-                  aria-label={`Quitar la cuota ${index + 1}`}
-                  onClick={() => setPlan({ ...plan, installments: plan.installments.filter((_, position) => position !== index) })}
-                />
-              </div>
-            ))}
-            {plan.installments.length < MAX_INSTALLMENTS ? (
-              <AdminButton
-                icon="plus"
-                onClick={() =>
-                  setPlan({ ...plan, installments: [...plan.installments, { label: "", amount: "", dueAt: "" }] })
-                }
-              >
-                Agregar cuota
-              </AdminButton>
-            ) : null}
-          </div>
+          <BudgetPaymentPlanEditor total={plan.budget.total} advance={Number(plan.advance) || 0} rows={plan.installments} onChange={(installments) => setPlan({ ...plan, installments })} disabled={dialogBusy || Boolean(plan.budget.approvedAt)} />
           {dialogError ? <AdminNote tone="error">{dialogError}</AdminNote> : null}
           <div className="admin-dialog-foot">
             <span className="admin-dialog-spacer" />
             <AdminButton icon="close" onClick={() => setPlan(null)} disabled={dialogBusy}>
               Cancelar
             </AdminButton>
-            <AdminButton variant="primary" icon="check" busy={dialogBusy} onClick={() => void submitPlan()}>
+            <AdminButton variant="primary" icon="check" busy={dialogBusy} disabled={Boolean(plan.budget.approvedAt) || !resolveBudgetPaymentPlan(conditionPayload(plan.installments), plan.budget.total, Number(plan.advance) || 0).ok} onClick={() => void submitPlan()}>
               Guardar plan
             </AdminButton>
           </div>

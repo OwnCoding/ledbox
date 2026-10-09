@@ -1,4 +1,5 @@
 import { selectionSubtotal } from "@/lib/quote-selection";
+import { recalculateBudgetPaymentPlan } from "@/lib/server/budget-payment-plan";
 import { withQuoteCommercialEdit, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { db } from "@/lib/server/db";
 import { auditChanges, recordAudit } from "@/lib/server/audit";
@@ -171,6 +172,7 @@ async function resolveRequest(request: Request) {
           ...(resolvesRevision ? { revisionRequestedAt: null } : {}),
         },
       });
+      await recalculateBudgetPaymentPlan(tx, budget.id);
       await tx.budgetChangeRequest.update({
         where: { id: changeRequest.id },
         data: { status: "accepted", resolvedAt: new Date(), resolvedByName: user.name, responseNote: note || null },
