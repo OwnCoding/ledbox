@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { PIN_MAX_DIGITS, PIN_MIN_DIGITS, pinInput, pinValid } from "@/lib/field-rules";
 import type { AdminIconName, AdminTimelineEntry, AdminTimelineKind } from "@/lib/admin-types";
@@ -110,6 +111,8 @@ export function AdminActionsMenu({
   align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const [themeTokens, setThemeTokens] = useState<React.CSSProperties>({});
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -119,16 +122,39 @@ export function AdminActionsMenu({
     const update = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const panel = popRef.current;
+      const width = panel?.offsetWidth || 192;
+      const height = panel?.offsetHeight || Math.min(items.length * 44 + 8, window.innerHeight * .7);
       setPos({
-        top: rect.bottom + 4,
-        left: align === "start" ? rect.left : Math.max(8, rect.right - 192),
+        top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - height - 8)),
+        left: Math.max(8, Math.min(align === "start" ? rect.left : rect.right - width, window.innerWidth - width - 8)),
       });
+      // The body portal escapes transformed rows; retain the current admin theme.
+      const root = buttonRef.current?.closest(".admin-root");
+      if (root) {
+        const computed = getComputedStyle(root);
+        setThemeTokens(Object.fromEntries(Array.from(computed).filter((key) => key.startsWith("--a-") || key.startsWith("--font-")).map((key) => [key, computed.getPropertyValue(key)])) as React.CSSProperties);
+      }
     };
     update();
+    const frame = requestAnimationFrame(update);
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+      if (event.key === "Tab") { setOpen(false); buttonRef.current?.focus(); }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        const entries = Array.from(popRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+        if (!entries.length) return;
+        event.preventDefault();
+        const index = entries.indexOf(document.activeElement as HTMLElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + entries.length) % entries.length;
+        entries[next]?.focus();
+      }
     };
-    const onDown = (event: MouseEvent) => {
+    const onDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (popRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
       setOpen(false);
@@ -136,14 +162,34 @@ export function AdminActionsMenu({
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
       document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
     };
-  }, [open, align]);
+  }, [open, align, items.length]);
+
+  useEffect(() => {
+    if (!open || !pos) return;
+    popRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [open, Boolean(pos)]);
+
+  useEffect(() => {
+    if (!open || !pos || !popRef.current) return;
+    const panel = popRef.current;
+    const clamp = () => {
+      const anchor = buttonRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      setPos({ top: Math.max(8, Math.min(anchor.bottom + 4, innerHeight - panel.offsetHeight - 8)), left: Math.max(8, Math.min(align === "start" ? anchor.left : anchor.right - panel.offsetWidth, innerWidth - panel.offsetWidth - 8)) });
+    };
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [open, Boolean(pos), themeTokens, align]);
 
   return (
     <>
@@ -153,19 +199,22 @@ export function AdminActionsMenu({
         className="admin-iconbtn"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         aria-label={label}
         title={label}
         onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); } }}
       >
         <AdminIcon name="dots" size={16} />
       </button>
-      {open && pos ? (
+      {open && pos ? createPortal(
         <div
+          id={menuId}
           ref={popRef}
           className="admin-menu-pop"
           role="menu"
           aria-label={label}
-          style={{ top: pos.top, left: pos.left }}
+          style={{ ...themeTokens, top: pos.top, left: pos.left }}
         >
           {items.map((item) =>
             item.href ? (
@@ -176,7 +225,7 @@ export function AdminActionsMenu({
                 role="menuitem"
                 title={item.title ?? item.label}
                 {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
-                onClick={() => setOpen(false)}
+                onClick={() => { setOpen(false); buttonRef.current?.focus(); }}
               >
                 <AdminIcon name={item.icon} size={14} />
                 <span>{item.label}</span>
@@ -191,6 +240,7 @@ export function AdminActionsMenu({
                 disabled={item.disabled}
                 onClick={() => {
                   setOpen(false);
+                  buttonRef.current?.focus();
                   item.onClick?.();
                 }}
               >
@@ -199,7 +249,7 @@ export function AdminActionsMenu({
               </button>
             ),
           )}
-        </div>
+        </div>, document.body
       ) : null}
     </>
   );

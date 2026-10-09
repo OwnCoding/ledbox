@@ -26,6 +26,10 @@ import {
  * la base viva, el archivo de estado que escribe `scripts/backup.mjs` y el disco
  * del volumen de respaldos. Sin estado, la pantalla dice que no hay respaldos.
  *
+ * Los mensajes de error llegan sanitizados (issue #169): el API recorta
+ * hostname interno, URLs de conexión y versiones de PostgreSQL; ese detalle
+ * crudo queda solo en los logs del servidor.
+ *
  * Solo OWNER/ADMIN (el API responde 403 al resto y la demo nunca lo expone).
  */
 
@@ -205,7 +209,9 @@ function SistemaView() {
                       {status.lastError ? <span className="admin-reminder-error">{status.lastError.message}</span> : "Sin errores"}
                     </p>
                     <span className="admin-field-hint">
-                      {status.lastError ? formatDateTime(status.lastError.at) : "Ninguna corrida falló."}
+                      {status.lastError
+                        ? `${formatDateTime(status.lastError.at)} · el detalle técnico completo queda en los logs del servidor.`
+                        : "Ninguna corrida falló."}
                     </span>
                   </div>
                 </div>
@@ -261,7 +267,7 @@ function SistemaView() {
               </AdminDataState>
             </AdminPanel>
 
-            <AdminPanel title="Base de datos y migraciones" icon="database" meta="PostgreSQL · Prisma">
+            <AdminPanel title="Base de datos y migraciones" icon="database" meta="Base de datos · Prisma">
               <div className="admin-settings">
                 <div className="admin-settings-grid">
                   <div className="admin-settings-readonly">
@@ -272,7 +278,9 @@ function SistemaView() {
                       </AdminBadge>
                     </p>
                     <span className="admin-field-hint">
-                      {status.database.error ?? "La base acepta consultas del panel."}
+                      {status.database.error
+                        ? `${status.database.error} El detalle técnico completo queda en los logs del servidor.`
+                        : "La base acepta consultas del panel."}
                     </span>
                   </div>
                   <div className="admin-settings-readonly">

@@ -14,7 +14,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (!profile.indexable) return [];
   const now = new Date();
   if (profile.kind === "eventos") {
-    return [{ url: `${profile.siteUrl}/`, lastModified: now, changeFrequency: "weekly", priority: 1 }];
+    // EventOS (issue #168): la landing más sus páginas legales y de estado.
+    return [
+      { url: `${profile.siteUrl}/`, lastModified: now, changeFrequency: "weekly", priority: 1 },
+      { url: `${profile.siteUrl}/privacidad`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+      { url: `${profile.siteUrl}/terminos`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+      { url: `${profile.siteUrl}/status`, lastModified: now, changeFrequency: "daily", priority: 0.4 },
+    ];
   }
   return [
     { url: `${profile.siteUrl}/`, lastModified: now, changeFrequency: "weekly", priority: 1 },

@@ -1,3 +1,4 @@
+import { quotePortalAvailable } from "@/lib/quote-sharing";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/server/db";
 import { recordAudit, portalAuditContext } from "@/lib/server/audit";
@@ -49,6 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
           title: true,
           status: true,
           approvedAt: true,
+          validUntil: true,
           organizationId: true,
           client: { select: { name: true, company: true, email: true } },
           payments: { where: { status: "PENDING" }, select: { id: true } },
@@ -59,7 +61,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
         },
       })
     : null;
-  if (!budget) return jsonError("No encontramos ese presupuesto.", 404);
+  if (!budget || !quotePortalAvailable(budget)) return jsonError("No encontramos ese presupuesto.", 404);
   // Issue #52: la empresa demo no escribe; el portal simula el comprobante en el navegador.
   if (await isDemoOrganizationId(budget.organizationId)) return jsonError("Modo demo: solo lectura", 403);
 

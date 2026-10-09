@@ -2,6 +2,7 @@ import { readFile, readdir, stat, statfs, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { formatDateTime } from "@/lib/admin-format";
 import { backupStatusOf as pureBackupStatus, formatAgeLabel } from "@/lib/backup-status";
+import { logAndSanitizeDiagnostic } from "@/lib/system-diagnostics";
 import type { AdminBackupRun, AdminSystemStatus } from "@/lib/admin-types";
 import { publicConfig } from "@/lib/public-config";
 import { APP_VERSION_LABEL } from "@/lib/version";
@@ -109,7 +110,7 @@ function asRun(value: unknown): AdminBackupRun | null {
     uncompressedBytes: asNumber(raw.uncompressedBytes),
     tables: asNumber(raw.tables),
     verified: raw.verified === true,
-    error: asText(raw.error),
+    error: logAndSanitizeDiagnostic("respaldo", asText(raw.error)),
   };
 }
 
@@ -124,7 +125,13 @@ async function readBackupState(): Promise<{ state: RawBackupState | null; error:
   } catch (caught) {
     const code = (caught as { code?: string }).code;
     if (code === "ENOENT") return { state: null, error: null };
-    return { state: null, error: `No se pudo leer el estado del respaldo (${file}): ${message(caught)}` };
+    return {
+      state: null,
+      error: logAndSanitizeDiagnostic(
+        "estado del respaldo",
+        `No se pudo leer el estado del respaldo (${file}): ${message(caught)}`,
+      ),
+    };
   }
 }
 
@@ -203,7 +210,7 @@ async function probeDatabase(now: Date): Promise<{
     };
   } catch (caught) {
     return {
-      database: { status: "unavailable", latencyMs: null, sizeBytes: null, error: message(caught) },
+      database: { status: "unavailable", latencyMs: null, sizeBytes: null, error: logAndSanitizeDiagnostic("base de datos", message(caught)) },
       migrations: { applied: null, last: null },
     };
   }

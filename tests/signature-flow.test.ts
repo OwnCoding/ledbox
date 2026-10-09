@@ -206,6 +206,18 @@ test("la huella del documento cambia si cambia el documento", () => {
   assert.doesNotMatch(JSON.stringify(payload), /cost/i);
 });
 
+test("excluding a free line invalidates the commercial signature without repricing originals", () => {
+  const document = budgetDocument();
+  document.items.push({ name: "Brindis", quantity: 1, days: 1, unitPrice: 0, subtotal: 0, notes: null });
+  const original = budgetDocumentHash(budgetDocumentPayload(document));
+  document.items[1].excluded = true;
+  assert.notEqual(budgetDocumentHash(budgetDocumentPayload(document)), original);
+  assert.equal(document.total, 1_800_000);
+  assert.equal(document.items[1].unitPrice, 0);
+  document.items[1].excluded = false;
+  assert.equal(budgetDocumentHash(budgetDocumentPayload(document)), original);
+});
+
 test("la huella firmada incorpora identificador, método y firmante", () => {
   const input = {
     documentHash: "a".repeat(64),

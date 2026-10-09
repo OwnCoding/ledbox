@@ -86,6 +86,18 @@ const LEGACY_PANEL_REDIRECTS: Record<string, string> = {
   "/sistema": "/estado/sistema",
 };
 
+/**
+ * Páginas internas de la superficie de EventOS (issue #168): el host del
+ * producto sirve privacidad, términos y estado con la URL limpia y la ruta
+ * interna vive bajo `/producto` —el mismo mecanismo que la raíz de la landing
+ * (`/` → `/producto`)—. En el host público esas rutas no existen.
+ */
+const PRODUCT_PAGE_REWRITES: Record<string, string> = {
+  "/privacidad": "/producto/privacidad",
+  "/terminos": "/producto/terminos",
+  "/status": "/producto/status",
+};
+
 function legacyPanelRedirect(request: NextRequest, pathname: string): NextResponse | null {
   const target = LEGACY_PANEL_REDIRECTS[pathname];
   if (!target) return null;
@@ -127,6 +139,13 @@ export function middleware(request: NextRequest) {
     if (pathname === "/") {
       const url = request.nextUrl.clone();
       url.pathname = "/producto";
+      return NextResponse.rewrite(url);
+    }
+    // Páginas de EventOS (issue #168): URL limpia → ruta interna de la piel.
+    const productPage = PRODUCT_PAGE_REWRITES[pathname];
+    if (productPage) {
+      const url = request.nextUrl.clone();
+      url.pathname = productPage;
       return NextResponse.rewrite(url);
     }
     return pass();
@@ -204,8 +223,11 @@ export function middleware(request: NextRequest) {
   if (process.env.NODE_ENV === "production" && pathname === "/demo" && !demoRootPath) {
     return NextResponse.redirect(new URL("/", DEMO_URL), 308);
   }
-  if (process.env.NODE_ENV === "production" && pathname === "/producto") {
-    return NextResponse.redirect(new URL("/", PRODUCT_URL), 308);
+  if (process.env.NODE_ENV === "production" && (pathname === "/producto" || pathname.startsWith("/producto/"))) {
+    // El prefijo interno de la superficie de EventOS no se sirve en el host
+    // público: va a su URL limpia en el host del producto (issue #168).
+    const clean = pathname === "/producto" ? "/" : pathname.slice("/producto".length);
+    return NextResponse.redirect(new URL(`${clean}${search}`, PRODUCT_URL), 308);
   }
   if (process.env.NODE_ENV === "production" && (legacyAdminPath || isAdminRoute(pathname))) {
     const clean = legacyAdminPath ? pathname.slice("/admin".length) || "/" : pathname;
