@@ -1443,6 +1443,7 @@ export function PortalBudgetView({
                       <th scope="col" className="portal-num">
                         Subtotal
                       </th>
+                      {canEdit ? <th scope="col" className="portal-item-action-cell"><span className="sr-only">Acción</span></th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -1459,7 +1460,6 @@ export function PortalBudgetView({
                               <span className="portal-item-text">
                                 <strong className="portal-item-name">{item.name}</strong>
                                 {current.excluded ? <small className="portal-item-note">Retirado / no incluido</small> : null}
-                                {canEdit ? <button type="button" className="portal-btn portal-btn--ghost" aria-label={`${current.excluded ? "Restaurar" : "Retirar"} ${item.name}`} disabled={sending} onClick={() => setDraft((rows) => ({ ...rows, [item.id]: { ...current, ...(!current.excluded ? { quantity: item.quantity, days: item.days } : {}), excluded: !current.excluded } }))}>{current.excluded ? "Restaurar" : "Retirar"}</button> : null}
                                 {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
                                 {changed ? (
                                   <small className="portal-item-note">
@@ -1497,7 +1497,21 @@ export function PortalBudgetView({
                             )}
                           </td>
                           <td className="portal-num" data-label="Precio unitario">{formatMoney(item.unitPrice)}</td>
-                          <td className="portal-num" data-label="Subtotal">{formatMoney(current.excluded ? 0 : item.unitPrice * current.quantity * current.days)}</td>
+                          <td className={`portal-num${canEdit ? " portal-item-subtotal" : ""}`} data-label="Subtotal">{formatMoney(current.excluded ? 0 : item.unitPrice * current.quantity * current.days)}</td>
+                          {canEdit ? (
+                            <td className="portal-item-action-cell">
+                              <button
+                                type="button"
+                                className="portal-item-action"
+                                title={`${current.excluded ? "Restaurar" : "Retirar"} ${item.name}`}
+                                aria-label={`${current.excluded ? "Restaurar" : "Retirar"} ${item.name}`}
+                                disabled={sending}
+                                onClick={() => setDraft((rows) => ({ ...rows, [item.id]: { ...current, ...(!current.excluded ? { quantity: item.quantity, days: item.days } : {}), excluded: !current.excluded } }))}
+                              >
+                                <AdminIcon name={current.excluded ? "refresh" : "trash"} size={18} />
+                              </button>
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}

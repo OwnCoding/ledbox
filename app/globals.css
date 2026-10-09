@@ -3969,3 +3969,16 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 /* Retained excluded quote lines: state is also labeled in text. */
 .portal-budget [data-excluded="true"], .portal-comparison [data-excluded="true"], .portal-signature-sheet [data-excluded="true"], .lbprint [data-excluded="true"] { color: var(--danger, #dc2626); }
 [data-excluded="true"] .portal-item-name { text-decoration: line-through; }
+
+/* Quote selection actions stay beside the subtotal, not below the product. */
+.portal-item-action-cell { width: 40px; text-align: right; }
+.portal-item-action { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: var(--p-radius); background: transparent; color: var(--muted); cursor: pointer; }
+.portal-item-action:hover { background: var(--surface-2); color: var(--led); }
+.portal-item-action:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
+.portal-item-action:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 640px) {
+  .portal-table--items td.portal-item-subtotal { display: inline-flex; width: calc(100% - 44px); vertical-align: middle; }
+  .portal-table--items td.portal-item-action-cell { display: inline-flex; justify-content: flex-end; width: 44px; padding: 0; vertical-align: middle; }
+  .portal-table--items td.portal-item-action-cell::before { content: none; }
+  .portal-item-action { width: 44px; height: 44px; }
+}

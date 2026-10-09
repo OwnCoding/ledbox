@@ -65,3 +65,14 @@ test("post-autorización: éxito con próximos pasos y descarga", () => {
   assert.match(view, /Estos son los próximos pasos:/, "el éxito no anuncia los próximos pasos");
   assert.match(view, /Descargar el presupuesto \(PDF\)/, "falta la descarga del presupuesto autorizado");
 });
+
+test("quote removal is an accessible compact icon after subtotal", () => {
+  const rows = view.slice(view.indexOf("{budget.items.map((item) => {"));
+  assert.ok(rows.indexOf('data-label="Subtotal"') < rows.indexOf('className="portal-item-action-cell"'), "action follows subtotal");
+  assert.match(rows, /<AdminIcon name=\{current\.excluded \? "refresh" : "trash"\} size=\{18\} \/>/);
+  assert.match(rows, /title=\{`\$\{current\.excluded \? "Restaurar" : "Retirar"\} \$\{item\.name\}`\}/);
+  assert.match(view, /<span className="sr-only">Acción<\/span>/);
+  assert.match(css, /\.portal-item-action \{[^}]*width: 40px;[^}]*height: 40px;/);
+  assert.match(css, /\.portal-item-action:focus-visible/);
+  assert.match(css, /\.portal-item-action \{ width: 44px; height: 44px; \}/);
+});
