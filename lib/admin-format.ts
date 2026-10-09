@@ -5,7 +5,7 @@
  * navegador dibujan el mismo día.
  */
 
-import { diasHasta, formatGs, tonoVencimiento } from "owncoding-ui/utils";
+import { diasHasta, formatGs } from "owncoding-ui/utils";
 
 import { DEFAULT_PHONE_COUNTRY, normalizePhone, parsePhone, phoneValid } from "./field-rules";
 
@@ -617,16 +617,15 @@ export function formatCountdown(value: string | Date | null | undefined, variant
 }
 
 /**
- * Tono único de la cuenta regresiva: rojo si venció, ámbar si vence dentro de
- * la ventana de aviso (hoy incluido) y neutro si falta más. Delega en
- * `tonoVencimiento` de la librería (Tanda 1 del plan #100) y acá se traduce al
- * vocabulario de tonos del panel. El segundo argumento se conserva por
- * compatibilidad; la ventana de la librería es de 7 días.
+ * Countdown tone uses the same Paraguay calendar as the countdown text.
+ * The second argument is retained for compatibility; the warning window
+ * remains seven days, including today.
  */
 export function countdownTone(value: string | Date | null | undefined, _days = 7): AdminTone {
-  const tone = tonoVencimiento(value);
-  if (tone === "bad") return "danger";
-  return tone === "warn" ? "warn" : "neutral";
+  const days = countdownDays(value);
+  if (days === null) return "neutral";
+  if (days < 0) return "danger";
+  return days <= 7 ? "warn" : "neutral";
 }
 
 // ── Cobros a plazo (issue #16) ──────────────────────────────────────────────
@@ -995,8 +994,8 @@ const DATE_PERIOD_LABEL: Record<string, string> = {
 export const datePeriodLabel = (value: string | null | undefined) => label(DATE_PERIOD_LABEL, value);
 
 /** Día de Asunción de hoy (`YYYY-MM-DD`) para los valores por defecto de un formulario. */
-export function todayDayKey(): string {
-  return dayKeyOf();
+export function todayDayKey(now: Date = new Date()): string {
+  return dayKeyOf(now);
 }
 
 function utcDayKey(date: Date): string {

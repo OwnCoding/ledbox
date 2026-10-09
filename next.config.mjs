@@ -4,7 +4,8 @@ const nextConfig = {
   // owncoding-ui marca su entrada única con "use client": sin esto, los utils
   // puros (formatGs, issue #46) no se pueden llamar desde el servidor (mails,
   // timeline, imprimibles, API). Reportar upstream: partir componentes de utils.
-  serverExternalPackages: ["owncoding-ui"],
+  serverExternalPackages: ["owncoding-ui", "pdf-lib"],
+  outputFileTracingIncludes: { "/api/*": ["./node_modules/pdf-lib/cjs/**/*", "./node_modules/pdf-lib/package.json", "./node_modules/@pdf-lib/**/*", "./node_modules/pako/**/*", "./node_modules/tslib/**/*"] },
   images: { formats: ["image/avif", "image/webp"], minimumCacheTTL: 60 * 60 * 24 * 30 },
   poweredByHeader: false,
   async headers() {

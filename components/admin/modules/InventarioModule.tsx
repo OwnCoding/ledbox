@@ -41,6 +41,7 @@ import type {
 import type { PreparedInventoryPhoto } from "@/lib/inventory-image";
 import { useAdminSession } from "../AdminShell";
 import {
+  AdminActionsMenu,
   AdminBadge,
   AdminButton,
   AdminCell,
@@ -57,10 +58,11 @@ import {
   AdminSelect,
   AdminTable,
   AdminToolbar,
+  type AdminMenuItem,
 } from "../AdminUI";
 import { AttachmentInput, Combobox, DateField, MoneyField, NumberField, SearchField, SelectField, SwitchField, TextAreaField, TextField } from "../AdminFields";
 import { adminApiGet, adminApiUpload, adminSend, useAdminResource } from "@/lib/admin-api";
-import { AdminViewSwitch, useAdminModuleView } from "../AdminBoard";
+import { AdminViewSwitch, useAdminModuleView, useAdminNarrowViewport } from "../AdminBoard";
 import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import { AdminIcon } from "../AdminIcons";
 import { AdminImageBox } from "../AdminImageBox";
@@ -431,6 +433,8 @@ export function InventarioModule() {
   const [statusError, setStatusError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [view, setView] = useAdminModuleView("inventario", INVENTARIO_VIEWS);
+  /** Ancho compacto (issue #151): las tarjetas de la cuadrícula, siempre. */
+  const narrow = useAdminNarrowViewport();
 
   // Foto del alta (issue #109): archivo ya comprimido en el navegador, listo
   // para subir después de crear el ítem (necesita su id).
@@ -1015,7 +1019,7 @@ export function InventarioModule() {
             Hoy
           </AdminButton>
         ) : null}
-        <AdminViewSwitch view={view} onChange={setView} label="Vista de inventario" views={INVENTARIO_VIEWS} />
+        {narrow ? null : <AdminViewSwitch view={view} onChange={setView} label="Vista de inventario" views={INVENTARIO_VIEWS} />}
         <span className="admin-export">
           <AdminButton
             icon="download"
@@ -1347,12 +1351,23 @@ export function InventarioModule() {
       >
         {rows.length === 0 ? (
           <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá los filtros." />
-        ) : view === "grid" ? (
+        ) : view === "grid" || narrow ? (
           <AdminCardGrid label="Inventario" cards={rows.map((item): AdminCardData => {
             const { availableNow, overcommittedNow, range } = item.availability;
             const available = rangeActive ? (range?.available ?? 0) : availableNow;
             const overcommitted = rangeActive ? (range?.overcommitted ?? false) : overcommittedNow;
             const conflictEvents = range?.conflicts ?? [];
+            const menuItems: AdminMenuItem[] = [
+              ...(writable
+                ? [{ label: "Editar ítem", icon: "edit" as const, onClick: () => openEditItem(item), title: `Editar ítem: ${item.name}` }]
+                : []),
+              {
+                label: selectedId === item.id ? "Ocultar asignaciones" : "Asignaciones y disponibilidad",
+                icon: "info" as const,
+                onClick: () => setSelectedId((current) => (current === item.id ? "" : item.id)),
+                title: `Ver asignaciones y disponibilidad: ${item.name}`,
+              },
+            ];
             const availableTitle = `${formatNumber(available)} libres de ${formatNumber(item.quantity)} · comprometidas ${
               rangeActive ? `entre ${dayRangeLabel(from, to)}` : "ahora"
             }${conflictEvents.length > 0 ? ` · ${conflictEvents.map((conflict) => `${conflict.eventName} (${formatNumber(conflict.quantity)})`).join(", ")}` : ""}`;
@@ -1406,20 +1421,7 @@ export function InventarioModule() {
                     />
                   ) : null}
                   <span className="admin-actions">
-                    {writable ? (
-                      <AdminButton
-                        icon="edit"
-                        title={`Editar ítem: ${item.name}`}
-                        aria-label={`Editar ítem: ${item.name}`}
-                        onClick={() => openEditItem(item)}
-                      />
-                    ) : null}
-                    <AdminButton
-                      icon="info"
-                      title={`Ver asignaciones y disponibilidad: ${item.name}`}
-                      aria-label={`Ver asignaciones y disponibilidad: ${item.name}`}
-                      onClick={() => setSelectedId((current) => (current === item.id ? "" : item.id))}
-                    />
+                    <AdminActionsMenu label={`Acciones del ítem ${item.name}`} items={menuItems} />
                   </span>
                 </>
               ),

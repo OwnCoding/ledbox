@@ -138,8 +138,8 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
               </thead>
               <tbody>
                 {budget.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
+                  <tr key={item.id} data-excluded={item.excluded ? "true" : undefined}>
+                    <td>{item.excluded ? <><s>{item.name}</s><small> · Retirado / no incluido</small></> : item.name}</td>
                     <td className="lbprint-num">{formatNumber(item.quantity)}</td>
                     <td className="lbprint-num">{formatNumber(item.days)}</td>
                     <td className="lbprint-num">{formatMoney(item.unitPrice)}</td>

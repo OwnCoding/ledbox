@@ -72,6 +72,26 @@ test("cuenta regresiva: variantes corta y del cliente", () => {
   assert.equal(formatCountdown(dayKeyIn(-2), "client"), "venció hace 2 días");
 });
 
+test("countdown tone follows the Paraguay calendar across UTC midnight", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-09T01:54:00Z") });
+  for (const [date, days, tone] of [
+    ["2026-10-07", -1, "danger"],
+    ["2026-10-08", 0, "warn"],
+    ["2026-10-15", 7, "warn"],
+    ["2026-10-16", 8, "neutral"],
+  ] as const) {
+    assert.equal(countdownDays(date), days);
+    assert.equal(countdownTone(date), tone);
+  }
+  assert.equal(countdownTone(new Date("2026-10-09T02:30:00Z")), "warn");
+  assert.equal(countdownTone(null), "neutral");
+  assert.equal(countdownTone("invalid-date"), "neutral");
+  t.mock.timers.tick(2 * 60 * 60 * 1000);
+  assert.equal(countdownDays("2026-10-08"), -1);
+  assert.equal(countdownTone("2026-10-08"), "danger");
+  assert.equal(countdownTone("2026-10-09"), "warn");
+});
+
 test("tono de la cuenta regresiva: rojo vencido, ámbar hasta 7 días y neutro lejos", () => {
   assert.equal(countdownTone(dayKeyIn(-1)), "danger");
   assert.equal(countdownTone(dayKeyIn(-30)), "danger");

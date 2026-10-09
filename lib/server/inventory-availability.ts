@@ -459,7 +459,7 @@ export async function reserveBudgetInventory(options: {
         client: { select: { name: true, company: true } },
         event: { select: EVENT_RANGE_SELECT },
         items: {
-          where: { inventoryId: { not: null } },
+          where: { inventoryId: { not: null }, excluded: false },
           select: {
             id: true,
             name: true,
