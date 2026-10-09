@@ -265,6 +265,7 @@ export type AdminEventPanelRow = Omit<AdminEventRow, "client"> & { client: Admin
 export type AdminEventChecklistRow = Pick<AdminEventRow, "id" | "name" | "tasks">;
 
 export type AdminBudgetItem = {
+  excluded?: boolean;
   id: string;
   name: string;
   quantity: number;
@@ -432,7 +433,7 @@ export type BudgetIvaType = (typeof BUDGET_IVA_TYPES)[number];
 export type AdminBudgetChangeKind = "items" | "discount" | "changes";
 export type AdminBudgetChangeStatus = "pending" | "accepted" | "rejected";
 
-export type AdminBudgetRequestItem = { id: string; quantity: number; days: number };
+export type AdminBudgetRequestItem = { id: string; quantity: number; days: number; excluded?: boolean };
 export type AdminBudgetRequestDiscount = { type: "percent" | "amount"; value: number; amount: number };
 export type AdminBudgetRequestPayload = {
   items?: AdminBudgetRequestItem[];
@@ -462,7 +463,7 @@ export type AdminBudgetRequestRow = {
     total: number;
     /** Referencia mínima del cliente (el API de solicitudes solo manda nombre y empresa). */
     client: Pick<AdminClientRef, "name" | "company">;
-    items: Array<Pick<AdminBudgetItem, "id" | "name" | "quantity" | "days" | "unitPrice">>;
+    items: Array<Pick<AdminBudgetItem, "id" | "name" | "quantity" | "days" | "unitPrice" | "excluded">>;
   };
 };
 

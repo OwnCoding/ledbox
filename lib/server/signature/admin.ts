@@ -329,7 +329,7 @@ export async function createSignatureRequest(
       event: { select: { name: true, location: true, startsAt: true, endsAt: true } },
       items: {
         orderBy: { name: "asc" },
-        select: { name: true, quantity: true, days: true, unitPrice: true, subtotal: true, notes: true },
+        select: { name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true, notes: true },
       },
     },
   });
@@ -394,6 +394,7 @@ export async function createSignatureRequest(
       days: item.days,
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
+      excluded: item.excluded,
       notes: item.notes,
     })),
     subtotal: budget.subtotal,

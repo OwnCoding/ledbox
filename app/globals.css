@@ -3965,3 +3965,7 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 
 .admin-table--presupuestos > .admin-table-row:hover > .admin-cell--actions { background: var(--a-panel-2); }
 .admin-table--presupuestos > .admin-table-head > .admin-cell:last-child { background: var(--a-sticky-bg, var(--a-panel)); }
+
+/* Retained excluded quote lines: state is also labeled in text. */
+.portal-budget [data-excluded="true"], .portal-comparison [data-excluded="true"], .portal-signature-sheet [data-excluded="true"], .lbprint [data-excluded="true"] { color: var(--danger, #dc2626); }
+[data-excluded="true"] .portal-item-name { text-decoration: line-through; }

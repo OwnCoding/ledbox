@@ -116,7 +116,7 @@ export async function GET() {
             discount: true,
             total: true,
             client: { select: { name: true, company: true } },
-            items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true } },
+            items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true } },
           },
         },
       },
@@ -329,6 +329,7 @@ async function patchBudget(request: Request) {
     if (budget.status === status) {
       return Response.json({ budget: { id: budget.id, status: budget.status }, unchanged: true });
     }
+    if (budget.status === "APPROVED" && status !== "APPROVED") return jsonError("El presupuesto ya está aprobado: no se puede reabrir para cambiar sus condiciones.", 409);
     let updated: { id: string; status: CommercialStatus };
     try {
       updated = status === "APPROVED"
@@ -520,13 +521,14 @@ async function patchBudgetItems(params: {
     select: {
       id: true,
       title: true,
+      updatedAt: true,
       status: true,
       approvedAt: true,
       discount: true,
       subtotal: true,
       total: true,
       client: { select: { name: true, company: true } },
-      items: { select: { id: true, name: true, inventoryId: true } },
+      items: { select: { id: true, name: true, inventoryId: true, excluded: true } },
     },
   });
   if (!budget) return jsonError("Presupuesto no encontrado.", 404);
@@ -545,6 +547,8 @@ async function patchBudgetItems(params: {
     return jsonError("Uno de los ítems no pertenece a este presupuesto.", 400);
   }
 
+  const excludedIds = new Set(budget.items.filter((item) => item.excluded).map((item) => item.id));
+  for (const item of parsed) if (item.id && excludedIds.has(item.id)) item.subtotal = 0;
   const subtotal = parsed.reduce((sum, item) => sum + item.subtotal, 0);
   const discount = Math.min(budget.discount, subtotal);
   const total = Math.max(0, subtotal - discount);
@@ -556,6 +560,8 @@ async function patchBudgetItems(params: {
   const linksById = new Map(budget.items.map((item) => [item.id, item.inventoryId]));
 
   await withQuoteCommercialEdit(budget.id, organizationId, true, async (tx) => {
+    const fresh = await tx.budget.findUniqueOrThrow({ where: { id: budget.id }, select: { updatedAt: true } });
+    if (fresh.updatedAt.getTime() !== budget.updatedAt.getTime()) throw new QuoteComparisonError(409, "El presupuesto cambió. Actualizá los ítems antes de guardar.");
     await tx.budgetItem.deleteMany({ where: { budgetId: budget.id, id: { notIn: [...keepIds] } } });
     for (const item of parsed) {
       const raw = rawItems.find((row) => row && typeof row === "object" && (row as Record<string, unknown>).id === item.id) as Record<string, unknown> | undefined;

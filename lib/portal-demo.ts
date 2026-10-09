@@ -39,13 +39,14 @@ export function emptyPortalDemoState(): PortalDemoState {
 }
 
 export type PortalDemoAction =
+  | { type: "items"; at: string; name: string; note: string; items: Array<{ id: string; quantity: number; days: number; excluded?: boolean }> }
   | {
       type: "approve";
       at: string;
       name: string;
       note: string | null;
       /** Ajuste de ítems que acompaña la autorización (cantidades y días). */
-      items: Array<{ id: string; quantity: number; days: number }>;
+      items: Array<{ id: string; quantity: number; days: number; excluded?: boolean }>;
       /** Motivo del ajuste (el mismo texto que manda el portal real). */
       itemsNote: string | null;
     }
@@ -135,7 +136,7 @@ export function writePortalDemoState(token: string, state: PortalDemoState, stor
 // ── Acciones simuladas ──────────────────────────────────────────────────────
 
 /** Ítem propuesto con su lectura visible, igual que arma el API del portal. */
-function requestItemsView(budget: PortalBudget, rows: Array<{ id: string; quantity: number; days: number }>) {
+function requestItemsView(budget: PortalBudget, rows: Array<{ id: string; quantity: number; days: number; excluded?: boolean }>) {
   const byId = new Map(budget.items.map((item) => [item.id, item]));
   return rows.flatMap((row) => {
     const item = byId.get(row.id);
@@ -146,9 +147,11 @@ function requestItemsView(budget: PortalBudget, rows: Array<{ id: string; quanti
         name: item.name,
         quantity: row.quantity,
         days: row.days,
+        excluded: Boolean(row.excluded),
+        previousExcluded: Boolean(item.excluded),
         previousQuantity: item.quantity,
         previousDays: item.days,
-        subtotal: row.quantity * row.days * item.unitPrice,
+        subtotal: row.excluded ? 0 : row.quantity * row.days * item.unitPrice,
         previousSubtotal: item.subtotal,
       },
     ];
@@ -180,6 +183,7 @@ function requestOf(
  * instante de la acción, así que dos pedidos seguidos no colisionan.
  */
 export function reducePortalDemo(state: PortalDemoState, budget: PortalBudget, action: PortalDemoAction): PortalDemoState {
+  if (action.type === "items") return { ...state, requests: [requestOf("items", { at: action.at, name: action.name, note: action.note }, { items: requestItemsView(budget, action.items), discount: null }), ...state.requests.filter((request) => request.kind !== "items")] };
   if (action.type === "approve") {
     const people = { at: action.at, name: action.name, note: action.note };
     const requests =

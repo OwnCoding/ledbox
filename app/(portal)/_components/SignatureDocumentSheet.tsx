@@ -77,9 +77,9 @@ export function SignatureDocumentSheet({ document, compact = false }: { document
           </thead>
           <tbody>
             {document.items.map((item, index) => (
-              <tr key={`${item.name}-${index}`}>
+              <tr key={`${item.name}-${index}`} data-excluded={item.excluded ? "true" : undefined}>
                 <td className="portal-item-cell">
-                  <span className="portal-item-name">{item.name}</span>
+                  <span className="portal-item-name">{item.name}</span>{item.excluded ? <small>Retirado / no incluido</small> : null}
                   {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
                 </td>
                 <td className="portal-num" data-label="Cantidad">

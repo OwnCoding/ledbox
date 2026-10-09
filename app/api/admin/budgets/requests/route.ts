@@ -1,3 +1,4 @@
+import { selectionSubtotal } from "@/lib/quote-selection";
 import { withQuoteCommercialEdit, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { db } from "@/lib/server/db";
 import { auditChanges, recordAudit } from "@/lib/server/audit";
@@ -57,11 +58,12 @@ async function resolveRequest(request: Request) {
           title: true,
           status: true,
           subtotal: true,
+          approvedAt: true,
           discount: true,
           total: true,
           revisionRequestedAt: true,
           client: { select: { name: true, company: true } },
-          items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, subtotal: true } },
+          items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true } },
         },
       },
     },
@@ -74,11 +76,12 @@ async function resolveRequest(request: Request) {
   const kindLabel = KIND_LABEL[changeRequest.kind] ?? "la solicitud del portal";
 
   if (decision === "reject") {
-    await db.$transaction(async (tx) => {
-      await tx.budgetChangeRequest.update({
-        where: { id: changeRequest.id },
+    await withQuoteCommercialEdit(budget.id, organizationId, false, async (tx) => {
+      const rejected = await tx.budgetChangeRequest.updateMany({
+        where: { id: changeRequest.id, status: "pending" },
         data: { status: "rejected", resolvedAt: new Date(), resolvedByName: user.name, responseNote: note },
       });
+      if (!rejected.count) throw new QuoteComparisonError(409, "Esta solicitud ya fue resuelta.");
       // Un pedido de cambios rechazado deja de estar pendiente para el cliente.
       if (changeRequest.kind === "changes" && budget.revisionRequestedAt) {
         await tx.budget.update({ where: { id: budget.id }, data: { revisionRequestedAt: null } });
@@ -103,7 +106,7 @@ async function resolveRequest(request: Request) {
 
     // Ítems: la propuesta (o la contra-oferta del equipo) se cruza contra los
     // ítems reales; el precio unitario lo pone el presupuesto, nunca el cliente.
-    const appliedItems: Array<{ id: string; quantity: number; days: number; subtotal: number; name: string }> = [];
+    const appliedItems: Array<{ id: string; quantity: number; days: number; subtotal: number; excluded: boolean; name: string }> = [];
     if (changeRequest.kind === "items" || payload.items.length > 0) {
       const rawItems = counter.items !== undefined ? counter.items : payload.items;
       const proposal = resolveItemProposal(budget.items, rawItems, { requireChange: false });
@@ -112,7 +115,7 @@ async function resolveRequest(request: Request) {
       for (const row of proposal.value) {
         const item = byId.get(row.id);
         if (!item) continue;
-        appliedItems.push({ id: item.id, quantity: row.quantity, days: row.days, subtotal: row.quantity * row.days * item.unitPrice, name: item.name });
+        appliedItems.push({ id: item.id, quantity: row.quantity, days: row.days, excluded: row.excluded, subtotal: selectionSubtotal({ ...item, ...row }), name: item.name });
       }
     }
     const appliedById = new Map(appliedItems.map((item) => [item.id, item]));
@@ -120,7 +123,7 @@ async function resolveRequest(request: Request) {
 
     // Descuento: la contra-oferta manda; si no, se recalcula el pedido contra
     // el subtotal que queda después de aplicar los ítems.
-    let nextDiscount = budget.discount;
+    let nextDiscount = Math.min(budget.discount, nextSubtotal);
     let appliedDiscount: number | null = null;
     const counterAmountRaw = counter.discountAmount;
     if (counterAmountRaw !== undefined) {
@@ -146,10 +149,17 @@ async function resolveRequest(request: Request) {
     const nextStatus = changesOffer && budget.status !== "APPROVED" ? "NEGOTIATING" : budget.status;
 
     await withQuoteCommercialEdit(budget.id, organizationId, true, async (tx) => {
+      const fresh = await tx.budget.findUniqueOrThrow({ where: { id: budget.id }, select: { subtotal: true, discount: true, items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true } } } });
+      const stable = (rows: typeof fresh.items) => JSON.stringify([...rows].sort((a, b) => a.id.localeCompare(b.id)));
+      if (fresh.subtotal !== budget.subtotal || fresh.discount !== budget.discount || stable(fresh.items) !== stable(budget.items)) throw new QuoteComparisonError(409, "El presupuesto cambió. Actualizá la solicitud antes de resolverla.");
+      const freshRequest = await tx.budgetChangeRequest.findUniqueOrThrow({ where: { id: changeRequest.id }, select: { status: true, payload: true } });
+      if (freshRequest.status !== "pending" || JSON.stringify(freshRequest.payload) !== JSON.stringify(changeRequest.payload)) throw new QuoteComparisonError(409, "La selección cambió. Actualizá la solicitud antes de resolverla.");
+      const claimed = await tx.budgetChangeRequest.updateMany({ where: { id: changeRequest.id, status: "pending" }, data: { status: "accepted" } });
+      if (!claimed.count) throw new QuoteComparisonError(409, "Esta solicitud ya fue resuelta.");
       for (const item of appliedItems) {
         await tx.budgetItem.update({
           where: { id: item.id },
-          data: { quantity: item.quantity, days: item.days, subtotal: item.subtotal },
+          data: { quantity: item.quantity, days: item.days, excluded: item.excluded, subtotal: item.subtotal },
         });
       }
       await tx.budget.update({
@@ -157,7 +167,7 @@ async function resolveRequest(request: Request) {
         data: {
           status: nextStatus,
           ...(changesOffer ? { subtotal: nextSubtotal, total: nextTotal } : {}),
-          ...(appliedDiscount !== null ? { discount: nextDiscount } : {}),
+          ...(changesOffer ? { discount: nextDiscount } : {}),
           ...(resolvesRevision ? { revisionRequestedAt: null } : {}),
         },
       });
@@ -172,7 +182,7 @@ async function resolveRequest(request: Request) {
       { subtotal: nextSubtotal, discount: nextDiscount, total: nextTotal, status: nextStatus },
       ["subtotal", "discount", "total", "status"],
     );
-    const itemSummary = appliedItems.map((item) => `${item.name} ${item.quantity}×${item.days}d`).join(" · ");
+    const itemSummary = appliedItems.map((item) => `${item.name} ${item.excluded ? "Retirado / no incluido" : `${item.quantity}×${item.days}d`}`).join(" · ");
     const changeSummary = [
       nextSubtotal !== budget.subtotal ? `subtotal ${budget.subtotal} → ${nextSubtotal}` : null,
       nextDiscount !== budget.discount ? `descuento ${budget.discount} → ${nextDiscount}` : null,
@@ -229,7 +239,7 @@ async function resolveRequest(request: Request) {
         paymentTerms: true,
         installmentsJson: true,
         revisionRequestedAt: true,
-        items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, subtotal: true } },
+        items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true } },
       },
     }),
   ]);

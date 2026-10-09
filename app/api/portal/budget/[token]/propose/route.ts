@@ -1,3 +1,4 @@
+import { withQuoteCommercialEdit, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { quotePortalAvailable } from "@/lib/quote-sharing";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -54,7 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
           discount: true,
           organizationId: true,
           client: { select: { name: true, company: true, email: true } },
-          items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true } },
+          items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true } },
         },
       })
     : null;
@@ -77,14 +78,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   if (!note) return jsonError("Contanos el motivo de la propuesta.", 400);
   if (note.length > MAX_DISCOUNT_NOTE) return jsonError(`El motivo no puede superar los ${MAX_DISCOUNT_NOTE} caracteres.`, 400);
 
+  const existing = await db.budgetChangeRequest.findFirst({
+    where: { budgetId: budget.id, kind, status: "pending" },
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+  });
+
   let payload: Prisma.InputJsonObject;
   let summary: string;
   let detail: { fields: Record<string, unknown> };
 
   if (kind === "items") {
-    const proposal = resolveItemProposal(budget.items, body.items);
+    const proposal = resolveItemProposal(budget.items, body.items, { requireChange: !existing });
     if (!proposal.ok) return jsonError(proposal.error, 400);
-    if (!proposal.changed) return jsonError("La propuesta no cambia ninguna cantidad ni días.", 400);
+    if (!proposal.changed && !existing) return jsonError("La propuesta no cambia la selección de ítems.", 400);
     payload = { items: proposal.value };
     summary = `El cliente «${name}» propuso nuevos ítems para el presupuesto «${budget.title}» desde el portal`;
     detail = { fields: { items: proposal.value.length, propuesta: "ítems" } };
@@ -101,12 +108,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   }
 
   const now = new Date();
-  const existing = await db.budgetChangeRequest.findFirst({
-    where: { budgetId: budget.id, kind, status: "pending" },
-    select: { id: true },
-    orderBy: { createdAt: "desc" },
-  });
-  const requestId = existing?.id ?? randomUUID();
+  const requestId = randomUUID();
+  let replaced = false;
   const data = {
     payload,
     note,
@@ -114,31 +117,42 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     requestedByEmail: email || null,
     createdAt: now,
   };
-  if (existing) {
-    await db.budgetChangeRequest.update({ where: { id: existing.id }, data });
-  } else {
-    await db.budgetChangeRequest.create({
-      data: {
-        id: requestId,
-        organizationId: budget.organizationId,
-        budgetId: budget.id,
-        kind,
-        status: "pending",
-        ...data,
-      },
-    });
-  }
+  try { await withQuoteCommercialEdit(budget.id, budget.organizationId, true, async (tx) => {
+      const fresh = await tx.budget.findUniqueOrThrow({ where: { id: budget.id }, include: { items: true } });
+      if (fresh.publicToken !== code || !quotePortalAvailable(fresh)) throw new QuoteComparisonError(404, "El enlace ya no está vigente.");
+      const pending = await tx.budgetChangeRequest.findFirst({ where: { budgetId: budget.id, kind, status: "pending" }, select: { id: true } });
+      if (kind === "items") {
+        const proposal = resolveItemProposal(fresh.items, body.items, { requireChange: !pending });
+        if (!proposal.ok) throw new QuoteComparisonError(400, proposal.error);
+        data.payload = { items: proposal.value };
+      }
+      if (pending) {
+        replaced = true;
+        await tx.budgetChangeRequest.update({ where: { id: pending.id }, data });
+      } else {
+        await tx.budgetChangeRequest.create({
+          data: {
+            id: requestId,
+            organizationId: budget.organizationId,
+            budgetId: budget.id,
+            kind,
+            status: "pending",
+            ...data,
+          },
+        });
+      }
+  }); } catch (error) { if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status); throw error; }
 
   const responsePayload = await loadPublicBudget(code);
   if (!responsePayload) return jsonError("No encontramos ese presupuesto.", 404);
 
   await recordAudit({
     context: portalAuditContext(budget.organizationId, name, email || budget.client?.email),
-    action: existing ? "update" : "create",
+    action: replaced ? "update" : "create",
     entity: "Budget",
     entityId: budget.id,
     summary,
     detail,
   });
-  return Response.json({ budget: responsePayload, replaced: Boolean(existing) });
+  return Response.json({ budget: responsePayload, replaced });
 }

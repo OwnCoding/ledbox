@@ -220,7 +220,7 @@ export function portalTimeline(rows: Array<{
   }));
 }
 
-const requestInclude = {
+export const requestInclude = {
   organization: { select: { name: true, slug: true } },
   attachment: { select: { id: true, name: true, mime: true, size: true } },
   budget: {
@@ -243,7 +243,7 @@ const requestInclude = {
       event: { select: { name: true, location: true, startsAt: true, endsAt: true } },
       items: {
         orderBy: { name: "asc" },
-        select: { name: true, quantity: true, days: true, unitPrice: true, subtotal: true, notes: true },
+        select: { name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true, notes: true },
       },
     },
   },
@@ -305,6 +305,7 @@ export function signatureBudgetDocument(row: SignatureRequestRow): SignatureBudg
       days: item.days,
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
+      excluded: item.excluded,
       notes: item.notes,
     })),
     subtotal: budget.subtotal,
@@ -577,7 +578,7 @@ export async function signSignatureRequest(input: SignatureActionInput): Promise
       await tx.$queryRaw`SELECT "id" FROM "Budget" WHERE "id" = ${row.budgetId} FOR UPDATE`;
       const approvedBudget = await tx.budget.findFirst({ where: { id: row.budgetId, organizationId: row.organizationId } });
       if (!approvedBudget) throw new SignatureActionError(404, "Presupuesto no encontrado.");
-      if (approvedBudget.comparisonId) {
+      {
         // Reload the commercial document only AFTER acquiring the quote lock.
         // The creation event binds attachment signatures to quote terms too.
         const current = await tx.signatureRequest.findUniqueOrThrow({ where: { id: row.id }, include: requestInclude });

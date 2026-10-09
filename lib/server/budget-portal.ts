@@ -1,3 +1,4 @@
+import { resolveQuoteSelection, type SelectedQuoteItem } from "@/lib/quote-selection";
 import { quotePortalAvailable, quoteReferenceUrl } from "@/lib/quote-sharing";
 import { randomBytes } from "node:crypto";
 import { db } from "./db";
@@ -42,6 +43,7 @@ export type PortalBudgetItem = {
   days: number;
   unitPrice: number;
   subtotal: number;
+  excluded?: boolean;
   notes: string | null;
   /**
    * Imagen del producto de inventario vinculado al ítem (issue #107), aditiva:
@@ -139,6 +141,8 @@ export type PortalBudgetRequestItemView = {
   name: string;
   quantity: number;
   days: number;
+  excluded?: boolean;
+  previousExcluded?: boolean;
   previousQuantity: number;
   previousDays: number;
   /** Subtotal propuesto, con el precio unitario fijo del presupuesto. */
@@ -337,7 +341,7 @@ type BudgetForPortal = {
   organization: { name: string; slug: string; paymentDetails: unknown };
   client: { name: string; company: string | null; contactName: string | null; contactRole: string | null };
   event: { name: string; location: string | null; startsAt: Date | null } | null;
-  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; notes: string | null; inventory: { imageUrl: string | null; organizationId?: string; id?: string; imageMime?: string | null } | null }>;
+  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; excluded?: boolean; notes: string | null; inventory: { imageUrl: string | null; organizationId?: string; id?: string; imageMime?: string | null } | null }>;
   /** Solo los cobros pendientes: habilitan el comprobante y el aviso al equipo. */
   payments: Array<{ id: string; amount: number }>;
   /** Pagos esperados del plan aprobado (issue #28), con su cuenta destino. */
@@ -490,9 +494,11 @@ function requestItemsView(
         name: item.name,
         quantity,
         days,
+        excluded: row.excluded === true,
+        previousExcluded: Boolean(item.excluded),
         previousQuantity: item.quantity,
         previousDays: item.days,
-        subtotal: quantity * days * item.unitPrice,
+        subtotal: row.excluded === true ? 0 : quantity * days * item.unitPrice,
         previousSubtotal: item.subtotal,
       },
     ];
@@ -590,6 +596,7 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
       days: item.days,
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
+      excluded: Boolean(item.excluded),
       notes: item.notes,
       // Imagen del producto vinculado (issue #107): aditiva y opcional; solo
       // viaja una URL de imagen válida (el resto cae al ícono en el portal).
@@ -746,7 +753,7 @@ export function approvalEvidence(request: Request): { ip: string; userAgent: str
 
 // ── Validación de propuestas del portal (issue #14) ─────────────────────────
 
-export type ProposedItem = { id: string; quantity: number; days: number };
+export type ProposedItem = SelectedQuoteItem;
 
 export type ProposalResult<T> = { ok: true; value: T; changed: boolean } | { ok: false; error: string };
 
@@ -765,38 +772,11 @@ function positiveInt(value: unknown): number | null {
  * igual (el equipo puede aprobar la propuesta tal como llegó).
  */
 export function resolveItemProposal(
-  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number }>,
+  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; excluded?: boolean }>,
   raw: unknown,
   options?: { requireChange?: boolean },
 ): ProposalResult<ProposedItem[]> {
-  const requireChange = options?.requireChange ?? true;
-  if (!Array.isArray(raw) || raw.length === 0) return { ok: false, error: "Contanos qué cantidades y días necesitás." };
-  if (raw.length > items.length) return { ok: false, error: "La propuesta tiene ítems que no son de este presupuesto." };
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const proposed: ProposedItem[] = [];
-  const seen = new Set<string>();
-  for (const row of raw) {
-    if (!isRecord(row) || typeof row.id !== "string") return { ok: false, error: "La propuesta tiene un ítem inválido." };
-    const item = byId.get(row.id);
-    if (!item) return { ok: false, error: "La propuesta tiene ítems que no son de este presupuesto." };
-    if (seen.has(row.id)) return { ok: false, error: "La propuesta repite un ítem." };
-    seen.add(row.id);
-    const quantity = positiveInt(row.quantity);
-    const days = positiveInt(row.days);
-    if (quantity === null || quantity > PORTAL_MAX_QUANTITY) {
-      return { ok: false, error: `La cantidad de «${item.name}» debe ser un entero entre 1 y ${PORTAL_MAX_QUANTITY}.` };
-    }
-    if (days === null || days > PORTAL_MAX_DAYS) {
-      return { ok: false, error: `Los días de «${item.name}» deben ser un entero entre 1 y ${PORTAL_MAX_DAYS}.` };
-    }
-    proposed.push({ id: item.id, quantity, days });
-  }
-  const changed = proposed.some((row) => {
-    const item = byId.get(row.id);
-    return Boolean(item) && (item!.quantity !== row.quantity || item!.days !== row.days);
-  });
-  if (requireChange && !changed) return { ok: false, error: "La propuesta es igual al presupuesto actual: cambiá alguna cantidad o días." };
-  return { ok: true, value: proposed, changed };
+  return resolveQuoteSelection(items, raw, options);
 }
 
 export type ProposedDiscount = { type: "percent" | "amount"; value: number; amount: number };
@@ -842,7 +822,7 @@ export function parseProposalPayload(value: unknown): ParsedProposal {
         const quantity = positiveInt(row.quantity);
         const days = positiveInt(row.days);
         if (quantity === null || days === null) return [];
-        return [{ id: row.id, quantity, days }];
+        return [{ id: row.id, quantity, days, excluded: row.excluded === true }];
       })
     : [];
   const rawDiscount = isRecord(payload.discount) ? payload.discount : null;

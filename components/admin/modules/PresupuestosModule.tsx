@@ -185,7 +185,7 @@ function requestDelta(request: AdminBudgetRequestRow): string {
         const current = request.budget.items.find((item) => item.id === row.id);
         const name = current?.name ?? "Ítem";
         const from = current ? `${formatNumber(current.quantity)} × ${formatNumber(current.days)} d` : "—";
-        return `${name}: ${from} → ${formatNumber(row.quantity)} × ${formatNumber(row.days)} d`;
+        return `${name}: ${from} → ${row.excluded ? "Retirado / no incluido" : `${formatNumber(row.quantity)} × ${formatNumber(row.days)} d`}`;
       })
       .join(" · ");
   }
@@ -227,7 +227,7 @@ function RequestComparison({ request }: { request: AdminBudgetRequestRow }) {
                 <span role="cell">{current ? `${formatNumber(current.quantity)} × ${formatNumber(current.days)} d` : "—"}</span>
                 <span role="cell">
                   <strong>
-                    {formatNumber(row.quantity)} × {formatNumber(row.days)} d
+                    {row.excluded ? "Retirado / no incluido" : `${formatNumber(row.quantity)} × ${formatNumber(row.days)} d`}
                   </strong>
                 </span>
               </div>
@@ -758,7 +758,7 @@ export function PresupuestosModule() {
   const [resolution, setResolution] = useState<{ request: AdminBudgetRequestRow; decision: RequestDecision } | null>(null);
   /** Conversación comparativa de una solicitud del portal (issue #143). */
   const [talkRequest, setTalkRequest] = useState<AdminBudgetRequestRow | null>(null);
-  const [counterItems, setCounterItems] = useState<Record<string, { quantity: number; days: number }>>({});
+  const [counterItems, setCounterItems] = useState<Record<string, { quantity: number; days: number; excluded?: boolean }>>({});
   const [counterDiscount, setCounterDiscount] = useState("");
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [plan, setPlan] = useState<{ budget: AdminBudgetRow; advance: string; terms: string; installments: PlanInstallment[] } | null>(null);
@@ -1161,7 +1161,7 @@ export function PresupuestosModule() {
         : "",
     );
     setCounterItems(
-      Object.fromEntries((request.payload.items ?? []).map((item) => [item.id, { quantity: item.quantity, days: item.days }])),
+      Object.fromEntries((request.payload.items ?? []).map((item) => [item.id, { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }])),
     );
     setResolution({ request, decision });
   }
@@ -1339,7 +1339,7 @@ export function PresupuestosModule() {
     if (resolution.decision === "accept") {
       if (resolution.request.kind === "items") {
         body.counter = {
-          items: Object.entries(counterItems).map(([id, value]) => ({ id, quantity: value.quantity, days: value.days })),
+          items: Object.entries(counterItems).map(([id, value]) => ({ id, quantity: value.quantity, days: value.days, excluded: Boolean(value.excluded) })),
         };
       }
       if (resolution.request.kind === "discount") {
@@ -1423,8 +1423,8 @@ export function PresupuestosModule() {
     : "";
   const counterSubtotal = resolution
     ? resolution.request.budget.items.reduce((sum, item) => {
-        const value = counterItems[item.id] ?? { quantity: item.quantity, days: item.days };
-        return sum + item.unitPrice * value.quantity * value.days;
+        const value = counterItems[item.id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
+        return sum + (value.excluded ? 0 : item.unitPrice * value.quantity * value.days);
       }, 0)
     : 0;
   const counterDiscountAmount =
@@ -2145,8 +2145,8 @@ export function PresupuestosModule() {
                 </span>
               </div>
               {resolution.request.budget.items.map((item) => {
-                const proposed = counterItems[item.id] ?? { quantity: item.quantity, days: item.days };
-                const subtotal = item.unitPrice * proposed.quantity * proposed.days;
+                const proposed = counterItems[item.id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
+                const subtotal = proposed.excluded ? 0 : item.unitPrice * proposed.quantity * proposed.days;
                 return (
                   <div className="admin-dialog-table-row" role="row" key={item.id}>
                     <span role="cell">{item.name}</span>
@@ -2154,7 +2154,9 @@ export function PresupuestosModule() {
                       {formatNumber(item.quantity)} × {formatNumber(item.days)} d
                     </span>
                     <span role="cell" className="admin-dialog-counter">
+                      <label><input type="checkbox" checked={Boolean(proposed.excluded)} onChange={(event) => setCounterItems((rows) => ({ ...rows, [item.id]: { ...proposed, excluded: event.target.checked } }))} /> Retirado / no incluido</label>
                       <NumberField
+                        disabled={Boolean(proposed.excluded)}
                         ariaLabel={`Cantidad propuesta de ${item.name}`}
                         maxLength={4}
                         value={String(proposed.quantity)}
@@ -2167,6 +2169,7 @@ export function PresupuestosModule() {
                       />
                       <span aria-hidden="true">×</span>
                       <NumberField
+                        disabled={Boolean(proposed.excluded)}
                         ariaLabel={`Días propuestos de ${item.name}`}
                         maxLength={4}
                         value={String(proposed.days)}

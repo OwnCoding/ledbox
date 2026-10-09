@@ -34,9 +34,9 @@ export function PortalComparisonView({ initial, token }: { initial: PublicQuoteC
           <p>{quote.total === lowest ? "Menor total" : `${formatMoney(quote.total - lowest)} más que la alternativa de menor total`}</p>
           <dl><dt>Subtotal</dt><dd>{formatMoney(quote.subtotal)}</dd><dt>Descuento</dt><dd>{formatMoney(quote.discount)}</dd><dt>Anticipo</dt><dd>{formatMoney(quote.advanceAmount)}</dd></dl>
           <h3>Ítems incluidos</h3>
-          <ul className="portal-comparison-items">{quote.items.map((item) => <li key={item.id}>
+          <ul className="portal-comparison-items">{quote.items.map((item) => <li key={item.id} data-excluded={item.excluded ? "true" : undefined}>
             <AdminImageBox imageUrl={item.imageUrl} size={56} />
-            <div><strong>{item.name}</strong><p>{item.quantity} × {item.days} día(s) · {formatMoney(item.unitPrice)}</p>{item.notes ? <p>{item.notes}</p> : null}<strong>{formatMoney(item.subtotal)}</strong></div>
+            <div><strong className="portal-item-name">{item.name}</strong>{item.excluded ? <p>Retirado / no incluido</p> : null}<p>{item.quantity} × {item.days} día(s) · {formatMoney(item.unitPrice)}</p>{item.notes ? <p>{item.notes}</p> : null}<strong>{formatMoney(item.subtotal)}</strong></div>
           </li>)}</ul>
           <h3>Condiciones</h3>
           <dl><dt>Vigencia</dt><dd>{quote.validUntil ? formatDate(quote.validUntil) : "Sin fecha indicada"}</dd><dt>Entrega</dt><dd>{quote.deliveryAt ? formatDate(quote.deliveryAt) : "A coordinar"}</dd><dt>IVA</dt><dd>{quote.ivaType || "Sin especificar"}</dd><dt>Garantía</dt><dd>{quote.warranty || "Sin especificar"}</dd></dl>

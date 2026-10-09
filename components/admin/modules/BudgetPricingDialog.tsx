@@ -45,6 +45,7 @@ import { discountForPrice, distributePrice, internalCostOf, marginOf, priceForMa
  */
 
 type ItemDraft = {
+  excluded?: boolean;
   inventory: AdminInventoryLink | null;
   id: string | null;
   name: string;
@@ -79,6 +80,7 @@ function toItemDraft(item: AdminBudgetRow["items"][number]): ItemDraft {
   return {
     inventory: item.inventory ? { ...item.inventory, imageUrl: inventoryImageUrl({ ...item.inventory, imageUrl: item.inventory.imageUrl ?? null }) } : null,
     id: item.id,
+    excluded: Boolean(item.excluded),
     name: item.name,
     quantity: String(item.quantity),
     days: String(item.days),
@@ -93,7 +95,7 @@ function draftFrom(budget: AdminBudgetRow): Draft {
     materialCost: String(budget.materialCost ?? 0),
     laborCost: String(budget.laborCost ?? 0),
     price: String(budget.total),
-    priceAdjustment: budget.total - budget.items.reduce((sum, item) => sum + item.quantity * item.days * item.unitPrice, 0),
+    priceAdjustment: budget.total - budget.items.reduce((sum, item) => sum + (item.excluded ? 0 : item.quantity * item.days * item.unitPrice), 0),
     marginPercent: "",
     validUntil: budget.validUntil ? budget.validUntil.slice(0, 10) : "",
     deliveryAt: budget.deliveryAt ? budget.deliveryAt.slice(0, 10) : "",
@@ -133,7 +135,7 @@ export function BudgetPricingDialog({
         const days = Math.max(1, number(item.days));
         const unitPrice = number(item.unitPrice);
         const costPrice = number(item.costPrice);
-        return { inventoryId: item.inventory?.id ?? null, id: item.id, name: item.name, quantity, days, unitPrice, costPrice, subtotal: quantity * days * unitPrice };
+        return { inventoryId: item.inventory?.id ?? null, id: item.id, name: item.name, quantity, days, unitPrice, costPrice, excluded: item.excluded, subtotal: item.excluded ? 0 : quantity * days * unitPrice };
       }),
     [draft.items],
   );
@@ -141,13 +143,14 @@ export function BudgetPricingDialog({
   const cost = internalCostOf({
     materialCost: number(draft.materialCost),
     laborCost: number(draft.laborCost),
-    items: priced.map((item) => ({ quantity: item.quantity, days: item.days, costPrice: item.costPrice })),
+    items: priced.filter((item) => !item.excluded).map((item) => ({ quantity: item.quantity, days: item.days, costPrice: item.costPrice })),
   });
   const price = number(draft.price);
   const margin = marginOf(price, cost.total);
   const intent = discountForPrice(itemsSubtotal, price);
   const needsRepricing = !intent.ok && price > 0;
-  const repriced = needsRepricing ? distributePrice(priced, price) : null;
+  const activePriced = priced.filter((item) => !item.excluded);
+  const repriced = needsRepricing ? distributePrice(activePriced, price) : null;
   const marginPercentValue = draft.marginPercent ? Number(draft.marginPercent.replace(",", ".")) : null;
   const suggested = marginPercentValue !== null && Number.isFinite(marginPercentValue) ? priceForMargin(cost.total, marginPercentValue) : null;
 
@@ -155,7 +158,7 @@ export function BudgetPricingDialog({
     setDraft((current) => {
       const old = current.items[index];
       const next = { ...old, ...patch };
-      const subtotal = (item: ItemDraft) => Math.max(1, number(item.quantity)) * Math.max(1, number(item.days)) * number(item.unitPrice);
+      const subtotal = (item: ItemDraft) => item.excluded ? 0 : Math.max(1, number(item.quantity)) * Math.max(1, number(item.days)) * number(item.unitPrice);
       const items = current.items.map((item, position) => position === index ? next : item);
       return { ...current, price: String(Math.max(0, items.reduce((sum, item) => sum + subtotal(item), 0) + current.priceAdjustment)), items };
     });
@@ -182,12 +185,12 @@ export function BudgetPricingDialog({
     try {
       // 1) Ítems: se guardan si cambió algo (o si el precio final obliga a
       //    repartirlo entre los precios unitarios).
-      const itemsPayload = priced.map((item, index) => ({
+      const itemsPayload = priced.map((item) => ({
         id: item.id ?? undefined,
         name: item.name,
         quantity: item.quantity,
         days: item.days,
-        unitPrice: needsRepricing ? repriced?.items[index]?.unitPrice ?? item.unitPrice : item.unitPrice,
+        unitPrice: needsRepricing && !item.excluded ? repriced?.items[activePriced.indexOf(item)]?.unitPrice ?? item.unitPrice : item.unitPrice,
         costPrice: item.costPrice,
         inventoryId: item.inventoryId,
       }));
@@ -314,6 +317,7 @@ export function BudgetPricingDialog({
         <div className="admin-plan-list">
           {draft.items.map((item, index) => (
             <div className="admin-plan-list" key={item.id ?? `nuevo-${index}`}>
+              {item.excluded ? <AdminNote>Retirado / no incluido. Se conserva la línea original.</AdminNote> : null}
               <InventoryLinkPicker label={`Producto del ítem ${index + 1} (opcional)`} hint="Elegir un producto completa nombre y precio editable; no reserva stock. Sin vínculo, se conserva una línea de servicio libre." range={null} selected={item.inventory} disabled={approved || closed || busy} onSelect={(product) => updateItem(index, { inventory: product, ...(product ? { name: product.name, unitPrice: String(quoteProductPrice(product, number(item.days))) } : {}) })} />
               <div className="admin-plan-grid">
               <TextField

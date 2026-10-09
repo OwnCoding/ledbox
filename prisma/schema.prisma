@@ -788,6 +788,8 @@ model BudgetItem {
   days        Int            @default(1)
   unitPrice   Int
   costPrice   Int            @default(0)
+  /// Línea conservada, excluida de los totales validados y las reservas.
+  excluded    Boolean        @default(false)
   subtotal    Int
   notes       String?
   /// Vínculo opcional con el inventario (issue #18): al aprobar el presupuesto,
