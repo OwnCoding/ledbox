@@ -27,6 +27,28 @@ Los carriles guardan fragmentos CSS fuera del repo hasta liberar `app/globals.cs
 No editan en paralelo el listado de pruebas de `package.json`: el integrador reúne los tests nuevos.
 Las ramas compartidas se actualizan por merge sin force ni reescritura de historia.
 
+### Contratos acordados durante la ejecución
+
+- El dueño aprobó conservar el Combobox canónico de LedBox: la ref publicada de
+  owncoding-ui no cubre todavía búsqueda secundaria, alta rápida y
+  `required`/`name`. Se adoptan los demás campos compatibles y se documenta la
+  brecha, sin duplicar el selector ni bloquear el resto.
+- Teléfonos: kit compartido; +595 por defecto solo al crear un valor vacío.
+  Editar conserva el país previamente cargado.
+- Cliente nuevo: `tradeName` comercial explícito admite 200 caracteres; POST
+  puede omitir `name` y el backend inicializa el campo histórico por compatibilidad
+  de esa nueva fila. PATCH de fantasía no cambia `name/company`. Un `name` enviado
+  explícitamente se valida como texto comercial, sin truncamiento ni reglas de
+  nombre humano. Contactos sí conservan validación de persona y máximo 20.
+- `clientDisplayName` y `clientLegalName` de `lib/client-identity.ts` son la fuente
+  única. `company` no se convierte en razón social oficial.
+- OPS posee `ClientQuickForm`, campos rápidos del evento y wrapper de alta desde
+  presupuesto; FIN los consume, no los edita. El alta de cliente respeta
+  `canWriteClients`.
+
+El contrato definitivo y la confirmación RUC se documentan en
+`docs/CONTRATO-CLIENTES-EVENTOS-OWNDATA.md` al integrar la entrega de plataforma.
+
 ## Gates de cierre
 
 1. Kit compatible con ref publicada verificable y runtime local/CI/deploy coherentes.
