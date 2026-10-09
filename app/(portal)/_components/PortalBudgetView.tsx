@@ -1,5 +1,7 @@
 "use client";
 
+import { PortalQuoteResources } from "./PortalQuoteResources";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AdminIcon } from "@/components/admin/AdminIcons";
@@ -81,7 +83,7 @@ import { PortalPending, type PortalPendingItem } from "./PortalPending";
  * no llevan el modo y funcionan exactamente igual que siempre.
  */
 
-type DraftItem = { quantity: number; days: number };
+type DraftItem = { quantity: number; days: number; excluded?: boolean };
 
 /** Qué va a hacer el cliente con el botón único de la acción principal. */
 type ActionMode = "authorize" | "discount" | "change";
@@ -141,9 +143,9 @@ function requestSummary(request: PortalBudgetRequest): string | null {
     if (request.items.length === 0) return "Propuesta de ítems";
     return request.items
       .map((item) =>
-        item.quantity === item.previousQuantity && item.days === item.previousDays
+        Boolean(item.excluded) === Boolean(item.previousExcluded) && item.quantity === item.previousQuantity && item.days === item.previousDays
           ? `${item.name} sin cambios`
-          : `${item.name}: ${formatNumber(item.previousQuantity)} × ${formatNumber(item.previousDays)} d → ${formatNumber(item.quantity)} × ${formatNumber(item.days)} d`,
+          : item.excluded ? `${item.name}: Retirado / no incluido` : `${item.name}: ${formatNumber(item.previousQuantity)} × ${formatNumber(item.previousDays)} d → ${formatNumber(item.quantity)} × ${formatNumber(item.days)} d`,
       )
       .join(" · ");
   }
@@ -163,11 +165,11 @@ function requestIntent(request: PortalBudgetRequest): string {
 }
 
 /** Ítems con diferencias contra el presupuesto real (cantidad o días). */
-function changedItems(budget: PortalBudget, draft: Record<string, DraftItem>): Array<{ id: string; quantity: number; days: number }> {
+function changedItems(budget: PortalBudget, draft: Record<string, DraftItem>): Array<{ id: string; quantity: number; days: number; excluded?: boolean }> {
   return budget.items.flatMap((item) => {
     const current = draft[item.id];
-    if (!current || (current.quantity === item.quantity && current.days === item.days)) return [];
-    return [{ id: item.id, quantity: current.quantity, days: current.days }];
+    if (!current || (current.quantity === item.quantity && current.days === item.days && Boolean(current.excluded) === Boolean(item.excluded))) return [];
+    return [{ id: item.id, quantity: current.quantity, days: current.days, excluded: Boolean(current.excluded) }];
   });
 }
 
@@ -179,9 +181,9 @@ function changedItems(budget: PortalBudget, draft: Record<string, DraftItem>): A
 function changeNote(budget: PortalBudget, draft: Record<string, DraftItem>): string {
   const rows = budget.items.flatMap((item) => {
     const current = draft[item.id];
-    if (!current || (current.quantity === item.quantity && current.days === item.days)) return [];
+    if (!current || (current.quantity === item.quantity && current.days === item.days && Boolean(current.excluded) === Boolean(item.excluded))) return [];
     return [
-      `${item.name}: ${formatNumber(item.quantity)} × ${formatNumber(item.days)} d → ${formatNumber(current.quantity)} × ${formatNumber(current.days)} d`,
+      `${item.name}: ${current.excluded ? "Retirado / no incluido" : `Incluido: ${formatNumber(current.quantity)} × ${formatNumber(current.days)} d`}`,
     ];
   });
   return rows.length > 0 ? `Ajusté el presupuesto desde el portal y lo autoricé con estos valores: ${rows.join("; ")}.` : "";
@@ -389,11 +391,11 @@ export function PortalBudgetView({
   const [actionError, setActionError] = useState("");
   const [sending, setSending] = useState(false);
   const [justApproved, setJustApproved] = useState<null | { already: boolean }>(null);
-  const [justRequested, setJustRequested] = useState<null | { kind: "discount" | "change"; at: string; note: string }>(null);
+  const [justRequested, setJustRequested] = useState<null | { kind: "discount" | "change" | "items"; at: string; note: string }>(null);
 
   // Autogestión (issue #14): borrador de ítems y rebaja pedida.
   const [draft, setDraft] = useState<Record<string, DraftItem>>(() =>
-    Object.fromEntries(budget.items.map((item) => [item.id, { quantity: item.quantity, days: item.days }])),
+    Object.fromEntries(budget.items.map((item) => { const pending = budget.requests.find((request) => request.kind === "items" && request.status === "pending")?.items.find((row) => row.id === item.id); return [item.id, pending ? { quantity: pending.quantity, days: pending.days, excluded: Boolean(pending.excluded) } : { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }]; })),
   );
   const [discountType, setDiscountType] = useState<"percent" | "amount">("percent");
   const [discountValue, setDiscountValue] = useState("");
@@ -424,7 +426,7 @@ export function PortalBudgetView({
   /** Pedido ya enviado y esperando respuesta (rebaja o ajuste de ítems). */
   const waitingRequest = !approved && !revisionPending && (pendingRequests.length > 0 || Boolean(justRequested));
   /** El cliente todavía no envió nada: puede ajustar, autorizar o pedir. */
-  const canEdit = !approved && !revisionPending && !waitingRequest;
+  const canEdit = !approved && !revisionPending && !pendingRequests.some((request) => request.kind !== "items") && (!justRequested || justRequested.kind === "items");
 
   useEffect(() => {
     if (!canEdit) {
@@ -471,9 +473,9 @@ export function PortalBudgetView({
 
   // El borrador sigue los ítems reales: cuando el equipo aplica la propuesta,
   // el portal se refresca y los valores de partida son los nuevos.
-  const itemsSignature = budget.items.map((item) => `${item.id}:${item.quantity}:${item.days}`).join("|");
+  const itemsSignature = budget.items.map((item) => `${item.id}:${item.quantity}:${item.days}:${item.excluded}:${JSON.stringify(budget.requests.find((request) => request.kind === "items" && request.status === "pending")?.items ?? [])}`).join("|");
   useEffect(() => {
-    setDraft(Object.fromEntries(budget.items.map((item) => [item.id, { quantity: item.quantity, days: item.days }])));
+    setDraft(Object.fromEntries(budget.items.map((item) => { const pending = budget.requests.find((request) => request.kind === "items" && request.status === "pending")?.items.find((row) => row.id === item.id); return [item.id, pending ? { quantity: pending.quantity, days: pending.days, excluded: Boolean(pending.excluded) } : { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }]; })));
   }, [itemsSignature]); // eslint-disable-line react-hooks/exhaustive-deps -- el borrador solo depende de la firma de los ítems
 
   // Conceptos del plan abiertos (issue #28): esperando transferencia, con
@@ -527,13 +529,13 @@ export function PortalBudgetView({
 
   const draftChanges = useMemo(() => changedItems(budget, draft), [budget, draft]);
   /** Solo el cliente que todavía decide ajusta cantidades: aprobado o en revisión se lee. */
-  const itemsChanged = canEdit && draftChanges.length > 0;
+  const itemsChanged = !approved && draftChanges.length > 0;
 
   const proposedSubtotal = useMemo(
     () =>
       budget.items.reduce((sum, item) => {
-        const current = draft[item.id] ?? { quantity: item.quantity, days: item.days };
-        return sum + item.unitPrice * current.quantity * current.days;
+        const current = draft[item.id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
+        return sum + (current.excluded ? 0 : item.unitPrice * current.quantity * current.days);
       }, 0),
     [budget.items, draft],
   );
@@ -702,9 +704,18 @@ export function PortalBudgetView({
           setActionError("Marcá el consentimiento para registrar la autorización.");
           return;
         }
-        const changes = canEdit ? changedItems(budget, draft) : [];
+        const changes = canEdit ? (changedItems(budget, draft).length ? changedItems(budget, draft) : pendingRequests.some((request) => request.kind === "items") ? budget.items.map((item) => ({ id: item.id, ...(draft[item.id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }) })) : []) : [];
+        if (!budget.items.some((item) => !(draft[item.id]?.excluded ?? item.excluded))) {
+          setActionError("Restaurá al menos un producto o servicio antes de continuar.");
+          return;
+        }
         const at = new Date().toISOString();
         const noteText = note.trim();
+        if (demo && changes.length > 0) {
+          commitDemo(reducePortalDemo(demoBase, budget, { type: "items", at, name: name.trim(), note: noteText || changeNote(budget, draft), items: changes }));
+          setJustRequested({ kind: "items", at, note: "Selección enviada para revisión (simulación)." });
+          return;
+        }
         if (demo) {
           commitDemo(
             reducePortalDemo(demoBase, budget, {
@@ -725,9 +736,12 @@ export function PortalBudgetView({
           await postPortal("propose", {
             kind: "items",
             name: name.trim(),
-            note: note.trim() || changeNote(budget, draft),
+            note: note.trim() || changeNote(budget, draft) || "Restaurar la selección original de ítems.",
             items: changes,
           });
+          setJustRequested({ kind: "items", at, note: "Selección de ítems enviada. El equipo debe revisarla antes de aprobar." });
+          router.refresh();
+          return;
         }
         const payload = await postPortal("approve", {
           name: name.trim(),
@@ -805,22 +819,22 @@ export function PortalBudgetView({
     }
   }
 
-  function updateDraft(id: string, field: keyof DraftItem, next: number) {
+  function updateDraft(id: string, field: "quantity" | "days", next: number) {
     setDraft((current) => {
       const item = budget.items.find((row) => row.id === id);
       if (!item) return current;
-      const base = current[id] ?? { quantity: item.quantity, days: item.days };
+      const base = current[id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
       const max = field === "quantity" ? MAX_QUANTITY : MAX_DAYS;
       return { ...current, [id]: { ...base, [field]: Math.min(max, Math.max(1, Math.round(next))) } };
     });
   }
 
   /** Botones +/−: el delta se aplica sobre el borrador vigente (sin pisar clics seguidos). */
-  function stepDraft(id: string, field: keyof DraftItem, delta: number) {
+  function stepDraft(id: string, field: "quantity" | "days", delta: number) {
     setDraft((current) => {
       const item = budget.items.find((row) => row.id === id);
       if (!item) return current;
-      const base = current[id] ?? { quantity: item.quantity, days: item.days };
+      const base = current[id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
       const max = field === "quantity" ? MAX_QUANTITY : MAX_DAYS;
       const next = Math.min(max, Math.max(1, base[field] + delta));
       return { ...current, [id]: { ...base, [field]: next } };
@@ -828,12 +842,12 @@ export function PortalBudgetView({
   }
 
   /** Texto tipeado: se limpia a dígitos y se acota al rango del campo. */
-  function setDraftField(id: string, field: keyof DraftItem, text: string) {
+  function setDraftField(id: string, field: "quantity" | "days", text: string) {
     updateDraft(id, field, clampInt(text, field === "quantity" ? MAX_QUANTITY : MAX_DAYS));
   }
 
   function resetDraft() {
-    setDraft(Object.fromEntries(budget.items.map((item) => [item.id, { quantity: item.quantity, days: item.days }])));
+    setDraft(Object.fromEntries(budget.items.map((item) => { const pending = budget.requests.find((request) => request.kind === "items" && request.status === "pending")?.items.find((row) => row.id === item.id); return [item.id, pending ? { quantity: pending.quantity, days: pending.days, excluded: Boolean(pending.excluded) } : { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }]; })));
   }
 
   async function copyPaymentDetails() {
@@ -947,7 +961,7 @@ export function PortalBudgetView({
     ...option,
     helper:
       option.value === "authorize"
-        ? "Confirmá el detalle y autorizá el total visible."
+        ? "Podés retirar o restaurar ítems. Los ajustes requieren revisión del equipo antes de aprobar."
         : option.value === "discount"
           ? "Pedí una rebaja indicando el monto y el motivo."
           : "Contanos qué necesitás modificar para preparar una nueva versión.",
@@ -960,7 +974,7 @@ export function PortalBudgetView({
    * recorrido de la decisión.
    */
   const paymentsCard = (
-    <section className="portal-card" aria-labelledby="portal-payments">
+    <section className="portal-card quote-document-section--payments" aria-labelledby="portal-payments">
       <div className="portal-card-head">
         <PortalCardTitle id="portal-payments" icon="wallet">
           {approved ? "Plan de pagos" : "Plan de pagos propuesto"}
@@ -1094,7 +1108,7 @@ export function PortalBudgetView({
           Saldo sin cuota agendada: <span className="portal-num">{formatMoney(paymentPlan.pending)}</span>
         </p>
       ) : null}
-      {paymentPlan.terms ? <p className="portal-note">{paymentPlan.terms}</p> : null}
+      {paymentPlan.terms ? <div><h3 className="quote-document-subtitle">Condiciones de pago</h3><p className="quote-document-copy">{paymentPlan.terms}</p></div> : null}
       {!approved ? (
         <p className="portal-help">
           Los datos bancarios de {budget.organization} se muestran cuando autorices el presupuesto.
@@ -1407,12 +1421,11 @@ export function PortalBudgetView({
               ) : null}
             </div>
 
-            {budget.notes ? <p className="portal-note">{budget.notes}</p> : null}
 
             {budget.items.length === 0 ? (
               <p className="portal-empty">Este presupuesto no tiene ítems cargados.</p>
             ) : (
-              <div className="portal-table-wrap">
+              <div className="portal-items-wrap">
                 <table className="portal-table portal-table--items">
                   <thead>
                     <tr>
@@ -1429,21 +1442,23 @@ export function PortalBudgetView({
                       <th scope="col" className="portal-num">
                         Subtotal
                       </th>
+                      {canEdit ? <th scope="col" className="portal-item-action-cell"><span className="sr-only">Acción</span></th> : null}
                     </tr>
                   </thead>
                   <tbody>
                     {budget.items.map((item) => {
-                      const current = canEdit
-                        ? draft[item.id] ?? { quantity: item.quantity, days: item.days }
-                        : { quantity: item.quantity, days: item.days };
-                      const changed = canEdit && (current.quantity !== item.quantity || current.days !== item.days);
+                      const current = !approved
+                        ? draft[item.id] ?? { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) }
+                        : { quantity: item.quantity, days: item.days, excluded: Boolean(item.excluded) };
+                      const changed = !approved && (current.quantity !== item.quantity || current.days !== item.days || Boolean(current.excluded) !== Boolean(item.excluded));
                       return (
-                        <tr key={item.id} data-changed={changed ? "true" : undefined}>
+                        <tr key={item.id} data-excluded={current.excluded ? "true" : undefined} data-changed={changed ? "true" : undefined}>
                           <td className="portal-item-cell">
                             <span className="portal-item-identity">
                               <PortalItemThumb imageUrl={item.imageUrl} />
                               <span className="portal-item-text">
                                 <strong className="portal-item-name">{item.name}</strong>
+                                {current.excluded ? <small className="portal-item-note">Retirado / no incluido</small> : null}
                                 {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
                                 {changed ? (
                                   <small className="portal-item-note">
@@ -1455,7 +1470,7 @@ export function PortalBudgetView({
                             </span>
                           </td>
                           <td className="portal-num" data-label="Cantidad">
-                            {canEdit ? (
+                            {canEdit && !current.excluded ? (
                               <Stepper
                                 value={current.quantity}
                                 max={MAX_QUANTITY}
@@ -1468,7 +1483,7 @@ export function PortalBudgetView({
                             )}
                           </td>
                           <td className="portal-num" data-label="Días">
-                            {canEdit ? (
+                            {canEdit && !current.excluded ? (
                               <Stepper
                                 value={current.days}
                                 max={MAX_DAYS}
@@ -1481,7 +1496,21 @@ export function PortalBudgetView({
                             )}
                           </td>
                           <td className="portal-num" data-label="Precio unitario">{formatMoney(item.unitPrice)}</td>
-                          <td className="portal-num" data-label="Subtotal">{formatMoney(item.unitPrice * current.quantity * current.days)}</td>
+                          <td className={`portal-num${canEdit ? " portal-item-subtotal" : ""}`} data-label="Subtotal">{formatMoney(current.excluded ? 0 : item.unitPrice * current.quantity * current.days)}</td>
+                          {canEdit ? (
+                            <td className="portal-item-action-cell">
+                              <button
+                                type="button"
+                                className="portal-item-action"
+                                title={`${current.excluded ? "Restaurar" : "Retirar"} ${item.name}`}
+                                aria-label={`${current.excluded ? "Restaurar" : "Retirar"} ${item.name}`}
+                                disabled={sending}
+                                onClick={() => setDraft((rows) => ({ ...rows, [item.id]: { ...current, ...(!current.excluded ? { quantity: item.quantity, days: item.days } : {}), excluded: !current.excluded } }))}
+                              >
+                                <AdminIcon name={current.excluded ? "refresh" : "trash"} size={18} />
+                              </button>
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}
@@ -1521,8 +1550,15 @@ export function PortalBudgetView({
             ) : null}
           </section>
 
-          {budget.deliveryAt || budget.ivaType || budget.warranty ? (
-            <section className="portal-card" aria-labelledby="portal-terms">
+          {budget.notes ? (
+            <section className="portal-card quote-document-section--observations" aria-labelledby="portal-observations">
+              <PortalCardTitle id="portal-observations" icon="edit">Observaciones</PortalCardTitle>
+              <p className="quote-document-copy">{budget.notes}</p>
+            </section>
+          ) : null}
+
+          {budget.deliveryAt || budget.ivaType || budget.warranty || budget.validUntil ? (
+            <section className="portal-card quote-document-section--conditions" aria-labelledby="portal-terms">
               <div className="portal-card-head">
                 <PortalCardTitle id="portal-terms" icon="plan">
                   Condiciones de la propuesta
@@ -1556,6 +1592,8 @@ export function PortalBudgetView({
             </section>
           ) : null}
 
+          <PortalQuoteResources budget={budget} token={token} />
+
           {!approved && !revisionPending ? (
         <section className="portal-card portal-card--action" aria-labelledby="portal-action" ref={actionRef}>
           <div className="portal-card-head">
@@ -1585,7 +1623,7 @@ export function PortalBudgetView({
                     <p className="portal-action-intent" role="status">
                       {actionMode === "authorize" ? (
                         <>
-                          Vas a autorizar por <strong className="portal-num">{formatMoney(actionTotal)}</strong>{" "}
+                          {itemsChanged || pendingRequests.some((request) => request.kind === "items") ? "Vas a solicitar revisión por " : "Vas a autorizar por "}<strong className="portal-num">{formatMoney(actionTotal)}</strong>{" "}
                           {itemsChanged
                             ? `con ${formatNumber(draftChanges.length)} ${draftChanges.length === 1 ? "ítem ajustado" : "ítems ajustados"}`
                             : "tal como está el presupuesto"}
@@ -1612,7 +1650,7 @@ export function PortalBudgetView({
                   </>
                 ) : (
                   <p className="portal-action-intent" role="status">
-                    Vas a autorizar por <strong className="portal-num">{formatMoney(budget.total)}</strong> tal como está el
+                    {itemsChanged || pendingRequests.some((request) => request.kind === "items") ? "Vas a solicitar revisión por " : "Vas a autorizar por "}<strong className="portal-num">{formatMoney(budget.total)}</strong> tal como está el
                     presupuesto.
                   </p>
                 )}
@@ -1726,14 +1764,14 @@ export function PortalBudgetView({
                         required
                       />
                       <span id="portal-consent-hint">
-                        Confirmo que revisé el detalle, los montos y las condiciones, y autorizo este presupuesto por{" "}
+                        {itemsChanged || pendingRequests.some((request) => request.kind === "items") ? "Confirmo que solicito revisar esta selección propuesta por " : "Confirmo que revisé el detalle, los montos y las condiciones, y autorizo este presupuesto por "}
                         <strong className="portal-num">{formatMoney(actionTotal)}</strong> en nombre de {clientLabel}.
                       </span>
                     </label>
                     {/* Finalidad en texto claro + política (issue #93): el consentimiento
                         ya queda auditado con nombre, fecha/hora e IP; acá solo se informa. */}
                     <p className="portal-consent-purpose" id="portal-consent-purpose">
-                      Finalidad: registrar tu autorización del presupuesto y su evidencia (nombre, la fecha y hora, y la IP).{" "}
+                      Finalidad: registrar tu solicitud o autorización y su evidencia (nombre, fecha, hora e IP).{" "}
                       Consultá la{" "}
                       <a href={privacyPolicyUrl()} target="_blank" rel="noreferrer">
                         política de privacidad
@@ -1761,7 +1799,7 @@ export function PortalBudgetView({
                   aria-busy={sending || undefined}
                 >
                   {sending ? <span className="portal-spinner" aria-hidden="true" /> : null}
-                  <span>{sending ? "Enviando…" : actionMode === "authorize" ? `Autorizar por ${formatMoney(actionTotal)}` : ACTION_BUTTON[actionMode]}</span>
+                  <span>{sending ? "Enviando…" : actionMode === "authorize" ? (itemsChanged || pendingRequests.some((request) => request.kind === "items") ? "Enviar selección para revisión" : `Autorizar por ${formatMoney(actionTotal)}`) : ACTION_BUTTON[actionMode]}</span>
                 </button>
                 <p className="portal-submit-state" role="status" aria-live="polite">
                   {sending
@@ -1777,6 +1815,12 @@ export function PortalBudgetView({
           {approved ? null : paymentsCard}
 
           {approved ? null : proofCard}
+
+          <section className="portal-card quote-document-section--issuer" aria-labelledby="portal-issuer">
+            <PortalCardTitle id="portal-issuer" icon="building">Emitido por</PortalCardTitle>
+            <p className="quote-document-copy"><strong>{budget.organization}</strong></p>
+            <p className="portal-help">La firma electrónica, cuando corresponda, se realiza en un proceso separado.</p>
+          </section>
 
 
           {budget.proofs.length > 0 ? (

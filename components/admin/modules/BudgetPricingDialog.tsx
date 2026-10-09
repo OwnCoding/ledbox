@@ -13,15 +13,22 @@ import {
   NumberField,
   PercentField,
   SelectField,
+  SwitchField,
   TextAreaField,
   TextField,
 } from "@/components/admin/AdminFields";
+import { BudgetReferenceLinks } from "./BudgetReferenceLinks";
+import { InventoryLinkPicker } from "./BudgetInventoryPicker";
+import { quoteProductPrice } from "@/lib/quote-sharing";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
+import { useAdminSession } from "@/components/admin/AdminShell";
 import { AdminIcon } from "@/components/admin/AdminIcons";
 import { adminApiUpload, adminSend } from "@/lib/admin-api";
-import { budgetReference, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
+import { budgetReference, formatDayKey, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
 import {
   BUDGET_ATTACHMENT_MAX_BYTES,
   type AdminBudgetAttachmentRow,
+  type AdminInventoryLink,
   type AdminBudgetRow,
 } from "@/lib/admin-types";
 import { discountForPrice, distributePrice, internalCostOf, marginOf, priceForMargin } from "@/lib/budget-costs";
@@ -39,6 +46,8 @@ import { discountForPrice, distributePrice, internalCostOf, marginOf, priceForMa
  */
 
 type ItemDraft = {
+  excluded?: boolean;
+  inventory: AdminInventoryLink | null;
   id: string | null;
   name: string;
   quantity: string;
@@ -52,6 +61,7 @@ type Draft = {
   materialCost: string;
   laborCost: string;
   price: string;
+  priceAdjustment: number;
   marginPercent: string;
   validUntil: string;
   deliveryAt: string;
@@ -69,7 +79,9 @@ const IVA_OPTIONS = [
 
 function toItemDraft(item: AdminBudgetRow["items"][number]): ItemDraft {
   return {
+    inventory: item.inventory ? { ...item.inventory, imageUrl: inventoryImageUrl({ ...item.inventory, imageUrl: item.inventory.imageUrl ?? null }) } : null,
     id: item.id,
+    excluded: Boolean(item.excluded),
     name: item.name,
     quantity: String(item.quantity),
     days: String(item.days),
@@ -84,6 +96,7 @@ function draftFrom(budget: AdminBudgetRow): Draft {
     materialCost: String(budget.materialCost ?? 0),
     laborCost: String(budget.laborCost ?? 0),
     price: String(budget.total),
+    priceAdjustment: budget.total - budget.items.reduce((sum, item) => sum + (item.excluded ? 0 : item.quantity * item.days * item.unitPrice), 0),
     marginPercent: "",
     validUntil: budget.validUntil ? budget.validUntil.slice(0, 10) : "",
     deliveryAt: budget.deliveryAt ? budget.deliveryAt.slice(0, 10) : "",
@@ -107,6 +120,7 @@ export function BudgetPricingDialog({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
+  const { organization } = useAdminSession();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(budget));
   const [attachments, setAttachments] = useState<AdminBudgetAttachmentRow[]>(budget.attachments ?? []);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
@@ -123,7 +137,7 @@ export function BudgetPricingDialog({
         const days = Math.max(1, number(item.days));
         const unitPrice = number(item.unitPrice);
         const costPrice = number(item.costPrice);
-        return { id: item.id, name: item.name, quantity, days, unitPrice, costPrice, subtotal: quantity * days * unitPrice };
+        return { inventoryId: item.inventory?.id ?? null, id: item.id, name: item.name, quantity, days, unitPrice, costPrice, excluded: item.excluded, subtotal: item.excluded ? 0 : quantity * days * unitPrice };
       }),
     [draft.items],
   );
@@ -131,21 +145,25 @@ export function BudgetPricingDialog({
   const cost = internalCostOf({
     materialCost: number(draft.materialCost),
     laborCost: number(draft.laborCost),
-    items: priced.map((item) => ({ quantity: item.quantity, days: item.days, costPrice: item.costPrice })),
+    items: priced.filter((item) => !item.excluded).map((item) => ({ quantity: item.quantity, days: item.days, costPrice: item.costPrice })),
   });
   const price = number(draft.price);
   const margin = marginOf(price, cost.total);
   const intent = discountForPrice(itemsSubtotal, price);
   const needsRepricing = !intent.ok && price > 0;
-  const repriced = needsRepricing ? distributePrice(priced, price) : null;
+  const activePriced = priced.filter((item) => !item.excluded);
+  const repriced = needsRepricing ? distributePrice(activePriced, price) : null;
   const marginPercentValue = draft.marginPercent ? Number(draft.marginPercent.replace(",", ".")) : null;
   const suggested = marginPercentValue !== null && Number.isFinite(marginPercentValue) ? priceForMargin(cost.total, marginPercentValue) : null;
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {
-    setDraft((current) => ({
-      ...current,
-      items: current.items.map((item, position) => (position === index ? { ...item, ...patch } : item)),
-    }));
+    setDraft((current) => {
+      const old = current.items[index];
+      const next = { ...old, ...patch };
+      const subtotal = (item: ItemDraft) => item.excluded ? 0 : Math.max(1, number(item.quantity)) * Math.max(1, number(item.days)) * number(item.unitPrice);
+      const items = current.items.map((item, position) => position === index ? next : item);
+      return { ...current, price: String(Math.max(0, items.reduce((sum, item) => sum + subtotal(item), 0) + current.priceAdjustment)), items };
+    });
   }
 
   /** Ajusta los precios unitarios para llegar al precio final escrito (misma suma). */
@@ -155,13 +173,13 @@ export function BudgetPricingDialog({
       return;
     }
     setError("");
-    setDraft((current) => ({ ...current, price: String(suggested) }));
+    setDraft((current) => ({ ...current, price: String(suggested), priceAdjustment: suggested - itemsSubtotal }));
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (priced.length === 0) {
+    if (priced.length === 0 || priced.some((item) => !item.name.trim())) {
       setError("El presupuesto necesita al menos un ítem con nombre.");
       return;
     }
@@ -169,13 +187,14 @@ export function BudgetPricingDialog({
     try {
       // 1) Ítems: se guardan si cambió algo (o si el precio final obliga a
       //    repartirlo entre los precios unitarios).
-      const itemsPayload = priced.map((item, index) => ({
+      const itemsPayload = priced.map((item) => ({
         id: item.id ?? undefined,
         name: item.name,
         quantity: item.quantity,
         days: item.days,
-        unitPrice: needsRepricing ? repriced?.items[index]?.unitPrice ?? item.unitPrice : item.unitPrice,
+        unitPrice: needsRepricing && !item.excluded ? repriced?.items[activePriced.indexOf(item)]?.unitPrice ?? item.unitPrice : item.unitPrice,
         costPrice: item.costPrice,
+        inventoryId: item.inventoryId,
       }));
       const itemsChanged =
         needsRepricing ||
@@ -185,6 +204,7 @@ export function BudgetPricingDialog({
           return (
             !item.id ||
             !original ||
+            item.inventoryId !== (original.inventoryId ?? null) ||
             item.name !== original.name ||
             item.quantity !== original.quantity ||
             item.days !== original.days ||
@@ -232,6 +252,16 @@ export function BudgetPricingDialog({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function setAttachmentVisibility(attachment: AdminBudgetAttachmentRow, clientVisible: boolean) {
+    if (attachmentBusy) return;
+    setAttachmentBusy(true); setError("");
+    try {
+      const result = await adminSend(`/api/admin/budgets/attachments/${attachment.id}`, { clientVisible }, "PATCH");
+      if (!result.ok) { setError(result.error); return; }
+      setAttachments((rows) => rows.map((row) => row.id === attachment.id ? { ...row, clientVisible } : row));
+    } finally { setAttachmentBusy(false); }
   }
 
   async function uploadAttachment() {
@@ -285,12 +315,17 @@ export function BudgetPricingDialog({
       {closed ? <AdminNote tone="warn">Este presupuesto está {budget.status === "LOST" ? "perdido" : "cancelado"}: no se edita.</AdminNote> : null}
 
       <form onSubmit={(event) => void save(event)}>
-        <p className="admin-dialog-text">Ítems y precios (cantidades, días, precio y costo unitario).</p>
+        <h3 className="quote-document-subtitle">Productos y precio final</h3>
+        <p className="admin-dialog-text">Cantidades, días y precios. Los costos unitarios son internos.</p>
         <div className="admin-plan-list">
           {draft.items.map((item, index) => (
-            <div className="admin-plan-grid" key={item.id ?? `nuevo-${index}`}>
+            <div className="admin-plan-list" key={item.id ?? `nuevo-${index}`}>
+              {item.excluded ? <AdminNote>Retirado / no incluido. Se conserva la línea original.</AdminNote> : null}
+              <InventoryLinkPicker label={`Producto del ítem ${index + 1} (opcional)`} hint="Elegir un producto completa nombre y precio editable; no reserva stock. Sin vínculo, se conserva una línea de servicio libre." range={null} selected={item.inventory} disabled={approved || closed || busy} onSelect={(product) => updateItem(index, { inventory: product, ...(product ? { name: product.name, unitPrice: String(quoteProductPrice(product, number(item.days))) } : {}) })} />
+              <div className="admin-plan-grid">
               <TextField
                 label={`Ítem ${index + 1}`}
+                required
                 value={item.name}
                 maxLength={160}
                 disabled={approved || closed}
@@ -331,6 +366,7 @@ export function BudgetPricingDialog({
                   onClick={() => setDraft({ ...draft, items: draft.items.filter((_, position) => position !== index) })}
                 />
               ) : null}
+              </div>
             </div>
           ))}
           {!approved && !closed ? (
@@ -340,7 +376,7 @@ export function BudgetPricingDialog({
               onClick={() =>
                 setDraft({
                   ...draft,
-                  items: [...draft.items, { id: null, name: "", quantity: "1", days: "1", unitPrice: "0", costPrice: "0" }],
+                  items: [...draft.items, { inventory: null, id: null, name: "", quantity: "1", days: "1", unitPrice: "0", costPrice: "0" }],
                 })
               }
             >
@@ -368,7 +404,7 @@ export function BudgetPricingDialog({
             hint="Lo que paga el cliente"
             value={draft.price}
             disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, price: value })}
+            onChange={(value) => setDraft({ ...draft, price: value, priceAdjustment: number(value) - itemsSubtotal })}
           />
           <PercentField
             label="Margen deseado (%)"
@@ -389,38 +425,44 @@ export function BudgetPricingDialog({
           {needsRepricing && repriced ? " Al guardar, el precio se reparte entre los precios unitarios de los ítems." : ""}
         </AdminNote>
 
-        <div className="admin-plan-grid">
-          <DateField
-            label="Vigencia de la oferta"
-            value={draft.validUntil}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, validUntil: value })}
-          />
-          <DateField
-            label="Fecha de entrega"
-            value={draft.deliveryAt}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, deliveryAt: value })}
-          />
-          <SelectField
-            label="IVA"
-            value={draft.ivaType}
-            options={IVA_OPTIONS}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, ivaType: value })}
-          />
+        <section className="quote-document-section quote-document-section--conditions" aria-labelledby="quote-editor-conditions">
+          <h3 id="quote-editor-conditions" className="quote-document-subtitle">Condiciones y fechas</h3>
+          <div className="admin-plan-grid">
+            <DateField
+              label="Vigencia de la oferta"
+              value={draft.validUntil}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, validUntil: value })}
+            />
+            <DateField
+              label="Fecha de entrega"
+              value={draft.deliveryAt}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, deliveryAt: value })}
+            />
+            <SelectField
+              label="IVA"
+              value={draft.ivaType}
+              options={IVA_OPTIONS}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, ivaType: value })}
+            />
+            <TextAreaField
+              label="Garantía"
+              wide
+              value={draft.warranty}
+              maxLength={400}
+              rows={2}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, warranty: value })}
+              placeholder="Ej.: 12 meses por defectos de fabricación"
+            />
+          </div>
+        </section>
+        <section className="quote-document-section quote-document-section--observations" aria-labelledby="quote-editor-observations">
+          <h3 id="quote-editor-observations" className="quote-document-subtitle">Observaciones</h3>
           <TextAreaField
-            label="Garantía"
-            wide
-            value={draft.warranty}
-            maxLength={400}
-            rows={2}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, warranty: value })}
-            placeholder="Ej.: 12 meses por defectos de fabricación"
-          />
-          <TextAreaField
-            label="Observaciones"
+            label="Observaciones para el cliente"
             wide
             value={draft.notes}
             maxLength={2000}
@@ -428,7 +470,21 @@ export function BudgetPricingDialog({
             disabled={approved || closed}
             onChange={(value) => setDraft({ ...draft, notes: value })}
           />
-        </div>
+        </section>
+        <section className="quote-document-section quote-document-section--payments" aria-labelledby="quote-editor-payments">
+          <h3 id="quote-editor-payments" className="quote-document-subtitle">Plan y condiciones de pago</h3>
+          <p className="quote-document-copy">{budget.paymentTerms || "Sin condiciones de pago registradas."}</p>
+          <p>Anticipo: <strong>{formatMoney(budget.advanceAmount)}</strong></p>
+          {budget.installmentsJson?.length ? <ul className="quote-document-copy">{budget.installmentsJson.map((installment, index) => (
+            <li key={index}>{installment.label}: {formatMoney(installment.amount)}{installment.dueAt ? ` · ${formatDayKey(installment.dueAt)}` : ""}</li>
+          ))}</ul> : null}
+          <p className="admin-dialog-text">Vista del plan registrado. Se gestiona desde el plan de pagos del presupuesto.</p>
+        </section>
+        {organization ? <section className="quote-document-section quote-document-section--issuer" aria-labelledby="quote-editor-issuer">
+          <h3 id="quote-editor-issuer" className="quote-document-subtitle">Emitido por</h3>
+          <p className="quote-document-copy"><strong>{organization.name}</strong></p>
+          <p className="admin-dialog-text">La firma electrónica se gestiona por separado.</p>
+        </section> : null}
 
         {error ? <AdminNote tone="error">{error}</AdminNote> : null}
         <div className="admin-dialog-foot">
@@ -445,7 +501,7 @@ export function BudgetPricingDialog({
       <div className="admin-plan-list">
         <AttachmentInput
           label="Adjunto del presupuesto"
-          hint={`El PDF original u otro archivo (hasta ${Math.round(BUDGET_ATTACHMENT_MAX_BYTES / (1024 * 1024))} MB). Es interno: no se publica.`}
+          hint={`El PDF original u otro archivo (hasta ${Math.round(BUDGET_ATTACHMENT_MAX_BYTES / (1024 * 1024))} MB). Privado por defecto; solo un PDF validado puede hacerse visible explícitamente.`}
           wide
           disabled={attachmentBusy}
           onSelect={setAttachmentFile}
@@ -470,6 +526,7 @@ export function BudgetPricingDialog({
                 <small className="admin-cell-sub">
                   {formatNumber(Math.max(1, Math.round(attachment.size / 1024)))} kB · {attachment.uploadedByName}
                 </small>
+                {attachment.mime === "application/pdf" ? <SwitchField label={`Visible para el cliente: ${attachment.name}`} checked={attachment.clientVisible === true} disabled={attachmentBusy} onChange={(visible) => void setAttachmentVisibility(attachment, visible)} /> : <small>Solo interno</small>}
                 <AdminButton
                   icon="trash"
                   title={`Borrar «${attachment.name}»`}
@@ -484,6 +541,7 @@ export function BudgetPricingDialog({
           <p className="admin-dialog-text">Sin adjuntos: subí el PDF original del cliente para tenerlo a mano.</p>
         )}
       </div>
+      <BudgetReferenceLinks budgetId={budget.id} initial={budget.referenceLinks ?? []} />
     </AdminDialog>
   );
 }

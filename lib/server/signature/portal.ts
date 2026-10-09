@@ -1,3 +1,6 @@
+import { reserveBudgetInventory } from "../inventory-availability";
+import { syncBudgetExpectedPayments } from "../expected-payments";
+import { guardQuoteApproval, QuoteComparisonError } from "../quote-comparison";
 import { createHmac } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "../db";
@@ -9,7 +12,7 @@ import { recordAudit, portalAuditContext } from "../audit";
 import { rateLimit } from "../rate-limit";
 import { appendSignatureEvent, type SignatureActorInput } from "./events";
 import { hashIp, hashUserAgent, maskEmail, maskPhone, verifySignatureChain } from "./hash";
-import { budgetDocumentPayload, type SignatureBudgetDocument } from "./document";
+import { attachmentDocumentHash, budgetDocumentHash, budgetDocumentPayload, type SignatureBudgetDocument } from "./document";
 import { signatureProviderById } from "./provider";
 import { parseSignatureSubmission } from "./submission";
 import type { AdminTone } from "@/lib/admin-format";
@@ -217,7 +220,7 @@ export function portalTimeline(rows: Array<{
   }));
 }
 
-const requestInclude = {
+export const requestInclude = {
   organization: { select: { name: true, slug: true } },
   attachment: { select: { id: true, name: true, mime: true, size: true } },
   budget: {
@@ -240,7 +243,7 @@ const requestInclude = {
       event: { select: { name: true, location: true, startsAt: true, endsAt: true } },
       items: {
         orderBy: { name: "asc" },
-        select: { name: true, quantity: true, days: true, unitPrice: true, subtotal: true, notes: true },
+        select: { name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true, notes: true },
       },
     },
   },
@@ -302,6 +305,7 @@ export function signatureBudgetDocument(row: SignatureRequestRow): SignatureBudg
       days: item.days,
       unitPrice: item.unitPrice,
       subtotal: item.subtotal,
+      excluded: item.excluded,
       notes: item.notes,
     })),
     subtotal: budget.subtotal,
@@ -571,6 +575,32 @@ export async function signSignatureRequest(input: SignatureActionInput): Promise
         throw new SignatureActionError(409, "El documento cambió desde que se envió la solicitud. Pedinos un enlace nuevo.");
       }
 
+      await tx.$queryRaw`SELECT "id" FROM "Budget" WHERE "id" = ${row.budgetId} FOR UPDATE`;
+      const approvedBudget = await tx.budget.findFirst({ where: { id: row.budgetId, organizationId: row.organizationId } });
+      if (!approvedBudget) throw new SignatureActionError(404, "Presupuesto no encontrado.");
+      {
+        // Reload the commercial document only AFTER acquiring the quote lock.
+        // The creation event binds attachment signatures to quote terms too.
+        const current = await tx.signatureRequest.findUniqueOrThrow({ where: { id: row.id }, include: requestInclude });
+        const creation = await tx.signatureEvent.findFirst({ where: { requestId: row.id, eventType: "REQUEST_CREATED" }, orderBy: { occurredAt: "asc" }, select: { metadataJson: true } });
+        const metadata = creation?.metadataJson as Record<string, unknown> | null;
+        const capturedCommercialHash = typeof metadata?.commercialHash === "string" ? metadata.commercialHash : current.attachmentId ? null : current.documentHash;
+        const commercialHash = budgetDocumentHash(budgetDocumentPayload(signatureBudgetDocument(current)));
+        const attachment = current.attachmentId ? await tx.budgetAttachment.findFirst({ where: { id: current.attachmentId, budgetId: row.budgetId, organizationId: row.organizationId }, select: { data: true } }) : null;
+        const currentDocumentHash = current.attachmentId ? attachment ? attachmentDocumentHash(attachment.data) : null : commercialHash;
+        if (!capturedCommercialHash || capturedCommercialHash !== commercialHash || currentDocumentHash !== fresh.documentHash) {
+          throw new SignatureActionError(409, "El presupuesto cambió desde que se emitió la solicitud. Pedinos una nueva firma para aprobar las condiciones vigentes.");
+        }
+      }
+      await guardQuoteApproval(tx, row.budgetId, row.organizationId);
+      // Standalone signature semantics stay unchanged. Grouped signatures select
+      // and approve their alternative in the same transaction as final evidence.
+      if (approvedBudget.comparisonId && !approvedBudget.approvedAt) {
+        await tx.budget.update({ where: { id: row.budgetId }, data: {
+          status: "APPROVED", approvedAt: now, approvedByName: providerResult.signerName,
+          approvalMethod: "digital", approvalNote: "Aprobación mediante firma de alternativa.",
+        } });
+      }
       await tx.signatureRequest.update({
         where: { id: row.id },
         data: {
@@ -641,6 +671,7 @@ export async function signSignatureRequest(input: SignatureActionInput): Promise
       }
     });
   } catch (error) {
+    if (error instanceof QuoteComparisonError) throw new SignatureActionError(error.status, error.message);
     if (error instanceof SignatureActionError) throw error;
     throw error;
   }
@@ -657,6 +688,12 @@ export async function signSignatureRequest(input: SignatureActionInput): Promise
     },
   });
 
+  const grouped = await db.budget.findUnique({ where: { id: row.budgetId }, select: { comparisonId: true } });
+  if (grouped?.comparisonId) {
+    const actor = portalAuditContext(row.organizationId, providerResult.signerName, row.recipientEmail);
+    await reserveBudgetInventory({ organizationId: row.organizationId, budgetId: row.budgetId, context: actor });
+    await syncBudgetExpectedPayments({ organizationId: row.organizationId, budgetId: row.budgetId, actor, reason: "firma de alternativa" });
+  }
   await notifySignatureCompleted(row, providerResult.identifier);
 
   const view = await loadSignaturePortal(normalized);

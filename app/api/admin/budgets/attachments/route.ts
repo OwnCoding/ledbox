@@ -1,3 +1,4 @@
+import { quotePdfValid } from "@/lib/server/pdf-validation";
 import { randomUUID } from "node:crypto";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
@@ -13,17 +14,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * `POST /api/admin/budgets/attachments` (issue #65): guarda el archivo original
- * del presupuesto (el PDF del cliente u otro documento de trabajo).
- *
- * Es un adjunto **interno**: el binario vive en la base —mismo patrón que los
- * comprobantes de pago (issue #17), compatible con los backups— y se sirve solo
- * con sesión (`/api/admin/budgets/attachments/[id]`). Nunca se publica en el
- * portal ni en el imprimible. Se valida el contenido real por magic bytes
- * (JPG/PNG/WebP/PDF hasta 5 MiB) y el presupuesto tiene que ser de la empresa
- * activa. La carga queda auditada.
- */
+/** Uploads remain private by default. Only validated PDFs may be explicitly published. */
 export async function POST(request: Request) {
   const auth = await requireAdminContext("budgets.write");
   if (!auth.ok) return auth.response;
@@ -53,6 +44,9 @@ export async function POST(request: Request) {
   const mime = detectPaymentProofMime(data);
   if (!mime) return jsonError("El archivo no es un JPG, PNG, WebP o PDF real: revisá que no esté renombrado.", 400);
 
+  if (mime === "application/pdf" && !await quotePdfValid(data)) return jsonError("El PDF está incompleto o contiene funciones activas no permitidas.", 400);
+  if (form.get("clientVisible") === "true" && mime !== "application/pdf") return jsonError("Solo los PDF se pueden publicar para el cliente.", 400);
+
   const requestedName = typeof form.get("name") === "string" ? String(form.get("name")).trim() : "";
   const name = (requestedName || file.name || "adjunto").slice(0, BUDGET_ATTACHMENT_MAX_NAME);
 
@@ -66,8 +60,9 @@ export async function POST(request: Request) {
       mime,
       size: data.byteLength,
       data,
+      clientVisible: form.get("clientVisible") === "true",
     },
-    select: { id: true, budgetId: true, name: true, mime: true, size: true, uploadedByName: true, createdAt: true },
+    select: { clientVisible: true, id: true, budgetId: true, name: true, mime: true, size: true, uploadedByName: true, createdAt: true },
   });
   await recordAudit({
     context: auth.context,

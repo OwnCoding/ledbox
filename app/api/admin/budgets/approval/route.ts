@@ -1,3 +1,4 @@
+import { withQuoteApproval, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { db } from "@/lib/server/db";
 import { recordAudit } from "@/lib/server/audit";
 import { jsonError, readJson } from "@/lib/server/http";
@@ -64,7 +65,8 @@ export async function POST(request: Request) {
 
   if (decision === "approve") {
     // Idempotente: si ya hay una aprobación registrada, se devuelve tal cual.
-    const applied = await db.budget.updateMany({
+    let applied: { count: number };
+    try { applied = await withQuoteApproval(budget.id, organizationId, (tx) => tx.budget.updateMany({
       where: { id: budget.id, approvedAt: null },
       data: {
         status: "APPROVED",
@@ -73,7 +75,10 @@ export async function POST(request: Request) {
         approvalMethod: "manual",
         approvalNote: note || null,
       },
-    });
+    })); } catch (error) {
+      if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status);
+      throw error;
+    }
     if (applied.count > 0) {
       await recordAudit({
         context: auth.context,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { AppFooter } from "@/components/app-footer";
 import { BrandMark } from "@/components/brand-mark";
@@ -31,7 +32,7 @@ import {
   whatsappHref,
 } from "@/lib/admin-format";
 import { publicConfig } from "@/lib/public-config";
-import { ADMIN_NAV_GROUP_KEY, readStoredPinDigits, storePinDigits } from "@/lib/admin-theme";
+import { ADMIN_NAV_GROUP_KEY, ADMIN_ROOT_ID, readStoredPinDigits, storePinDigits } from "@/lib/admin-theme";
 import {
   adminAvatarUrl,
   organizationLogoUrl,
@@ -1059,12 +1060,21 @@ function AdminNotificationItem({ notification, writable }: { notification: Admin
  * contador), panel desplegable con los avisos ordenados por urgencia y
  * navegación al módulo de cada uno. Cierra con Escape, al salir el foco y al
  * hacer clic afuera; al abrir refresca porque los avisos salen de datos vivos.
+ *
+ * El panel se monta con `createPortal` en `#admin-root` (issue #150): dentro del
+ * topbar —que tiene `backdrop-filter`— quedaba anclado a la barra y el vidrio del
+ * panel no muestreaba la página, así que el contenido se transparentaba y el
+ * aviso se volvía ilegible en móvil. El ancla sale de medir la campana y viaja
+ * por variables CSS; en ≤560 px el panel ocupa el ancho de la pantalla.
  */
 function AdminNotificationBell() {
   const pathname = usePathname();
   const { role } = useAdminSession();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const focusOnMountRef = useRef(false);
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
   const feed = useAdminNotifications();
   const notifications = feed.data?.notifications ?? [];
   const counts = feed.data?.notificationCounts ?? EMPTY_NOTIFICATION_COUNTS;
@@ -1075,20 +1085,49 @@ function AdminNotificationBell() {
     setOpen(false);
   }, [pathname]);
 
+  const measureAnchor = useCallback(() => {
+    const node = wrapRef.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    setAnchor({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+  }, []);
+
+  // Antes del pintado: el portal queda bajo la campana y el foco entra al panel.
+  useIsomorphicLayoutEffect(() => {
+    if (!open) {
+      setAnchor(null);
+      focusOnMountRef.current = false;
+      return;
+    }
+    measureAnchor();
+    window.addEventListener("resize", measureAnchor);
+    return () => window.removeEventListener("resize", measureAnchor);
+  }, [open, measureAnchor]);
+
   useEffect(() => {
     if (!open) return;
+    function inside(target: EventTarget | null): boolean {
+      return (
+        target instanceof Node &&
+        (Boolean(wrapRef.current?.contains(target)) || Boolean(panelRef.current?.contains(target)))
+      );
+    }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
     }
     function closeOnOutside(event: PointerEvent) {
-      const node = wrapRef.current;
-      if (node && event.target instanceof Node && !node.contains(event.target)) setOpen(false);
+      if (!inside(event.target)) setOpen(false);
+    }
+    function closeOnFocusAway(event: FocusEvent) {
+      if (!inside(event.target)) setOpen(false);
     }
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("focusin", closeOnFocusAway);
     return () => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("focusin", closeOnFocusAway);
     };
   }, [open]);
 
@@ -1097,6 +1136,7 @@ function AdminNotificationBell() {
       setOpen(false);
       return;
     }
+    focusOnMountRef.current = true;
     void feed.reload();
     setOpen(true);
   }
@@ -1107,7 +1147,9 @@ function AdminNotificationBell() {
       ref={wrapRef}
       onBlur={(event) => {
         const next = event.relatedTarget;
-        if (next && !event.currentTarget.contains(next)) setOpen(false);
+        if (!next) return;
+        if (event.currentTarget.contains(next) || panelRef.current?.contains(next)) return;
+        setOpen(false);
       }}
     >
       <button
@@ -1127,42 +1169,64 @@ function AdminNotificationBell() {
         ) : null}
       </button>
 
-      {open ? (
-        <div className="admin-notif-panel" id="admin-notif-panel" role="region" aria-label="Avisos y recordatorios">
-          <header className="admin-notif-head">
-            <strong>Avisos</strong>
-            <span className="admin-notif-total">
-              {counts.total > 0
-                ? `${formatNumber(counts.overdue)} vencidos · ${formatNumber(counts.soon)} próximos`
-                : "Sin pendientes"}
-            </span>
-          </header>
-          {feed.loading && notifications.length === 0 ? (
-            <AdminLoadingRows rows={3} label="Cargando avisos" />
-          ) : feed.error ? (
-            <AdminErrorState message={feed.error} onRetry={feed.reload} />
-          ) : notifications.length === 0 ? (
-            <AdminEmpty
-              icon="check"
-              title="Sin avisos"
-              hint="No hay vencimientos, checklist pendiente ni cobros con saldo."
-            />
-          ) : (
-            <ul className="admin-notif-list">
-              {notifications.map((notification) => (
-                <li key={notification.id}>
-                  <AdminNotificationItem notification={notification} writable={canWriteFinance(role)} />
-                </li>
-              ))}
-            </ul>
-          )}
-          {notifications.length > 0 && notifications.length < counts.total ? (
-            <p className="admin-notif-note">
-              Mostrando los primeros {formatNumber(notifications.length)} de {formatNumber(counts.total)} avisos; el resto vive en cada módulo.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      {open && anchor
+        ? createPortal(
+            <div
+              className="admin-notif-panel"
+              id="admin-notif-panel"
+              role="region"
+              aria-label="Avisos y recordatorios"
+              tabIndex={-1}
+              ref={(node) => {
+                panelRef.current = node;
+                if (node && focusOnMountRef.current) {
+                  focusOnMountRef.current = false;
+                  node.focus({ preventScroll: true });
+                }
+              }}
+              style={
+                {
+                  "--admin-notif-top": `${anchor.top}px`,
+                  "--admin-notif-right": `${anchor.right}px`,
+                } as React.CSSProperties
+              }
+            >
+              <header className="admin-notif-head">
+                <strong>Avisos</strong>
+                <span className="admin-notif-total">
+                  {counts.total > 0
+                    ? `${formatNumber(counts.overdue)} vencidos · ${formatNumber(counts.soon)} próximos`
+                    : "Sin pendientes"}
+                </span>
+              </header>
+              {feed.loading && notifications.length === 0 ? (
+                <AdminLoadingRows rows={3} label="Cargando avisos" />
+              ) : feed.error ? (
+                <AdminErrorState message={feed.error} onRetry={feed.reload} />
+              ) : notifications.length === 0 ? (
+                <AdminEmpty
+                  icon="check"
+                  title="Sin avisos"
+                  hint="No hay vencimientos, checklist pendiente ni cobros con saldo."
+                />
+              ) : (
+                <ul className="admin-notif-list">
+                  {notifications.map((notification) => (
+                    <li key={notification.id}>
+                      <AdminNotificationItem notification={notification} writable={canWriteFinance(role)} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {notifications.length > 0 && notifications.length < counts.total ? (
+                <p className="admin-notif-note">
+                  Mostrando los primeros {formatNumber(notifications.length)} de {formatNumber(counts.total)} avisos; el resto vive en cada módulo.
+                </p>
+              ) : null}
+            </div>,
+            document.getElementById(ADMIN_ROOT_ID) ?? document.body,
+          )
+        : null}
     </div>
   );
 }

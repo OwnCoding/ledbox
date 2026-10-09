@@ -11,6 +11,7 @@ import {
   tonoVencimiento,
 } from "owncoding-ui/utils";
 import { APP_VERSION, nuevaVersionDisponible, partesVersion as partesVersionApp } from "../lib/version";
+import { countdownDays, countdownTone } from "../lib/admin-format";
 
 /**
  * Tanda 1 del plan #100 (issue #105): los utils puros entran por el subcamino
@@ -52,7 +53,7 @@ test("qrDataUrl delega en la librería y conserva las opciones del QR", () => {
   assert.match(qr, /import \{ QR_OPCIONES, qrDataUrl as qrDataUrlDeLibreria \} from "owncoding-ui\/utils"/);
 });
 
-test("countdownDays y countdownTone siguen el contrato de la librería", () => {
+test("countdownDays and countdownTone share the canonical Paraguay calendar", (t) => {
   assert.equal(diasHasta("2026-10-03", { hoy: "2026-10-01" }), 2);
   assert.equal(diasHasta("2026-02-31"), null, "un día inexistente ya no se corre de fecha");
   assert.equal(tonoVencimiento("2026-09-29", { hoy: "2026-09-30" }), "bad");
@@ -60,7 +61,20 @@ test("countdownDays y countdownTone siguen el contrato de la librería", () => {
   assert.equal(tonoVencimiento("2026-11-30", { hoy: "2026-09-30" }), "");
   const format = repoFile("lib/admin-format.ts");
   assert.match(format, /diasHasta\(value, \{ timeZone: TIME_ZONE \}\)/);
-  assert.match(format, /tonoVencimiento\(value\)/);
+  const now = new Date("2026-10-09T01:54:00Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
+  for (const [date, expectedDays, expectedTone] of [
+    ["2026-10-07", -1, "danger"],
+    ["2026-10-08", 0, "warn"],
+    ["2026-10-15", 7, "warn"],
+    ["2026-10-16", 8, "neutral"],
+    ["2026-02-31", null, "neutral"],
+  ] as const) {
+    const canonicalDays = diasHasta(date, { hoy: now, timeZone: "America/Asuncion" });
+    assert.equal(canonicalDays, expectedDays);
+    assert.equal(countdownDays(date), canonicalDays);
+    assert.equal(countdownTone(date), expectedTone);
+  }
 });
 
 test("el RUC del lead y del cliente se guarda con los helpers de la librería", () => {

@@ -17,6 +17,7 @@ export const SIGNATURE_DOCUMENT_VERSION = 1;
 
 export type SignatureDocumentItem = {
   name: string;
+  excluded?: boolean;
   quantity: number;
   days: number;
   unitPrice: number;
@@ -73,6 +74,7 @@ export function budgetDocumentPayload(budget: SignatureBudgetDocument): Record<s
     paymentTerms: budget.paymentTerms,
     items: budget.items.map((item) => ({
       name: item.name,
+      ...(item.excluded ? { excluded: true } : {}),
       quantity: item.quantity,
       days: item.days,
       unitPrice: item.unitPrice,

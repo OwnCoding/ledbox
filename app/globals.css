@@ -1716,7 +1716,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-table--eventos { --eventos-cols: 7.5rem 7rem minmax(8.5rem, 1.6fr) minmax(6.5rem, 1.1fr) minmax(5.5rem, 1fr) 4rem 4.5rem 5.75rem 7.5rem; --admin-cols: var(--eventos-cols); --admin-table-min: 61rem; }
 /* Presupuestos (issue #143): prioridad visual a monto, vencimiento, cliente y
    próximo paso; después ítems, cobrado, saldo, margen, portal y acciones. */
-.admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) minmax(6.25rem, 1fr) 5.5rem minmax(6.75rem, 1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
+.admin-table--presupuestos { --presupuestos-cols: minmax(18rem, 2fr) minmax(10rem, 1fr) 8rem 7rem 10rem 4rem 8rem 8rem 8rem 9rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 112rem; }
 /* Firmas (issue #81): documento con su presupuesto de origen, destinatario
    enmascarado, estado con el método, vencimiento con cuenta regresiva, último
    correo, alta y acciones. Fila compacta: en mobile la tabla se desplaza sola. */
@@ -2128,8 +2128,18 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
    tabla del panel; el nivel real (`data-level`) define el tono y el borde. */
 .admin-notif { position: relative; }
 .admin-notif-toggle { position: relative; }
+/* La campana conserva el dibujo de 34 px pero el área táctil llega a 44 reales:
+   el `::after` crece 6 px por lado sobre el padding box (32) y el borde de 1 px
+   no cuenta. Va en todos los anchos: mismo target en tablet y escritorio táctil. */
+.admin-notif-toggle::after { content: ""; position: absolute; inset: -6px; }
 .admin-notif-count { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border: 1px solid var(--a-panel); border-radius: 999px; background: var(--a-danger); color: #2b0410; font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.admin-notif-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; display: grid; gap: 8px; width: min(25rem, calc(100vw - 24px)); max-height: min(70vh, 32rem); overflow-y: auto; padding: 12px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius-lg); background: var(--a-panel); box-shadow: var(--a-shadow); scrollbar-width: thin; scrollbar-color: var(--a-line-2) transparent; }
+/* El panel se monta con portal en `#admin-root` (issue #150): dentro del topbar
+   —que tiene `backdrop-filter`— quedaba anclado a la barra y su vidrio no
+   muestreaba la página. El ancla del portal la miden los estilos inline. */
+.admin-notif-panel { position: fixed; top: var(--admin-notif-top, calc(var(--a-topbar) + 8px)); right: var(--admin-notif-right, 16px); z-index: 30; display: grid; gap: 8px; width: min(25rem, calc(100vw - 24px)); max-height: min(70vh, 32rem); overflow-y: auto; padding: 12px; border: 1px solid var(--a-line-2); border-radius: var(--a-radius-lg); background: var(--a-panel); box-shadow: var(--a-shadow); scrollbar-width: thin; scrollbar-color: var(--a-line-2) transparent; }
+/* El foco entra al panel al abrir para que el teclado siga su contenido; el
+   contenedor no es accionable, así que no dibuja anillo propio. */
+.admin-notif-panel:focus, .admin-notif-panel:focus-visible { outline: none; }
 .admin-notif-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .admin-notif-head strong { color: var(--a-text-strong); font: 700 12.5px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
 .admin-notif-total { color: var(--a-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -2149,8 +2159,17 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 /* El Resumen es una grilla de paneles: los avisos van a todo el ancho. */
 .admin-panel-wide { grid-column: 1 / -1; }
 @media (max-width: 560px) {
-  /* El `backdrop-filter` del topbar es el bloque contenedor del panel fijo: queda pegado a la barra. */
-  .admin-notif-panel { position: fixed; top: calc(var(--a-topbar) + 6px); left: 10px; right: 10px; width: auto; max-height: min(64vh, 26rem); }
+  /* El panel portalado se apoya debajo de la barra y ocupa el ancho visible. */
+  .admin-notif-panel { top: calc(var(--a-topbar) + 6px); left: 10px; right: 10px; width: auto; max-height: min(64vh, 26rem); }
+  /* Aviso en dos líneas: el texto deja de competir con la fecha y la acción;
+     el cuerpo entero navega (enlace estirado) y WhatsApp mide 44 px. */
+  .admin-notif-item { position: relative; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "badge main actions" "badge date actions"; row-gap: 2px; }
+  .admin-notif-item > .admin-badge { grid-area: badge; align-self: start; }
+  .admin-notif-item .admin-notif-main { grid-area: main; align-content: center; min-height: 44px; }
+  .admin-notif-item .admin-notif-main::after { content: ""; position: absolute; inset: 0; }
+  .admin-notif-item .admin-notif-date { grid-area: date; }
+  .admin-notif-item > .admin-iconbtn { position: relative; z-index: 1; grid-area: actions; align-self: center; width: 44px; height: 44px; }
+  .admin-notif-item > .admin-icon { display: none; }
 }
 
 /* ── Trabajo de campo offline (issue #23) ──
@@ -2405,6 +2424,9 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-cards-foot { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--a-line); }
 .admin-cards-foot > .admin-actions { flex: 1 1 auto; }
 .admin-cards-foot > .admin-filter { flex: 0 1 9.5rem; margin-right: auto; }
+/* El detalle de auditoría dentro de la tarjeta (issue #154): ocupa el ancho
+   completo y deja de ser sticky (la tabla ya no se desplaza). */
+.admin-cards-foot > .admin-audit-detail { flex: 1 1 100%; position: static; width: 100%; }
 @media (max-width: 480px) {
   .admin-cards { grid-template-columns: 1fr; }
 }
@@ -3047,30 +3069,36 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-segment + .portal-segment { border-left: 1px solid var(--border-2); }
 .portal-segment[data-active="true"] { background: var(--led-soft); color: var(--led); }
 .portal-ok { color: var(--p-ok); font-size: 12.5px; line-height: 1.5; }
-.portal-table--items { min-width: 36rem; }
-.portal-table--items tr[data-changed="true"] td { background: color-mix(in srgb, var(--led) 4%, transparent); }
-.portal-table--items td:first-child { min-width: 12rem; }
-.portal-item-name { font-weight: 600; }
-/* Miniatura del ítem (issue #107): caja uniforme con la foto entera
-   (`contain`) y fallback al ícono; mismo criterio del inventario (#98). */
-.portal-item-identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.portal-item-text { display: grid; gap: 2px; min-width: 0; }
-.portal-item-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); color: var(--muted); }
+/* Quote and signature lines are reflowing cards, never a wide scrollable table. */
+.portal-items-wrap { min-width: 0; overflow: visible; }
+.portal-table--items { display: block; width: 100%; min-width: 0; }
+.portal-table--items thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.portal-table--items tbody { display: grid; gap: 12px; min-width: 0; }
+.portal-table--items tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) 44px; gap: 10px 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
+.portal-table--items td { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-width: 0; padding: 0; border: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.portal-table--items td::before { content: attr(data-label); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.portal-table--items td.portal-item-cell { grid-column: 1 / -1; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.portal-table--items td.portal-item-cell::before { content: none; }
+.portal-table--items td[data-label="Cantidad"] { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+.portal-table--items td[data-label="Días"] { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+.portal-table--items td[data-label="Precio unitario"] { grid-column: 1 / -1; }
+.portal-table--items td[data-label="Subtotal"] { grid-column: 1 / -2; padding-top: 10px; border-top: 1px solid var(--border); font-weight: 700; }
+.portal-table--items td.portal-item-action-cell { grid-column: -2 / -1; align-items: flex-end; justify-content: flex-end; width: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.portal-table--items td.portal-item-action-cell::before { content: none; }
+.portal-table--items tbody tr[data-changed="true"] { border-color: color-mix(in srgb, var(--led) 45%, transparent); }
+.portal-item-name { font-weight: 600; overflow-wrap: anywhere; }
+.portal-item-identity { display: flex; align-items: flex-start; gap: 12px; min-width: 0; width: 100%; }
+.portal-item-text { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.portal-item-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 64px; height: 64px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface); color: var(--muted); }
 .portal-item-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
-/* Mobile: cada ítem se lee como una ficha apilada (sin scroll horizontal). */
-@media (max-width: 640px) {
-  .portal-table--items { min-width: 0; }
-  .portal-table--items thead { display: none; }
-  .portal-table--items, .portal-table--items tbody, .portal-table--items tr, .portal-table--items td { display: block; width: 100%; }
-  .portal-table--items tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
-  .portal-table--items tr[data-changed="true"] { border-color: color-mix(in srgb, var(--led) 45%, transparent); }
-  .portal-table--items tr[data-changed="true"] td { background: none; }
-  .portal-table--items td { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
-  .portal-table--items td + td { border-top: 1px solid var(--border); }
-  .portal-table--items td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-  .portal-table--items td.portal-item-cell { display: block; padding-top: 0; }
-  .portal-table--items td.portal-item-cell::before { content: none; }
+@media (min-width: 768px) {
+  .portal-table--items tbody tr { grid-template-columns: repeat(3, minmax(0, 1fr)) 44px; }
+  .portal-table--items td[data-label="Cantidad"] { grid-column: 1; flex-direction: column; align-items: flex-start; }
+  .portal-table--items td[data-label="Días"] { grid-column: 2; flex-direction: column; align-items: flex-start; }
+  .portal-table--items td[data-label="Precio unitario"] { grid-column: 3 / -1; }
 }
+.portal-table--items .portal-step { width: 44px; height: 44px; }
+.portal-table--items .portal-stepper input { min-height: 44px; width: 2.8rem; padding: 6px 2px; }
 .portal-table-caption { margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-align: left; text-transform: uppercase; }
 .portal-table--plan { min-width: 24rem; }
 /* Pagos esperados (issue #28): el plan muestra el estado real de cada concepto,
@@ -3103,6 +3131,8 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .portal-table--plan:not(.portal-table--expected) td { display: block; width: 100%; }
   .portal-table--plan:not(.portal-table--expected) tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
   .portal-table--plan:not(.portal-table--expected) td { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
+  .portal-table--plan:not(.portal-table--expected) td[data-label="Vencimiento"] { flex-wrap: wrap; }
+  .portal-table--plan:not(.portal-table--expected) td[data-label="Vencimiento"] .portal-countdown { min-width: 0; max-width: 100%; margin-left: 0; white-space: normal; overflow-wrap: anywhere; }
   .portal-table--plan:not(.portal-table--expected) td + td { border-top: 1px solid var(--border); }
   .portal-table--plan:not(.portal-table--expected) td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
   .portal-table--plan:not(.portal-table--expected) td:first-child { display: block; padding-top: 0; color: var(--text); font-weight: 700; }
@@ -3407,7 +3437,7 @@ html:has(.producto[data-theme="light"]), html:has(.producto[data-theme="light"])
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
 }
-.producto-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--text-strong); font: 700 14px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.producto-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--text-strong); font: 700 14px var(--font-display); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; }
 .producto-brand-mark { display: block; }
 .producto-brand-dot { color: var(--led); }
 /* `nav` del sitio es `position: fixed` y alcanza a cualquier `<nav>`: acá se
@@ -3499,6 +3529,69 @@ html:has(.producto[data-theme="light"]), html:has(.producto[data-theme="light"])
   .producto-button { transition: none; }
   .producto-card, .producto-steps li { transition: none; }
   .producto-button:hover, .producto-card:hover, .producto-steps li:hover { transform: none; }
+}
+
+/* ── PÁGINAS INTERNAS DE EVENTOS (issue #168): legales, estado y 404 ──
+   Reusan la piel `.producto` y las clases legales del sitio (`.legal-head`,
+   `.legal-doc`, `.legal-facts`) con el ritmo de la landing: una columna de
+   lectura, estado en vivo con el health real y una 404 con rutas de
+   recuperación. Todo legible a 390 px. */
+.producto-legal { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding-bottom: 26px; }
+.producto-legal .crumbs { position: static; inset: auto; z-index: auto; display: block; height: auto; padding: 0; border: 0; background: none; transition: none; margin-bottom: 24px; }
+.producto-legal .legal-head { padding-top: 34px; margin-bottom: 38px; }
+.producto-legal .legal-doc, .producto-legal .legal-note { max-width: 780px; }
+.producto-legal .legal-facts dd a { color: var(--led); text-decoration: none; }
+.producto-legal .legal-facts dd a:hover { text-decoration: underline; }
+
+/* Estado en vivo (issue #168): el semáforo del health real, sin métricas inventadas. */
+.producto-status { --st-ok: #2ee6a8; --st-warn: #ffb454; --st-danger: #ff6b8a; display: grid; gap: 16px; max-width: 780px; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); }
+.producto[data-theme="light"] .producto-status { --st-ok: #0b7a4b; --st-warn: #8a5200; --st-danger: #b3264a; }
+.producto-status-head { display: flex; align-items: center; gap: 14px; }
+.producto-status-dot { width: 14px; height: 14px; flex: none; border-radius: 999px; background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 18%, transparent); }
+.producto-status--operativo .producto-status-dot { background: var(--st-ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--st-ok) 22%, transparent); }
+.producto-status--degradado .producto-status-dot { background: var(--st-warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--st-warn) 22%, transparent); }
+.producto-status--sin-conexion .producto-status-dot { background: var(--st-danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--st-danger) 22%, transparent); }
+.producto-status-state { margin: 4px 0 0; color: var(--text-strong); font: 800 clamp(20px, 3vw, 28px)/1.1 var(--font-display); letter-spacing: -.01em; }
+.producto-status-rows { display: grid; border-top: 1px solid var(--border); }
+.producto-status-row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.producto-status-row dt { color: var(--muted-2); font-size: 13px; }
+.producto-status-row dd { margin: 0; color: var(--text-strong); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.producto-status-check { margin: 0; color: var(--muted); font-size: 12px; }
+.producto-status-check strong { color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.producto-status-help { max-width: 780px; margin-top: 36px; display: grid; gap: 12px; }
+.producto-status-help h2 { margin: 0; color: var(--text-strong); font: 800 clamp(20px, 2.4vw, 26px)/1.15 var(--font-display); letter-spacing: -.01em; }
+.producto-status-help h2 .led { color: var(--led); }
+.producto-status-help p { margin: 0; color: var(--muted-2); font-size: 13.5px; line-height: 1.7; }
+.producto-status-help a { color: var(--led); text-decoration: none; }
+.producto-status-help a:hover { text-decoration: underline; }
+.producto-status-help ul { list-style: none; display: grid; gap: 9px; margin: 0; }
+.producto-status-help li { display: flex; gap: 10px; color: var(--muted-2); font-size: 13.5px; line-height: 1.7; }
+.producto-status-help li::before { content: '▸'; color: var(--led); }
+.producto-status-help .producto-cta { justify-content: flex-start; margin: 4px 0; }
+
+/* 404 de EventOS (issue #168): identidad de la marca y rutas de recuperación. */
+.producto-error { display: grid; justify-items: center; gap: 10px; padding: clamp(18px, 5vw, 46px) 0; text-align: center; }
+.producto-error-code { margin: 0; color: var(--led); font: 900 clamp(76px, 22vw, 150px)/.9 var(--font-display); letter-spacing: -.07em; }
+.producto-error h1 { margin: 6px 0 0; max-width: 24ch; color: var(--text-strong); font: 800 clamp(26px, 4.6vw, 42px)/1.1 var(--font-display); letter-spacing: -.01em; }
+.producto-error h1 span { color: var(--led); }
+.producto-error .producto-lede { font-size: 14px; }
+.producto-error-links { position: static; inset: auto; z-index: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin-top: 10px; padding: 0; padding-top: 16px; width: 100%; height: auto; border: 0; border-top: 1px solid var(--border); background: none; transition: none; }
+.producto-error-links a { color: var(--muted-2); font-size: 12.5px; font-weight: 600; letter-spacing: .04em; text-decoration: none; }
+.producto-error-links a:hover { color: var(--led); }
+
+/* Pie del producto (`variant="product"`, issue #168): enlaces legales,
+   estado, soporte y empresa responsable, con los tokens mapeados de la piel.
+   El grupo es un `<nav>`: se neutraliza la regla global del sitio, igual que
+   los subtabs del panel. */
+.app-footer--product .app-footer-links { position: static; inset: auto; z-index: auto; display: flex; flex-wrap: wrap; gap: 6px 18px; height: auto; padding: 0; border: 0; background: none; transition: none; }
+.app-footer--product .app-footer-links a { color: var(--a-muted-2); font-weight: 600; letter-spacing: .04em; text-decoration: none; }
+.app-footer--product .app-footer-links a:hover { color: var(--a-accent); }
+
+@media (max-width: 640px) {
+  .producto-legal .legal-head { padding-top: 26px; margin-bottom: 30px; }
+  .producto-status { padding: 18px 16px; }
+  .producto-status-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .producto-error-links { gap: 10px 16px; }
 }
 
 /* ─── UX DEL PANEL (22-09-2026): ayuda contextual, buscador global y barra móvil ───
@@ -3835,3 +3928,89 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-ia-lote-label strong { color: var(--a-muted); font: 700 10px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
 .admin-ia-lote-error { color: var(--a-danger); font-size: 11.5px; }
 .admin-ia-lote-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+/* Quote-only geometry: headings and cells use identical tracks and box edges. */
+.admin-table--presupuestos > .admin-table-head,
+.admin-table--presupuestos > .admin-table-row { grid-template-columns: var(--presupuestos-cols); padding-inline: 12px; border-width: 1px; border-style: solid; }
+.admin-table--presupuestos > .admin-table-head { border-color: transparent; }
+.admin-table--presupuestos > .admin-table-row { padding-block: 8px; }
+.admin-table--presupuestos .admin-cell--end { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+.admin-table--presupuestos .admin-cell:first-child { white-space: normal; }
+.admin-quote-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35; }
+.admin-table--presupuestos .admin-cell--actions,
+.admin-table--presupuestos .admin-table-head > .admin-cell:last-child { position: sticky; right: -12px; z-index: 2; margin: 0; padding: 0; background: var(--a-panel); box-shadow: -10px 0 12px -12px rgba(0,0,0,.6); }
+.admin-table--presupuestos .admin-actions { display: inline-flex; flex-wrap: nowrap; max-width: 100%; gap: 4px; }
+.admin-quote-product-row { grid-template-columns: 40px minmax(0, 1fr) auto auto; grid-template-areas: "photo name free action"; }
+.admin-quote-product-row .admin-item-thumb { grid-area: photo; }
+.admin-quote-product-row .admin-link-name { grid-area: name; }
+.admin-quote-product-row .admin-link-free { grid-area: free; }
+.admin-quote-product-row > .admin-btn { grid-area: action; }
+.admin-quote-resource, .portal-quote-resource { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; overflow-wrap: anywhere; }
+.admin-quote-create-item { grid-column: 1 / -1; display: grid; gap: 12px; padding-block: 12px; border-top: 1px solid var(--a-line); }
+.admin-menu-pop { max-width: calc(100vw - 16px); max-height: min(70vh, calc(100dvh - 16px)); z-index: 80; }
+.admin-menu-item { min-height: 44px; }
+@media (max-width: 600px) { .admin-quote-product-row { grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "photo name action" ". free free"; } }
+
+.admin-menu-item:focus-visible { outline: 2px solid var(--a-accent); outline-offset: -2px; }
+
+/* Optional quote alternatives use existing portal/admin surface tokens. */
+.portal-comparison-choices { border:0; padding:0; margin:0; min-width:0; }
+.portal-comparison-choices legend { margin-bottom:.75rem; font-weight:600; }
+.portal-comparison-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 22rem),1fr)); gap:1rem; align-items:start; }
+.portal-comparison-option { min-width:0; overflow-wrap:anywhere; }
+.portal-comparison-total { font-size:1.8rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.portal-comparison-items { list-style:none; padding:0; display:grid; gap:1rem; }
+.portal-comparison-items li { display:flex; gap:.75rem; align-items:flex-start; }
+.portal-comparison-items li > div { min-width:0; }
+.portal-comparison-items p { margin:.25rem 0; }
+.portal-comparison-select { display:flex; gap:.75rem; align-items:center; margin:1rem 0; padding:.5rem 0; cursor:pointer; }
+.portal-comparison-select input { width:1.25rem; height:1.25rem; flex-shrink:0; accent-color:var(--p-accent, #00e5ff); }
+.portal-comparison dl { display:grid; grid-template-columns:minmax(5rem,1fr) minmax(0,2fr); gap:.5rem; }
+.portal-comparison dd { margin:0; overflow-wrap:anywhere; }
+.admin-comparison-existing { padding:1rem 0; border-bottom:1px solid var(--a-line); }
+.admin-comparison-existing .admin-actions { flex-wrap:wrap; }
+.admin-comparison-candidates { display:grid; gap:.75rem; max-height:22rem; overflow:auto; padding:.5rem 0; }
+
+.admin-table--presupuestos > .admin-table-row:hover > .admin-cell--actions { background: var(--a-panel-2); }
+.admin-table--presupuestos > .admin-table-head > .admin-cell:last-child { background: var(--a-sticky-bg, var(--a-panel)); }
+
+/* Retained excluded quote lines: state is also labeled in text. */
+.portal-budget [data-excluded="true"], .portal-comparison [data-excluded="true"], .portal-signature-sheet [data-excluded="true"], .lbprint [data-excluded="true"] { color: var(--danger, #dc2626); }
+[data-excluded="true"] .portal-item-name { text-decoration: line-through; }
+
+/* Quote selection actions stay beside the subtotal, not below the product. */
+.portal-item-action-cell { width: 40px; text-align: right; }
+.portal-item-action { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--p-radius); background: transparent; color: var(--muted); cursor: pointer; }
+.portal-item-action:hover { background: var(--surface-2); color: var(--led); }
+.portal-item-action:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
+.portal-item-action:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 640px) {
+  .portal-item-action { width: 44px; height: 44px; }
+}
+
+.portal-comparison-items li > div { min-width: 0; overflow-wrap: anywhere; }
+/* Long proposal-total labels must not set the item's card minimum width. */
+.portal-card:has(.portal-items-wrap), .portal-card:has(.portal-items-wrap) .portal-totals { min-width: 0; }
+.portal-card:has(.portal-items-wrap) .portal-total-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.portal-budget-main:has(.portal-items-wrap) { grid-template-columns: minmax(0, 1fr); }
+.portal-budget-main:has(.portal-items-wrap) .portal-btn--block { white-space: normal; overflow-wrap: anywhere; }
+
+/* Quote document hierarchy: scoped sections, never a global panel redesign. */
+.quote-document-section { min-width: 0; padding: 16px; margin-block: 16px; border: 1px solid var(--border); border-radius: 14px; }
+.quote-document-section--observations { border-inline-start: 4px solid #b7791f; background: color-mix(in srgb, #d99b28 9%, var(--surface)); }
+.quote-document-section--payments { border-inline-start: 4px solid #3b82f6; background: color-mix(in srgb, #3b82f6 8%, var(--surface)); }
+.quote-document-section--conditions { border-inline-start: 4px solid var(--border); }
+.quote-document-section--issuer { border-block-start: 2px solid var(--border); }
+.quote-document-copy { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; margin-block: 12px 0; color: var(--text); line-height: 1.65; }
+.quote-document-subtitle { margin: 0 0 12px; font-size: 1rem; color: var(--text-strong); font-weight: 650; }
+
+/* Shared document colors follow the admin theme without changing portal tokens. */
+.admin-root .quote-document-section {
+  --surface: var(--a-panel);
+  --border: var(--a-line);
+  --text: var(--a-text);
+  --text-strong: var(--a-text-strong);
+  color: var(--text);
+}
+.admin-root .quote-document-section .admin-field-label { color: var(--text); }
+.admin-root .quote-document-section .admin-dialog-text { color: var(--text); }

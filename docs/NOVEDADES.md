@@ -229,3 +229,16 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - subnavegación por secciones y tarjetas móviles
 - método unificado y «Pendiente» sin cuenta para lo a crédito
 
+## v2.1.66 — 2026-10-03
+
+- Kanban sin corte y plan de pagos sin desbordes
+
+## v2.1.67 — 2026-10-03
+
+- sanitizar el detalle técnico de /estado/sistema
+- páginas legales y de estado de EventOS, 404 propia y pie del producto
+- Auditoría y Usuarios en tarjetas y fechas es-PY en el historial
+- guardas de las pantallas de Operación en móvil
+- Proveedores, Leads e Inventario como tarjetas en móvil
+- los avisos del topbar se portalan y quedan legibles en móvil
+
