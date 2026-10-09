@@ -8,6 +8,7 @@ import { jsonError, readJson } from "@/lib/server/http";
 import { requireAdminContext } from "@/lib/server/tenancy";
 
 export const runtime = "nodejs";
+import { clientDisplayName } from "@/lib/client-identity";
 export const dynamic = "force-dynamic";
 
 const MAX_NOTE = 600;
@@ -63,7 +64,7 @@ async function resolveRequest(request: Request) {
           discount: true,
           total: true,
           revisionRequestedAt: true,
-          client: { select: { name: true, company: true } },
+          client: { select: { name: true, company: true, tradeName: true, legalName: true } },
           items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true, subtotal: true } },
         },
       },
@@ -73,7 +74,7 @@ async function resolveRequest(request: Request) {
   if (changeRequest.status !== "pending") return jsonError("Esta solicitud ya fue resuelta.", 409);
 
   const budget = changeRequest.budget;
-  const clientLabel = budget.client.company?.trim() || budget.client.name;
+  const clientLabel = clientDisplayName(budget.client);
   const kindLabel = KIND_LABEL[changeRequest.kind] ?? "la solicitud del portal";
 
   if (decision === "reject") {

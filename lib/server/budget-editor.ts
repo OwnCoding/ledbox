@@ -16,6 +16,7 @@ import { recalculateBudgetPaymentPlan, validateBudgetPlanAccounts } from "./budg
 export async function saveBudgetEditor(context: AdminContext, budgetId: string, body: Record<string, unknown>) {
   const current = await db.budget.findFirst({ where: { id: budgetId, organizationId: context.organizationId }, include: { items: true } });
   if (!current) return jsonError("Presupuesto no encontrado.", 404);
+  if (current.comparisonId && typeof body.clientId === "string" && body.clientId !== current.clientId) return jsonError("La comparación comparte un cliente. Conservá su identidad o usá el ciclo de revisión.", 409);
   if (["discount", "materialCost", "laborCost"].some((key) => body[key] !== undefined && typeof body[key] !== "number")) return jsonError("Los montos comerciales deben ser numéricos.", 400);
   if (typeof body.expectedUpdatedAt === "string" && body.expectedUpdatedAt !== current.updatedAt.toISOString()) return jsonError("El presupuesto cambió. Actualizá antes de guardar.", 409);
   const raw = body.items;
@@ -75,7 +76,9 @@ export async function saveBudgetEditor(context: AdminContext, budgetId: string, 
     await tx.budgetItem.deleteMany({ where: { budgetId, id: { notIn: ids } } });
     for (const item of items) {
       const excluded = Boolean(item.id && existing.get(item.id)?.excluded);
-      const itemData = { name: item.name, quantity: item.quantity, days: item.days, unitPrice: item.unitPrice, costPrice: item.costPrice, notes: item.notes, inventoryId: item.inventoryId, subtotal: excluded ? 0 : item.quantity * item.days * item.unitPrice };
+      const source = raw[items.indexOf(item)] as Record<string, unknown>;
+      const inventoryId = Object.hasOwn(source, "inventoryId") ? item.inventoryId : (item.id ? existing.get(item.id)?.inventoryId ?? null : item.inventoryId);
+      const itemData = { name: item.name, quantity: item.quantity, days: item.days, unitPrice: item.unitPrice, costPrice: item.costPrice, ...(Object.hasOwn(source, "notes") ? { notes: item.notes } : {}), inventoryId, subtotal: excluded ? 0 : item.quantity * item.days * item.unitPrice };
       if (item.id) await tx.budgetItem.update({ where: { id: item.id }, data: itemData });
       else await tx.budgetItem.create({ data: { id: randomUUID(), budgetId, ...itemData } });
     }

@@ -35,7 +35,7 @@ export function resolveBudgetPaymentPlan(raw: unknown, total: number, advance = 
     const type = r.type ?? "fixed";
     if (type !== "fixed" && type !== "percent" && type !== "remainder") return fail("type", "tipo inválido.");
     const source = r.value ?? r.amount;
-    if (type !== "remainder" && typeof source !== "number") return fail("value", "el valor debe ser numérico; no texto ni booleano.");
+    if ((type !== "remainder" || source !== undefined) && typeof source !== "number") return fail("value", "el valor debe ser numérico; no texto ni booleano.");
     const value = typeof source === "number" ? source : 0;
     if (type === "fixed" && (!budgetMoneyValid(value) || value <= 0)) return fail("value", "el monto debe ser un entero mayor a cero dentro del límite Int.");
     if (type === "percent" && (!Number.isFinite(value) || value <= 0 || value > 100 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-7)) return fail("value", "el porcentaje debe estar entre 0,01 y 100, con hasta dos decimales.");
@@ -82,12 +82,12 @@ export function hasDynamicBudgetPlan(raw: unknown): boolean {
 /** Reject incompatible revisions explicitly rather than silently leaving a
  * protected paid/proof concept at 50 while the new plan claims it is 70.
  */
-export function budgetPlanLedgerError(desired: ReadonlyArray<{ slot: string; amount: number }>, existing: ReadonlyArray<{ slot: string; amount: number; paidAmount?: number; status: string; proofId?: string | null; label?: string }>): string | null {
+export function budgetPlanLedgerError(desired: ReadonlyArray<{ slot: string; amount: number }>, existing: ReadonlyArray<{ slot: string; amount: number; paidAmount?: number; status: string; proofId?: string | null; paymentId?: string | null; label?: string }>): string | null {
   const bySlot = new Map(desired.map((row) => [row.slot, row.amount]));
   for (const row of existing) {
     if (row.status === "CANCELLED") continue;
     if (row.slot.startsWith("split:")) continue;
-    const protectedRow = ["CONFIRMED", "PARTIAL", "PROOF"].includes(row.status) || (row.paidAmount ?? 0) > 0 || Boolean(row.proofId) || Boolean(row.label?.includes(" · parte "));
+    const protectedRow = ["CONFIRMED", "PARTIAL", "PROOF"].includes(row.status) || (row.paidAmount ?? 0) > 0 || Boolean(row.proofId) || Boolean(row.paymentId) || Boolean(row.label?.includes(" · parte "));
     const baseLabel = row.label?.split(" · parte ")[0];
     const splitAmount = row.label?.includes(" · parte ") ? existing.filter((part) => part.status !== "CANCELLED" && part.slot.startsWith("split:") && part.label?.split(" · parte ")[0] === baseLabel).reduce((sum, part) => sum + part.amount, 0) : 0;
     if (protectedRow && bySlot.get(row.slot) !== row.amount + splitAmount) return "El plan cambia un concepto con cobros, comprobantes o saldo dividido. Conservá ese importe y revisá los pendientes por separado.";

@@ -230,7 +230,7 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
           <PrintSection title="Pago">
             {budget.approvedAt ? <div className="lbprint-pay">
               <div className="lbprint-pay-now">
-                <span className="lbprint-label">{plan.dueNow.label} · a transferir ahora</span>
+                <span className="lbprint-label">{plan.dueNow.label} · importe del plan</span>
                 <strong className="lbprint-pay-amount lbprint-num">{formatMoney(plan.dueNow.amount)}</strong>
                 <span className="lbprint-pay-total lbprint-num">de {formatMoney(budget.total)}</span>
               </div>

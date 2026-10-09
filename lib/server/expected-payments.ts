@@ -137,6 +137,8 @@ export type ExpectedSyncResult = {
  * a los valores vigentes (monto, vencimiento y etiqueta).
  */
 export async function syncBudgetExpectedPayments(input: {
+  /** Commercial revisions pass their transaction so ledger and quote commit together. */
+  tx?: Prisma.TransactionClient;
   organizationId: string;
   budgetId: string;
   actor?: AuditContext | null;
@@ -144,7 +146,8 @@ export async function syncBudgetExpectedPayments(input: {
   reason?: string;
 }): Promise<ExpectedSyncResult> {
   const result: ExpectedSyncResult = { created: 0, updated: 0, cancelled: 0, total: 0 };
-  const budget = await db.budget.findFirst({
+  const database = input.tx ?? db;
+  const budget = await database.budget.findFirst({
     where: { id: input.budgetId, organizationId: input.organizationId },
     select: {
       id: true,
@@ -173,7 +176,7 @@ export async function syncBudgetExpectedPayments(input: {
     },
   });
   // Sin aprobación no hay promesa de pago: no se inventa dinero esperado.
-  if (!budget || !budget.approvedAt) return result;
+  if (!budget || (!budget.approvedAt && budget.expectedPayments.length === 0)) return result;
 
   const desired = budgetExpectedPlan(budget);
   const ledgerError = budgetPlanLedgerError(desired, budget.expectedPayments);
@@ -183,7 +186,7 @@ export async function syncBudgetExpectedPayments(input: {
   let defaultAccountId: string | null | undefined;
   const resolveDefaultAccount = async () => {
     if (defaultAccountId === undefined) {
-      defaultAccountId = (await firstActiveAccount(input.organizationId))?.id ?? null;
+      defaultAccountId = (await database.treasuryAccount.findFirst({ where: { organizationId: input.organizationId, active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: accountSelect }))?.id ?? null;
     }
     return defaultAccountId;
   };
@@ -192,7 +195,7 @@ export async function syncBudgetExpectedPayments(input: {
     const current = existing.get(item.slot);
     if (!current) {
       const accountId = item.accountId ?? await resolveDefaultAccount();
-      await db.expectedPayment.create({
+      await database.expectedPayment.create({
         data: {
           id: randomUUID(),
           organizationId: input.organizationId,
@@ -213,7 +216,7 @@ export async function syncBudgetExpectedPayments(input: {
     existing.delete(item.slot);
     // Lo confirmado y lo parcial no se pisan: la plata ya entró con sus valores
     // reales y el saldo pendiente se completa o se divide a mano (issue #129).
-    if (current.status === "CONFIRMED" || current.status === "PARTIAL" || current.status === "PROOF" || current.paidAmount > 0 || current.proofId || current.label.includes(" · parte ") || current.slot.startsWith("split:")) continue;
+    if (current.status === "CONFIRMED" || current.status === "PARTIAL" || current.status === "PROOF" || current.paidAmount > 0 || current.proofId || current.paymentId || current.label.includes(" · parte ") || current.slot.startsWith("split:")) continue;
 
     const nextStatus: ExpectedStatusValue = current.status === "CANCELLED" ? "AWAITING" : (current.status as ExpectedStatusValue);
     const reviving = current.status === "CANCELLED";
@@ -240,7 +243,7 @@ export async function syncBudgetExpectedPayments(input: {
       ["label", "amount", "dueAt", "concept", "installmentNumber", "status", "expectedAccountId"],
     );
     if (!changes) continue;
-    const applied = await db.expectedPayment.updateMany({
+    const applied = await database.expectedPayment.updateMany({
       where: { id: current.id, status: current.status, amount: current.amount, paidAmount: current.paidAmount, proofId: current.proofId, paymentId: current.paymentId },
       data: {
         label: item.label,
@@ -261,8 +264,8 @@ export async function syncBudgetExpectedPayments(input: {
   // Conceptos que salieron del plan: se cancelan (lo confirmado queda). Las
   // partes de una división manual (`split:`) no son del plan: se respetan.
   for (const row of existing.values()) {
-    if (row.status === "CONFIRMED" || row.status === "PARTIAL" || row.status === "PROOF" || row.status === "CANCELLED" || row.paidAmount > 0 || row.proofId || row.label.includes(" · parte ") || row.slot.startsWith("split:")) continue;
-    const applied = await db.expectedPayment.updateMany({
+    if (row.status === "CONFIRMED" || row.status === "PARTIAL" || row.status === "PROOF" || row.status === "CANCELLED" || row.paidAmount > 0 || row.proofId || row.paymentId || row.label.includes(" · parte ") || row.slot.startsWith("split:")) continue;
+    const applied = await database.expectedPayment.updateMany({
       where: { id: row.id, status: row.status, amount: row.amount, paidAmount: row.paidAmount, proofId: row.proofId, paymentId: row.paymentId },
       data: { status: "CANCELLED", cancelledAt: now },
     });

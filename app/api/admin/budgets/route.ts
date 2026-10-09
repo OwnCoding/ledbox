@@ -116,7 +116,7 @@ export async function GET() {
             subtotal: true,
             discount: true,
             total: true,
-            client: { select: { name: true, company: true } },
+            client: { select: { name: true, company: true, tradeName: true, legalName: true } },
             items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true } },
           },
         },
@@ -304,7 +304,7 @@ async function patchBudget(request: Request) {
     if (!Object.values(CommercialStatus).includes(status as CommercialStatus)) return jsonError("El estado del presupuesto no es válido.", 400);
     const budget = await db.budget.findFirst({
       where: { id: budgetId, organizationId },
-      select: { id: true, title: true, status: true, client: { select: { name: true, company: true } } },
+      select: { id: true, title: true, status: true, client: { select: { name: true, company: true, tradeName: true, legalName: true } } },
     });
     if (!budget) return jsonError("Presupuesto no encontrado.", 404);
     if (budget.status === status) {
@@ -340,7 +340,7 @@ async function patchBudget(request: Request) {
       select: {
         id: true,
         title: true,
-        client: { select: { name: true, company: true } },
+        client: { select: { name: true, company: true, tradeName: true, legalName: true } },
         items: { select: { id: true, name: true, inventoryId: true, inventory: { select: { name: true } } } },
       },
     });
@@ -401,7 +401,7 @@ async function patchBudget(request: Request) {
       advanceAmount: true,
       paymentTerms: true,
       installmentsJson: true,
-      client: { select: { name: true, company: true } },
+      client: { select: { name: true, company: true, tradeName: true, legalName: true } },
     },
   });
   if (!budget) return jsonError("Presupuesto no encontrado.", 404);
@@ -464,7 +464,7 @@ async function patchBudget(request: Request) {
     await validateBudgetPlanAccounts(tx, organizationId, checked.rows);
     await assertBudgetPlanLedger(tx, budget.id, fresh.total, advance, checked.rows);
     data.installmentsJson = checked.rows as unknown as Prisma.InputJsonValue;
-    return tx.budget.update({
+    const saved = await tx.budget.update({
     where: { id: budget.id },
     data,
     select: {
@@ -475,6 +475,8 @@ async function patchBudget(request: Request) {
       total: true,
     },
     });
+    await recalculateBudgetPaymentPlan(tx, budget.id);
+    return saved;
   });
   await recordAudit({
     context: auth.context,
@@ -521,7 +523,7 @@ async function patchBudgetItems(params: {
       discount: true,
       subtotal: true,
       total: true,
-      client: { select: { name: true, company: true } },
+      client: { select: { name: true, company: true, tradeName: true, legalName: true } },
       items: { select: { id: true, name: true, inventoryId: true, excluded: true } },
     },
   });
@@ -640,7 +642,7 @@ async function patchBudgetCommercial(params: {
       ivaType: true,
       warranty: true,
       notes: true,
-      client: { select: { name: true, company: true } },
+      client: { select: { name: true, company: true, tradeName: true, legalName: true } },
     },
   });
   if (!budget) return jsonError("Presupuesto no encontrado.", 404);

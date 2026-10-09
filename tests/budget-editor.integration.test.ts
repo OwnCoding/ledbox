@@ -48,6 +48,28 @@ test("FIN #173 real PostgreSQL: duplicate IDs, atomic plan rollback and sync/col
     const revised = await db.budget.findUniqueOrThrow({ where: { id: q.id } });
     assert.deepEqual((revised.installmentsJson as Array<{ amount: number }>).map((row) => row.amount), [50, 70]);
     assert.equal(revised.total - 20, 100); assert.equal((await db.expectedPayment.findUniqueOrThrow({ where: { id: expected.id } })).paidAmount, 20);
+    const ledger = await db.expectedPayment.findMany({ where: { budgetId: q.id, status: { not: "CANCELLED" } } });
+    assert.equal(ledger.reduce((sum, row) => sum + row.amount - row.paidAmount, 0), 100, "pending ledger exactly equals final total minus registered cash");
+    const invalidAccount = await db.treasuryAccount.create({ data: { id: randomUUID(), organizationId: org, name: "Inactive account", active: false } });
+    assert.equal((await call({ budgetId: q.id, kind: "editor", title: "Must rollback", items: [{ ...item, unitPrice: 130 }], installmentsJson: [{ ...fixed(50), accountId: invalidAccount.id }, remainder] })).status, 400);
+    assert.equal((await db.budget.findUniqueOrThrow({ where: { id: q.id } })).total, 120);
+    // Rename locks all quotes sharing the event, including the sibling that is
+    // signing. Either the rename invalidates the old document or signing wins.
+    for (let n = 0; n < 2; n++) {
+      const event = await db.event.create({ data: { id: randomUUID(), organizationId: org, clientId: client.id, name: "Original event" } });
+      const first = await fixture(), sibling = await fixture();
+      await db.budget.updateMany({ where: { id: { in: [first.id, sibling.id] } }, data: { eventId: event.id } });
+      const issued = await fetch(base + "/api/admin/signatures", { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ budgetId: sibling.id, recipientName: "QA signer", method: "TYPED", otpRequired: false }) });
+      assert.equal(issued.status, 201);
+      const signature = (await issued.json()).request;
+      const [renamed, signed] = await Promise.all([
+        fetch(`${base}/api/admin/budgets/${first.id}/event`, { method: "PATCH", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ name: "Renamed event", originalName: "Original event" }) }),
+        fetch(`${base}/api/portal/firma/${signature.code}/sign`, { method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": `qa-fin-event-${suffix}` }, body: JSON.stringify({ consent: true, signature: { name: "QA signer" } }) }),
+      ]);
+      assert.deepEqual([renamed.status, signed.status].sort(), [200, 409]);
+      if (signed.status === 200) assert.equal((await db.event.findUniqueOrThrow({ where: { id: event.id } })).name, "Original event");
+      console.log(`Shared event/sign race: rename=${renamed.status}, sign=${signed.status}`);
+    }
     // Deterministic scheduling at the actual sync CAS boundary; both operations
     // execute the production functions against PostgreSQL, with no fake DB.
     for (const mode of ["update", "cancel"] as const) {

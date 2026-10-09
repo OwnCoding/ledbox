@@ -17,7 +17,7 @@ test("grouped signatures reject stale commercial versions atomically, including 
     const { createSession } = await import("../lib/server/auth");
     const cookie = `ledbox_session=${(await createSession(user, org)).jwt}`;
     async function call(path: string, body: unknown, method = "POST", auth = true) {
-      return fetch(base + path, { method, headers: { "Content-Type": "application/json", ...(auth ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+      return fetch(base + path, { method, headers: { "Content-Type": "application/json", "X-Forwarded-For": `qa-signature-${suffix}`, ...(auth ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
     }
     async function fixture(attachment = false) {
       const rows: Array<{ id: string }> = [];
