@@ -1,4 +1,5 @@
 "use client";
+import { clientDisplayName } from "@/lib/client-identity";
 
 import { PortalQuoteResources } from "./PortalQuoteResources";
 
@@ -380,7 +381,7 @@ export function PortalBudgetView({
 
   // Identidad del cliente: el responsable cargado en la empresa (issue #36) es
   // el valor inicial de quien autoriza y de quien sube el comprobante.
-  const clientLabel = budget.client.company?.trim() || budget.client.name;
+  const clientLabel = clientDisplayName(budget.client);
   const contactName = budget.client.contactName?.trim() ?? "";
   const contactRole = budget.client.contactRole?.trim() ?? "";
 
@@ -1087,7 +1088,7 @@ export function PortalBudgetView({
                   </td>
                   <td className="portal-num" data-label="Monto">{formatMoney(installment.amount)}</td>
                   <td data-label="Vencimiento">
-                    {dueLabel(installment.dueAt)}
+                    {installment.dueAt ? dueLabel(installment.dueAt) : installment.moment || "A coordinar"}
                     {installment.dueAt ? (
                       <span className="portal-countdown" data-tone={countdownTone(installment.dueAt)}>
                         {formatCountdown(installment.dueAt, "client")}
@@ -1431,16 +1432,10 @@ export function PortalBudgetView({
                     <tr>
                       <th scope="col">Producto / servicio</th>
                       <th scope="col" className="portal-num">
-                        Cantidad
-                      </th>
-                      <th scope="col" className="portal-num">
-                        Días
-                      </th>
-                      <th scope="col" className="portal-num">
                         Precio unitario
                       </th>
                       <th scope="col" className="portal-num">
-                        Subtotal
+                        Total
                       </th>
                       {canEdit ? <th scope="col" className="portal-item-action-cell"><span className="sr-only">Acción</span></th> : null}
                     </tr>
@@ -1459,7 +1454,12 @@ export function PortalBudgetView({
                               <span className="portal-item-text">
                                 <strong className="portal-item-name">{item.name}</strong>
                                 {current.excluded ? <small className="portal-item-note">Retirado / no incluido</small> : null}
-                                {item.notes ? <small className="portal-item-note">{item.notes}</small> : null}
+                                {item.notes ? <details><summary>Detalles</summary><p className="portal-item-note">{item.notes}</p></details> : null}
+                                <div className="budget-client-quantity">
+                                  <span>Cantidad</span>
+                                  {canEdit && !current.excluded ? <Stepper value={current.quantity} max={MAX_QUANTITY} label={`Cantidad de ${item.name}`} onStep={(delta) => stepDraft(item.id, "quantity", delta)} onType={(text) => setDraftField(item.id, "quantity", text)} /> : <span>{formatNumber(item.quantity)}</span>}
+                                  {item.usesDays || item.days > 1 ? <><span>Días</span>{canEdit && !current.excluded ? <Stepper value={current.days} max={MAX_DAYS} label={`Días de ${item.name}`} onStep={(delta) => stepDraft(item.id, "days", delta)} onType={(text) => setDraftField(item.id, "days", text)} /> : <span>{formatNumber(item.days)}</span>}</> : null}
+                                </div>
                                 {changed ? (
                                   <small className="portal-item-note">
                                     Antes: {formatNumber(item.quantity)} × {formatNumber(item.days)} d · subtotal{" "}
@@ -1469,34 +1469,8 @@ export function PortalBudgetView({
                               </span>
                             </span>
                           </td>
-                          <td className="portal-num" data-label="Cantidad">
-                            {canEdit && !current.excluded ? (
-                              <Stepper
-                                value={current.quantity}
-                                max={MAX_QUANTITY}
-                                label={`Cantidad de ${item.name}`}
-                                onStep={(delta) => stepDraft(item.id, "quantity", delta)}
-                                onType={(text) => setDraftField(item.id, "quantity", text)}
-                              />
-                            ) : (
-                              formatNumber(item.quantity)
-                            )}
-                          </td>
-                          <td className="portal-num" data-label="Días">
-                            {canEdit && !current.excluded ? (
-                              <Stepper
-                                value={current.days}
-                                max={MAX_DAYS}
-                                label={`Días de ${item.name}`}
-                                onStep={(delta) => stepDraft(item.id, "days", delta)}
-                                onType={(text) => setDraftField(item.id, "days", text)}
-                              />
-                            ) : (
-                              formatNumber(item.days)
-                            )}
-                          </td>
                           <td className="portal-num" data-label="Precio unitario">{formatMoney(item.unitPrice)}</td>
-                          <td className={`portal-num${canEdit ? " portal-item-subtotal" : ""}`} data-label="Subtotal">{formatMoney(current.excluded ? 0 : item.unitPrice * current.quantity * current.days)}</td>
+                          <td className={`portal-num${canEdit ? " portal-item-subtotal" : ""}`} data-label="Total">{formatMoney(current.excluded ? 0 : item.unitPrice * current.quantity * current.days)}</td>
                           {canEdit ? (
                             <td className="portal-item-action-cell">
                               <button
