@@ -18,6 +18,7 @@ test("FIN #173 real PostgreSQL: duplicate IDs, atomic plan rollback and sync/col
     await db.adminMembership.create({ data: { id: randomUUID(), adminUserId: user.id, organizationId: org, role: "OWNER" } });
     const client = await db.client.create({ data: { id: randomUUID(), organizationId: org, name: "Historical name", company: "Not legal", tradeName: "Commercial QA", legalName: "Legal QA" } });
     const account = await db.treasuryAccount.create({ data: { id: randomUUID(), organizationId: org, name: "QA cash" } });
+    await db.treasuryAccount.create({ data: { id: randomUUID(), organizationId: org, name: "Foreign first", currency: "USD", sortOrder: -100 } });
     const actor = { user: { id: user.id, name: user.name, email: user.email, role: "OWNER" as const }, organizationId: org, role: "OWNER" as const };
     const { createSession } = await import("../lib/server/auth");
     const cookie = `ledbox_session=${(await createSession(user, org)).jwt}`;
@@ -50,6 +51,16 @@ test("FIN #173 real PostgreSQL: duplicate IDs, atomic plan rollback and sync/col
     assert.equal(revised.total - 20, 100); assert.equal((await db.expectedPayment.findUniqueOrThrow({ where: { id: expected.id } })).paidAmount, 20);
     const ledger = await db.expectedPayment.findMany({ where: { budgetId: q.id, status: { not: "CANCELLED" } } });
     assert.equal(ledger.reduce((sum, row) => sum + row.amount - row.paidAmount, 0), 100, "pending ledger exactly equals final total minus registered cash");
+    assert.equal(ledger.find((row) => row.slot === "installment:2")?.expectedAccountId, account.id, "USD first must not become default for a PYG condition");
+    await db.treasuryAccount.update({ where: { id: account.id }, data: { active: false } });
+    const withoutPyg = await fixture();
+    await db.budget.update({ where: { id: withoutPyg.id }, data: { approvedAt: new Date() } });
+    await syncBudgetExpectedPayments({ organizationId: org, budgetId: withoutPyg.id });
+    assert.equal((await db.expectedPayment.findFirstOrThrow({ where: { budgetId: withoutPyg.id } })).expectedAccountId, null, "no PYG available means no default, not an implicit currency conversion");
+    await db.treasuryAccount.update({ where: { id: account.id }, data: { active: true } });
+    await db.budget.update({ where: { id: q.id }, data: { installmentsJson: [{ ...fixed(70), amount: 70 }, { ...remainder, amount: 50 }] } });
+    await assert.rejects(syncBudgetExpectedPayments({ organizationId: org, budgetId: q.id }), (error: unknown) => error instanceof QuoteComparisonError && error.status === 409, "direct sync reports an honest ledger conflict409");
+    console.log("Default currency: USD first skipped, PYG selected, foreign-only leaves null; direct ledger conflict409");
     const invalidAccount = await db.treasuryAccount.create({ data: { id: randomUUID(), organizationId: org, name: "Inactive account", active: false } });
     assert.equal((await call({ budgetId: q.id, kind: "editor", title: "Must rollback", items: [{ ...item, unitPrice: 130 }], installmentsJson: [{ ...fixed(50), accountId: invalidAccount.id }, remainder] })).status, 400);
     assert.equal((await db.budget.findUniqueOrThrow({ where: { id: q.id } })).total, 120);

@@ -58,3 +58,14 @@ test("split balances retain their aggregate without sync restoring the original 
   assert.equal(budgetPlanLedgerError([{ slot: "installment:1", amount: 50 }], split), null);
   assert.ok(budgetPlanLedgerError([{ slot: "installment:1", amount: 70 }], split));
 });
+test("B1 provisional selection evaluates the canonical plan without changing the offer", () => {
+  const raw = [percent(30), fixed(200000), remainder];
+  const original = resolveBudgetPaymentPlan(raw, 1000001);
+  assert.ok(original.ok); assert.deepEqual(original.rows.map((row) => row.amount), [300000, 200000, 500001]);
+  const serialized = JSON.stringify(original.rows);
+  const preview = resolveBudgetPaymentPlan(original.rows, 400001);
+  assert.ok(preview.ok); assert.deepEqual(preview.rows.map((row) => row.amount), [120000, 200000, 80001]);
+  assert.equal(preview.assigned, 400001); assert.equal(JSON.stringify(original.rows), serialized);
+  const invalid = resolveBudgetPaymentPlan(original.rows, 100001);
+  assert.equal(invalid.ok, false); assert.equal(JSON.stringify(original.rows), serialized);
+});
