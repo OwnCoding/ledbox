@@ -1,4 +1,42 @@
 
+@import "owncoding-ui/tokens.css";
+@tailwind utilities;
+
+/* Kit compartido #173: los controles heredan la piel del panel. Sin preflight. */
+.admin-root {
+  --c-fore: 242 242 250;
+  --c-ink: 20 20 32;
+  --c-ink-800: 24 24 38;
+  --c-ink-700: 35 35 52;
+  --c-ink-500: 107 107 130;
+  --c-mute: 180 180 200;
+  --c-fono: 0 229 255;
+  --c-fono-text: 0 229 255;
+  --c-interactivo: 107 107 130;
+  --c-bad-text: 255 150 150;
+}
+.admin-root[data-theme="light"] {
+  --c-fore: 25 25 42;
+  --c-ink: 255 255 255;
+  --c-ink-800: 248 250 255;
+  --c-ink-700: 231 237 247;
+  --c-ink-500: 113 124 147;
+  --c-mute: 80 92 118;
+  --c-fono: 0 111 131;
+  --c-fono-text: 0 111 131;
+  --c-interactivo: 113 124 147;
+  --c-bad-text: 180 35 48;
+}
+.admin-shared-phone, .admin-shared-autocomplete { min-width: 0; width: 100%; }
+.admin-shared-phone button[role="combobox"] { font-size: 12px; background: var(--a-bg-2); color: var(--a-text); border-color: var(--a-line-control); }
+.admin-shared-phone input[type="tel"] { min-width: min(100%, 8.5rem); width: 0; flex: 1 1 0; }
+.admin-shared-autocomplete input { width: 100%; }
+.admin-field [role="listbox"] { color: var(--a-text-strong); }
+@media (max-width: 720px) {
+  .admin-field:has(.admin-phone-field-control) { grid-column: 1 / -1; }
+  .admin-field input:not([type="checkbox"]), .admin-field button[role="combobox"] { min-height: 44px; }
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
