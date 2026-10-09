@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseClientFields } from "../app/api/admin/clients/client-fields";
 import { eventDateViolation, parseEventFields } from "../app/api/admin/events/event-fields";
+import { FIELD_LIMITS } from "../lib/field-rules";
+
+test("PATCH inválido no borra datos: tipos erróneos rechazados y ausente/null diferenciados", () => {
+  const fields = ["contactName", "company", "contactRole", "notes", "website", "instagram", "phone", "contactPhone", "whatsapp", "ruc", "email", "contactEmail", "billingEmail"];
+  for (const field of fields) {
+    for (const value of [123, true, {}, []]) assert.equal(parseClientFields({ [field]: value }).ok, false, `${field} no debe borrar/ignorar ${JSON.stringify(value)}`);
+    assert.deepEqual(parseClientFields({ [field]: undefined }), { ok: true, data: {} });
+    assert.deepEqual(parseClientFields({ [field]: null }), { ok: true, data: { [field]: null } });
+    assert.deepEqual(parseClientFields({ [field]: "  " }), { ok: true, data: { [field]: null } });
+  }
+  for (const value of [null, [], true, 123]) assert.equal(parseClientFields(value).ok, false);
+});
+
+test("textos excedidos se rechazan antes de normalizar, nunca se truncan", () => {
+  for (const [field, max] of Object.entries({ company: FIELD_LIMITS.company, notes: FIELD_LIMITS.notes, contactRole: 120, contactName: 120, website: 200, instagram: 200, ruc: 30 })) {
+    assert.equal(parseClientFields({ [field]: "x".repeat(max + 1) }).ok, false, field);
+  }
+  assert.equal(parseClientFields({ contacts: [{ name: "x".repeat(121) }] }).ok, false);
+  assert.equal(parseClientFields({ contacts: [{ name: "Ana QA", role: "x".repeat(121) }] }).ok, false);
+  assert.deepEqual(parseClientFields({ notes: "x".repeat(FIELD_LIMITS.notes) }), { ok: true, data: { notes: "x".repeat(FIELD_LIMITS.notes) } });
+});
 
 test("fantasía empresarial independiente: 200 caracteres, sin conversión de historia/contacto", () => {
   const parsed = parseClientFields({ tradeName: "  SCALE   STRATEGY GROUP EAS  ", legalName: "RAZÓN SOCIAL OFICIAL S.A.", city: "Asunción", department: "Capital" });

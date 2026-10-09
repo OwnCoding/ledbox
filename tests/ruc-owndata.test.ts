@@ -25,6 +25,13 @@ test("configuración incompleta/insegura y kit antiguo: manual, cero llamadas", 
   assert.equal(ownDataRucValid("123456789"), true);
 });
 
+test("OwnData requiere URL raíz HTTPS, sin duplicar path /api/v1", async () => {
+  const env = { OWNDATA_API_URL: "https://example.invalid/api/v1", OWNDATA_API_KEY: "qa-only", OWNDATA_ENVIRONMENT: "test" };
+  assert.equal(ownDataConfig(env), null);
+  await assert.rejects(lookupOwnData("1234567-0", { env, fetch: async () => { assert.fail("URL inválida no permite transporte"); } }), (error: unknown) => error instanceof OwnDataLookupError && error.code === "OWNDATA_NOT_CONFIGURED");
+  assert.equal(ownDataConfig({ ...env, OWNDATA_API_URL: "https://example.invalid/" })?.base, "https://example.invalid");
+});
+
 test("snapshot firmado: sólo fiscal, actor/empresa, edición manual invalida procedencia", async () => {
   process.env.AUTH_SECRET = "identity-qa-test-secret-no-production";
   const signed = await signRucConfirmation(demoResult, "org-a", "actor-a");
