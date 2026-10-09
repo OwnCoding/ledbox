@@ -35,6 +35,12 @@ test("validated selections persist and serialize with approval/signature in Post
         [{ id: paid, quantity: 2, days: 3, excluded: true }, { id: gift, quantity: 1, days: 1, excluded: true }],
         [{ id: paid, quantity: 2, days: 3, excluded: true }, { id: paid, quantity: 2, days: 3 }],
       ]) assert.equal((await send(items)).status, 400);
+      const { counterofferExclusion } = await import("../lib/quote-selection");
+      assert.equal((await send([{ id: paid, quantity: 3, days: 5, excluded: false }])).status, 200, "client may propose changed quantity and days");
+      const counteroffer = counterofferExclusion(original, { quantity: 3, days: 5 }, true);
+      const adminProposal = resolveItemProposal(await db.budgetItem.findMany({ where: { budgetId: quote } }), [{ id: paid, ...counteroffer }], { requireChange: false });
+      assert.equal(adminProposal.ok, true, "admin UI exclusion passes the same resolver used by acceptance handler");
+      assert.deepEqual(counteroffer, { quantity: 2, days: 3, excluded: true });
       assert.equal((await send([{ id: paid, quantity: 2, days: 3, excluded: true }])).status, 200);
       assert.deepEqual(await db.budgetItem.findUniqueOrThrow({ where: { id: paid } }), original);
       assert.equal((await send([{ id: paid, quantity: 2, days: 3, excluded: false }])).status, 200, "pending selection can be restored");

@@ -42,3 +42,8 @@ export function resolveQuoteSelection(items: QuoteSelectionItem[], raw: unknown,
   if ((options?.requireChange ?? true) && !changed) return fail("La propuesta es igual al presupuesto actual.");
   return { ok: true, value, changed };
 }
+
+/** Map an admin counteroffer checkbox without changing server validation. */
+export function counterofferExclusion(original: Pick<QuoteSelectionItem, "quantity" | "days">, proposed: { quantity: number; days: number; excluded?: boolean }, excluded: boolean): { quantity: number; days: number; excluded: boolean } {
+  return { ...proposed, ...(excluded ? { quantity: original.quantity, days: original.days } : {}), excluded };
+}

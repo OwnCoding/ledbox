@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveQuoteSelection, selectionSubtotal, selectionApprovalError } from "../lib/quote-selection";
+import { resolveQuoteSelection, selectionSubtotal, selectionApprovalError, counterofferExclusion } from "../lib/quote-selection";
 
 const items = [
   { id: "paid", name: "Stand", quantity: 2, days: 3, unitPrice: 1000 },
@@ -46,4 +46,18 @@ test("pending selection and overcommitted payment plan block approval", () => {
   assert.ok(selectionApprovalError(items, true));
   assert.ok(selectionApprovalError(items, false, 7000, 6000));
   assert.equal(selectionApprovalError(items, false, 6000, 6000), null);
+});
+
+test("admin exclusion of a changed counteroffer restores original quantities and days before validation", () => {
+  for (const proposed of [{ quantity: 3, days: 3 }, { quantity: 2, days: 5 }, { quantity: 3, days: 5 }]) {
+    const selection = counterofferExclusion(items[0], proposed, true);
+    assert.deepEqual(selection, { quantity: 2, days: 3, excluded: true });
+    const accepted = resolveQuoteSelection(items, [{ id: items[0].id, ...selection }], { requireChange: false });
+    assert.equal(accepted.ok, true);
+    if (!accepted.ok) continue;
+    assert.equal(selectionSubtotal({ ...items[0], ...accepted.value[0] }), 0);
+    assert.equal(selectionApprovalError([accepted.value[0], items[1]]), null);
+    assert.deepEqual(counterofferExclusion(items[0], selection, false), { quantity: 2, days: 3, excluded: false });
+    assert.deepEqual(counterofferExclusion(items[0], proposed, false), { ...proposed, excluded: false }, "included counteroffers keep their proposed terms");
+  }
 });

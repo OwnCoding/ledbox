@@ -27,6 +27,7 @@ import {
 import { bankMark, bankSuggestions } from "@/lib/bank-mark";
 import { internalCostOf } from "@/lib/budget-costs";
 import { InventoryLinkPicker } from "./BudgetInventoryPicker";
+import { counterofferExclusion } from "@/lib/quote-selection";
 import { quoteProductPrice } from "@/lib/quote-sharing";
 import { BudgetPricingDialog } from "./BudgetPricingDialog";
 import { ClientQuickCreateDialog, EventQuickCreateDialog } from "./BudgetQuickCreate";
@@ -2154,7 +2155,7 @@ export function PresupuestosModule() {
                       {formatNumber(item.quantity)} × {formatNumber(item.days)} d
                     </span>
                     <span role="cell" className="admin-dialog-counter">
-                      <label><input type="checkbox" checked={Boolean(proposed.excluded)} onChange={(event) => setCounterItems((rows) => ({ ...rows, [item.id]: { ...proposed, excluded: event.target.checked } }))} /> Retirado / no incluido</label>
+                      <label><input type="checkbox" checked={Boolean(proposed.excluded)} onChange={(event) => setCounterItems((rows) => ({ ...rows, [item.id]: counterofferExclusion(item, proposed, event.target.checked) }))} /> Retirado / no incluido</label>
                       <NumberField
                         disabled={Boolean(proposed.excluded)}
                         ariaLabel={`Cantidad propuesta de ${item.name}`}
