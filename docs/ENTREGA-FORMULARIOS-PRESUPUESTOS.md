@@ -73,6 +73,26 @@ aceptación legacy de IDs de ítems duplicados. Se asignaron a FIN como P1
 bloqueantes para el candidato, con regresiones de concurrencia/consistencia.
 No se declara PASS por el diagnóstico ni por corregir solo el editor.
 
+FIN `9a8da79` integrado con `83a68a9`; OPS `459028e` integrado con
+`c9a5bf4`. Sus pruebas de carril no sustituyen la QA independiente del
+candidato conjunto. Identidad en `event-ops?fields=panel`: incremental
+plataforma `905861c`, integrado con `96221d2`, expone fantasía y razón social
+sin transformar históricos; typecheck y build integrados en verde (sin DB).
+Con FIN y OPS reunidos: 509 pruebas, 498 pass, 11 skips, cero fallos;
+no es PASS independiente final. Siguen pendientes cuenta predeterminada
+PYG, conflicto ledger 409 y preview provisional.
+
+La selección pública **no necesita un hook persistente nuevo**: `propose`
+solo crea una solicitud pendiente; la aceptación en
+`app/api/admin/budgets/requests/route.ts` ya recalcula las condiciones en la
+misma transacción. El preview de `PortalBudgetView` debe proyectar el plan
+dinámico sobre el total del borrador, identificándolo como provisional y
+sin cambiar la oferta guardada. Gate: total `1000001`, plan 30 % + fijo
+`200000` + restante; excluir alquiler `600000` debe mostrar total `400001`
+y cuotas `120000`, `200000`, `80001`. Una reducción incompatible con el
+fijo exige error honesto, nunca truncamiento. Pilot revalida A28–A30,
+V10 e I06 por SHA final (incluidos rollback y documento postaceptación).
+
 La lectura autenticada actual del Hub devuelve 401; configuración efectiva de
 runtime/auto-deploy no verificable por ese canal. No se traslada el diagnóstico
 histórico a este estado. La verificación del rollout del alcance requiere
