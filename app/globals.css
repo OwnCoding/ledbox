@@ -3131,6 +3131,8 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .portal-table--plan:not(.portal-table--expected) td { display: block; width: 100%; }
   .portal-table--plan:not(.portal-table--expected) tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
   .portal-table--plan:not(.portal-table--expected) td { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
+  .portal-table--plan:not(.portal-table--expected) td[data-label="Vencimiento"] { flex-wrap: wrap; }
+  .portal-table--plan:not(.portal-table--expected) td[data-label="Vencimiento"] .portal-countdown { min-width: 0; max-width: 100%; margin-left: 0; white-space: normal; overflow-wrap: anywhere; }
   .portal-table--plan:not(.portal-table--expected) td + td { border-top: 1px solid var(--border); }
   .portal-table--plan:not(.portal-table--expected) td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
   .portal-table--plan:not(.portal-table--expected) td:first-child { display: block; padding-top: 0; color: var(--text); font-weight: 700; }

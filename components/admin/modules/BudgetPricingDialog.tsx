@@ -24,7 +24,7 @@ import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import { useAdminSession } from "@/components/admin/AdminShell";
 import { AdminIcon } from "@/components/admin/AdminIcons";
 import { adminApiUpload, adminSend } from "@/lib/admin-api";
-import { budgetReference, formatDate, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
+import { budgetReference, formatDayKey, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
 import {
   BUDGET_ATTACHMENT_MAX_BYTES,
   type AdminBudgetAttachmentRow,
@@ -476,7 +476,7 @@ export function BudgetPricingDialog({
           <p className="quote-document-copy">{budget.paymentTerms || "Sin condiciones de pago registradas."}</p>
           <p>Anticipo: <strong>{formatMoney(budget.advanceAmount)}</strong></p>
           {budget.installmentsJson?.length ? <ul className="quote-document-copy">{budget.installmentsJson.map((installment, index) => (
-            <li key={index}>{installment.label}: {formatMoney(installment.amount)}{installment.dueAt ? ` · ${formatDate(installment.dueAt)}` : ""}</li>
+            <li key={index}>{installment.label}: {formatMoney(installment.amount)}{installment.dueAt ? ` · ${formatDayKey(installment.dueAt)}` : ""}</li>
           ))}</ul> : null}
           <p className="admin-dialog-text">Vista del plan registrado. Se gestiona desde el plan de pagos del presupuesto.</p>
         </section>
