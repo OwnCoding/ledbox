@@ -38,6 +38,12 @@ test("Client/Event servidor: migración conserva historia, scope, permisos y sna
     const client = (await created.json()).client;
     assert.equal(client.name, "SCALE STRATEGY GROUP EAS"); assert.equal(client.tradeName, client.name);
     assert.equal(client.legalName, null); assert.equal(client.billingEmail, "factura@example.com"); assert.equal(client.contacts[0].email, "ana@example.com");
+    assert.equal((await call(`/api/admin/clients/${client.id}`, "PATCH", { contactName: "Ana principal QA", website: "https://example.invalid", phone: "+54 91112345678", notes: "No borrar ni truncar" })).status, 200);
+    const protectedBefore = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    for (const body of [{ contactName: 123 }, { contactName: true }, { contactName: {} }, { contactName: [] }, { website: 123 }, { phone: 123 }, { notes: "x".repeat(2001) }, { contacts: [{ name: "x".repeat(121) }] }]) {
+      assert.equal((await call(`/api/admin/clients/${client.id}`, "PATCH", body)).status, 400);
+      assert.deepEqual(await db.client.findUniqueOrThrow({ where: { id: client.id } }), protectedBefore, "PATCH rechazado no altera fila ni updatedAt");
+    }
     assert.equal((await call(`/api/admin/clients/${foreign.id}`)).status, 404);
     assert.equal((await call(`/api/admin/clients/${foreign.id}`, "PATCH", { tradeName: "Filtración" })).status, 404);
     const options = (await (await call("/api/admin/clients?fields=selector")).json()).clients;
@@ -53,7 +59,7 @@ test("Client/Event servidor: migración conserva historia, scope, permisos y sna
     assert.equal(fiscal.status, 200, await fiscal.clone().text());
     const saved = (await fiscal.json()).client;
     assert.equal(saved.tradeName, "Fantasía nueva"); assert.equal(saved.name, client.name); assert.equal(saved.company, "Histórico no fiscal");
-    assert.equal(saved.contactName, null); assert.equal(saved.contacts[0].name, "Ana QA"); assert.equal(saved.legalName, result.name);
+    assert.equal(saved.contactName, "Ana principal QA"); assert.equal(saved.contacts[0].name, "Ana QA"); assert.equal(saved.legalName, result.name);
     assert.equal(saved.rucSnapshot.provenance.sourcePage, "urn:ledbox:test-fixture"); assert.equal(saved.rucSnapshot.lookedUpAt, signed.lookedUpAt); assert.ok(saved.rucSnapshot.confirmedAt);
     assert.equal((await call(`/api/admin/clients/${client.id}`, "PATCH", { rucSnapshot: saved.rucSnapshot })).status, 400);
     const otherSigned = await signRucConfirmation(result, otherOrg, owner.id);
