@@ -33,7 +33,7 @@ export function ownDataConfig(env: Record<string, string | undefined> = process.
   if (!base || !key || !["test", "live"].includes(environment ?? "")) return null;
   try {
     const url = new URL(base);
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || /[\r\n]/.test(key)) return null;
+    if (url.protocol !== "https:" || url.pathname !== "/" || url.username || url.password || url.search || url.hash || /[\r\n]/.test(key)) return null;
     return { base: url.href.replace(/\/$/, ""), key, environment: environment as "test" | "live" };
   } catch { return null; }
 }
