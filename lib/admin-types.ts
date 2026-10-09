@@ -338,6 +338,7 @@ export function overdueCount(
 }
 
 export type AdminBudgetRow = {
+  updatedAt?: string;
   comparisonId?: string | null;
   id: string;
   title: string;

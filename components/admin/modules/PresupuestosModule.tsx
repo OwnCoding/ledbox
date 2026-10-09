@@ -34,6 +34,7 @@ import { BudgetItemsEditor } from "./BudgetItemsEditor";
 import { BudgetPaymentPlanEditor, conditionDrafts, conditionPayload, type BudgetConditionDraft } from "./BudgetPaymentPlanEditor";
 import { budgetDraftSubtotal, budgetItemError, type BudgetItemDraft } from "@/lib/budget-items";
 import { budgetMoneyValid, resolveBudgetPaymentPlan } from "@/lib/budget-payment-plan";
+import { clientDisplayName } from "@/lib/client-identity";
 import { ClientQuickCreateDialog, EventQuickCreateDialog } from "./BudgetQuickCreate";
 import { canWriteClients, canWriteFinance, canWriteOperations, matchesQuery } from "@/lib/admin-policy";
 import {
@@ -799,7 +800,7 @@ export function PresupuestosModule() {
     () =>
       clientOptions.map((client) => {
         const company = client.company?.trim() || "";
-        const label = company || client.name;
+        const label = clientDisplayName(client);
         const details = [
           company && company !== client.name ? client.name : null,
           client.type === "RESELLER" ? "Mayorista / revendedor" : null,
@@ -812,7 +813,7 @@ export function PresupuestosModule() {
     () =>
       eventOptions.map((event) => {
         const when = event.startsAt ? `${formatDateShort(event.startsAt)} · ${formatTime(event.startsAt)}` : "Sin fecha";
-        const client = event.client.company?.trim() || event.client.name;
+        const client = clientDisplayName(event.client);
         return { value: event.id, label: event.name, description: `${when} · ${client}` };
       }),
     [eventOptions],
@@ -875,7 +876,7 @@ export function PresupuestosModule() {
           id: budget.id,
           status: budget.status,
           title: budget.title,
-          subtitle: [budget.client.company || budget.client.name, budget.event?.name ?? null].filter(Boolean).join(" · "),
+          subtitle: [clientDisplayName(budget.client), budget.event?.name ?? null].filter(Boolean).join(" · "),
           amount: budget.total,
           amountNote: balance > 0 ? `saldo ${formatMoney(balance)}` : "cobrado",
           date: budget.validUntil,
@@ -971,7 +972,7 @@ export function PresupuestosModule() {
           id: budget.id,
           title: budget.title,
           titleTooltip: `${budget.title}${budget.event ? ` · ${budget.event.name}` : ""}`,
-          subtitle: [budget.client.company || budget.client.name, budget.event?.name ?? null].filter(Boolean).join(" · "),
+          subtitle: [clientDisplayName(budget.client), budget.event?.name ?? null].filter(Boolean).join(" · "),
           badges: [
             { label: budgetStatusLabel(budget.status), tone: statusTone(budget.status) },
             { label: budgetApprovalLabel(approvalState), tone: budgetApprovalTone(approvalState), title: portalSummary(budget) },
@@ -1119,7 +1120,7 @@ export function PresupuestosModule() {
     setNewClientName(null);
     setForm((current) => ({ ...current, clientId: client.id }));
     clients.reload();
-    setNotice(`Cliente «${client.company?.trim() || client.name}» creado y seleccionado.`);
+    setNotice(`Cliente «${clientDisplayName(client)}» creado y seleccionado.`);
   }
 
   /** Alta rápida de evento (issue #88): queda elegido y con su rango disponible. */
@@ -1346,8 +1347,8 @@ export function PresupuestosModule() {
     }
     setNotice(
       resolution.decision === "accept"
-        ? `Solicitud de «${resolution.request.budget.client.company || resolution.request.budget.client.name}» aceptada y aplicada al presupuesto.`
-        : `Solicitud de «${resolution.request.budget.client.company || resolution.request.budget.client.name}» rechazada con nota.`,
+        ? `Solicitud de «${clientDisplayName(resolution.request.budget.client)}» aceptada y aplicada al presupuesto.`
+        : `Solicitud de «${clientDisplayName(resolution.request.budget.client)}» rechazada con nota.`,
     );
     setResolution(null);
     setNote("");
@@ -1531,7 +1532,7 @@ export function PresupuestosModule() {
               de la propuesta original, con la respuesta del equipo. */}
           <ul className="admin-request-list" aria-label="Solicitudes del portal">
             {requestRows.map((request) => {
-              const clientLabel = request.budget.client.company || request.budget.client.name;
+              const clientLabel = clientDisplayName(request.budget.client);
               const resolved = request.status !== "pending";
               const when = resolved && request.resolvedAt
                 ? `Resuelta el ${formatDateTime(request.resolvedAt)}${request.resolvedByName ? ` por ${request.resolvedByName}` : ""} · Pedida el ${formatDateTime(request.createdAt)}`
@@ -1707,7 +1708,7 @@ export function PresupuestosModule() {
                     <strong className="admin-quote-title">{budget.title}</strong>
                     {budget.event ? <small className="admin-cell-sub"> · {budget.event.name}</small> : null}
                   </AdminCell>
-                  <AdminCell title={budget.client.company || budget.client.name}>{budget.client.company || budget.client.name}</AdminCell>
+                  <AdminCell title={clientDisplayName(budget.client)}>{clientDisplayName(budget.client)}</AdminCell>
                   <AdminCell end title={formatMoney(budget.total)}>
                     {formatMoney(budget.total)}
                   </AdminCell>
@@ -1835,7 +1836,7 @@ export function PresupuestosModule() {
           <dl className="admin-dialog-facts">
             <div>
               <dt>Cliente</dt>
-              <dd>{sendBudget.client.company || sendBudget.client.name}</dd>
+              <dd>{clientDisplayName(sendBudget.client)}</dd>
             </div>
             <div>
               <dt>Total</dt>
@@ -1928,7 +1929,7 @@ export function PresupuestosModule() {
         >
           <p className="admin-dialog-text">
             {approval.decision === "approve"
-              ? `Se registra la aprobación a nombre de ${approval.budget.client.company || approval.budget.client.name}, con tu usuario y la fecha actual. Si ya hay una aprobación registrada, no se pisa.`
+              ? `Se registra la aprobación a nombre de ${clientDisplayName(approval.budget.client)}, con tu usuario y la fecha actual. Si ya hay una aprobación registrada, no se pisa.`
               : "El cliente no ve el cambio hasta que le compartas la versión actualizada; queda registrado en el presupuesto."}
           </p>
           <TextAreaField
@@ -2019,7 +2020,7 @@ export function PresupuestosModule() {
           <dl className="admin-dialog-facts">
             <div>
               <dt>Cliente</dt>
-              <dd>{resolution.request.budget.client.company || resolution.request.budget.client.name}</dd>
+              <dd>{clientDisplayName(resolution.request.budget.client)}</dd>
             </div>
             <div>
               <dt>Presupuesto</dt>
@@ -2305,7 +2306,7 @@ export function PresupuestosModule() {
       {proofDialog ? (
         <BudgetProofDialog
           title={`Comprobantes · ${proofDialog.title}`}
-          subtitle={`Enviados desde el portal por el cliente (${proofDialog.client.company || proofDialog.client.name}). El archivo se sirve con tu sesión: no es público.`}
+          subtitle={`Enviados desde el portal por el cliente (${clientDisplayName(proofDialog.client)}). El archivo se sirve con tu sesión: no es público.`}
           proofs={proofsByBudget[proofDialog.id] ?? []}
           onClose={() => setProofDialog(null)}
         />

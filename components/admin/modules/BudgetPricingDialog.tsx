@@ -24,8 +24,7 @@ import { BudgetItemsEditor } from "./BudgetItemsEditor";
 import { BudgetPaymentPlanEditor, conditionDrafts, conditionPayload } from "./BudgetPaymentPlanEditor";
 import { budgetItemError, type BudgetItemDraft } from "@/lib/budget-items";
 import { resolveBudgetPaymentPlan, BUDGET_INT_MAX } from "@/lib/budget-payment-plan";
-import { InventoryLinkPicker } from "./BudgetInventoryPicker";
-import { quoteProductPrice } from "@/lib/quote-sharing";
+import { clientDisplayName } from "@/lib/client-identity";
 import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import { useAdminSession } from "@/components/admin/AdminShell";
 import { AdminIcon } from "@/components/admin/AdminIcons";
@@ -168,16 +167,6 @@ export function BudgetPricingDialog({
   const planResult = resolveBudgetPaymentPlan(conditionPayload(conditions), price, budget.advanceAmount);
   const itemsError = priced.map(budgetItemError).find(Boolean);
 
-  function updateItem(index: number, patch: Partial<ItemDraft>) {
-    setDraft((current) => {
-      const old = current.items[index];
-      const next = { ...old, ...patch };
-      const subtotal = (item: ItemDraft) => item.excluded ? 0 : Math.max(1, number(item.quantity)) * Math.max(1, number(item.days)) * number(item.unitPrice);
-      const items = current.items.map((item, position) => position === index ? next : item);
-      return { ...current, price: String(Math.max(0, items.reduce((sum, item) => sum + subtotal(item), 0) + current.priceAdjustment)), items };
-    });
-  }
-
   /** Ajusta los precios unitarios para llegar al precio final escrito (misma suma). */
   function applySuggestedMargin() {
     if (suggested === null) {
@@ -198,8 +187,7 @@ export function BudgetPricingDialog({
     if (itemsError || !planResult.ok || price > BUDGET_INT_MAX) { setError(itemsError || (!planResult.ok ? planResult.error : "El precio supera el límite Int.")); return; }
     setBusy(true);
     try {
-      // 1) Ítems: se guardan si cambió algo (o si el precio final obliga a
-      //    repartirlo entre los precios unitarios).
+      // A single atomic request preserves items, exclusions, discount and plan.
       const itemsPayload = priced.map((item) => ({
         id: item.id ?? undefined,
         name: item.name,
@@ -210,6 +198,15 @@ export function BudgetPricingDialog({
         inventoryId: item.inventoryId,
         notes: item.notes,
       }));
+      // Integer unit prices can miss the target by a few guaraníes. Round the
+      // repriced subtotal upward and use an explicit discount to close exactly.
+      let payloadSubtotal = itemsPayload.reduce((sum, item, index) => sum + (priced[index].excluded ? 0 : item.unitPrice * item.quantity * item.days), 0);
+      if (needsRepricing && payloadSubtotal < price && activePriced.length) {
+        const index = priced.findIndex((item) => !item.excluded);
+        const item = itemsPayload[index];
+        item.unitPrice += Math.ceil((price - payloadSubtotal) / (item.quantity * item.days));
+        payloadSubtotal = itemsPayload.reduce((sum, row, n) => sum + (priced[n].excluded ? 0 : row.unitPrice * row.quantity * row.days), 0);
+      }
       const itemsChanged =
         needsRepricing ||
         priced.length !== budget.items.length ||
@@ -226,21 +223,17 @@ export function BudgetPricingDialog({
             item.costPrice !== original.costPrice
           );
         });
-      if (itemsChanged && (approved || closed)) {
-        if (approved || closed) {
-          setError("El presupuesto ya está aprobado o cerrado: sus ítems no se pueden cambiar.");
-          return;
-        }
-      }
+      if (itemsChanged && (approved || closed)) { setError("El presupuesto ya está aprobado o cerrado: sus ítems no se pueden cambiar."); return; }
 
       // 2) Precio final y condiciones: el precio se aplica como descuento cuando
       //    entra en los ítems; si hubo reparto de precios, no hay descuento.
-      const discount = needsRepricing ? 0 : intent.ok ? intent.discount : 0;
+      const discount = payloadSubtotal - price;
       const result = await adminSend(
         "/api/admin/budgets",
         {
           kind: approved ? "commercial" : "editor",
           budgetId: budget.id,
+          expectedUpdatedAt: budget.updatedAt,
           ...(!approved ? { items: itemsPayload, title, clientId, eventId: eventId || null, discount, installmentsJson: conditionPayload(conditions) } : {}),
           materialCost: number(draft.materialCost),
           laborCost: number(draft.laborCost),
@@ -308,7 +301,7 @@ export function BudgetPricingDialog({
   return (
     <AdminDialog title={`Precio y condiciones · ${budget.title}`} size="wide" icon="finance" onClose={onClose}>
       <p className="admin-dialog-text">
-        Presupuesto Nº {budgetReference(budget.id)} de {budget.client.company?.trim() || budget.client.name}. El cliente ve el
+        Presupuesto Nº {budgetReference(budget.id)} de {clientDisplayName(budget.client)}. El cliente ve el
         precio final y estas condiciones; los costos internos y el margen quedan solo en el panel.
       </p>
       {approved ? (
@@ -325,7 +318,7 @@ export function BudgetPricingDialog({
       <form onSubmit={(event) => void save(event)}>
         <div hidden={section !== "items"}>
         <div className="admin-plan-grid">
-          <Combobox label="Cliente" required value={clientId} disabled={approved || closed || busy} options={(clients.data ?? []).map((client) => ({ value: client.id, label: client.name }))} onChange={setClientId} onCreate={canWriteClients(role) ? setNewClient : undefined} createLabel={(query) => `Crear cliente «${query}»`} />
+          <Combobox label="Cliente" required value={clientId} disabled={approved || closed || busy} options={(clients.data ?? []).map((client) => ({ value: client.id, label: clientDisplayName(client) }))} onChange={setClientId} onCreate={canWriteClients(role) ? setNewClient : undefined} createLabel={(query) => `Crear cliente «${query}»`} />
           <Combobox label="Evento" hint="Opcional · distinto del título del presupuesto" value={eventId} disabled={approved || closed || busy} options={(events.data ?? []).map((event) => ({ value: event.id, label: event.name }))} onChange={setEventId} onCreate={canWriteOperations(role) ? setNewEvent : undefined} createLabel={(query) => `Crear evento «${query}»`} />
           <TextField label="Título del presupuesto" required value={title} maxLength={160} disabled={approved || closed || busy} onChange={setTitle} />
         </div>
@@ -347,13 +340,6 @@ export function BudgetPricingDialog({
             hint="Costo interno"
             value={draft.laborCost}
             onChange={(value) => setDraft({ ...draft, laborCost: value })}
-          />
-          <MoneyField
-            label="Precio final (Gs)"
-            hint="Lo que paga el cliente"
-            value={draft.price}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, price: value, priceAdjustment: number(value) - itemsSubtotal })}
           />
           <PercentField
             label="Margen deseado (%)"

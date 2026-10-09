@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { Combobox, DateField, MoneyField, PercentField, SelectField, TextField } from "../AdminFields";
 import { AdminButton, AdminNote } from "../AdminUI";
 import { useAdminResource } from "@/lib/admin-api";
-import { formatMoney } from "@/lib/admin-format";
+import { formatDayKey, formatMoney } from "@/lib/admin-format";
 import { BUDGET_INT_MAX, resolveBudgetPaymentPlan, type BudgetPaymentCondition } from "@/lib/budget-payment-plan";
 
 export type BudgetConditionDraft = { label: string; type: "fixed" | "percent" | "remainder"; value: string; dueAt: string; moment: string; accountId: string };
@@ -30,6 +30,7 @@ export function BudgetPaymentPlanEditor({ total, advance = 0, rows, onChange, di
       <SelectField label="Tipo" value={row.type} options={[{ value: "percent", label: "Porcentaje" }, { value: "fixed", label: "Monto fijo" }, { value: "remainder", label: "Saldo restante" }]} disabled={disabled} error={fieldError(index, "type")} onChange={(type) => update(index, { type: type as BudgetConditionDraft["type"], value: "" })} />
       {row.type === "percent" ? <PercentField label="Porcentaje del total final" required value={row.value} disabled={disabled} error={fieldError(index, "value")} onChange={(value) => update(index, { value })} /> : row.type === "fixed" ? <MoneyField label="Monto fijo" required limit={BUDGET_INT_MAX} value={row.value} disabled={disabled} error={fieldError(index, "value")} onChange={(value) => update(index, { value })} /> : null}
       <strong className="admin-nowrap">Importe: {result.ok ? formatMoney(result.rows[index].amount) : "—"}</strong>
+      {row.dueAt ? <span className="admin-nowrap">{formatDayKey(row.dueAt)}</span> : null}
       <DateField label="Vencimiento" value={row.dueAt} disabled={disabled} error={fieldError(index, "dueAt")} onChange={(dueAt) => update(index, { dueAt })} />
       <TextField label="Momento de pago" value={row.moment} maxLength={120} placeholder="Al confirmar / antes del montaje" disabled={disabled} error={fieldError(index, "moment")} onChange={(moment) => update(index, { moment })} />
       <Combobox label="Cuenta de cobro" hint="Opcional · cuenta real PYG de la empresa" value={row.accountId} options={accounts} disabled={disabled} onChange={(accountId) => update(index, { accountId })} />

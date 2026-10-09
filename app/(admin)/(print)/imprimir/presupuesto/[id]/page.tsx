@@ -24,6 +24,7 @@ import { PrintToolbar } from "../../../_components/PrintToolbar";
 import { AdminImageBox } from "@/components/admin/AdminImageBox";
 import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import { budgetUsesDays } from "@/lib/budget-items";
+import { clientDisplayName, clientLegalName } from "@/lib/client-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,8 +100,9 @@ export default async function PresupuestoImprimiblePage({ params }: { params: Pr
 
         <PrintSection title="Cliente">
           <div className="lbprint-grid">
-            <PrintField label="Razón social" value={budget.client.company || budget.client.name} />
-            <PrintField label="Contacto" value={budget.client.company ? budget.client.name : "—"} />
+            <PrintField label="Cliente" value={clientDisplayName(budget.client)} />
+            <PrintField label="Razón social" value={clientLegalName(budget.client) || "—"} />
+            <PrintField label="Contacto" value={budget.client.contactName || "—"} />
             <PrintField label="RUC" value={budget.client.ruc || "—"} />
             <PrintField label="Teléfono" value={budget.client.phone || "—"} />
             <PrintField label="Correo" value={budget.client.email || "—"} wide />

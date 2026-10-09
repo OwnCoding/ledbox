@@ -1,4 +1,5 @@
 "use client";
+import { clientDisplayName } from "@/lib/client-identity";
 
 import { PortalQuoteResources } from "./PortalQuoteResources";
 
@@ -380,7 +381,7 @@ export function PortalBudgetView({
 
   // Identidad del cliente: el responsable cargado en la empresa (issue #36) es
   // el valor inicial de quien autoriza y de quien sube el comprobante.
-  const clientLabel = budget.client.company?.trim() || budget.client.name;
+  const clientLabel = clientDisplayName(budget.client);
   const contactName = budget.client.contactName?.trim() ?? "";
   const contactRole = budget.client.contactRole?.trim() ?? "";
 
@@ -1087,7 +1088,7 @@ export function PortalBudgetView({
                   </td>
                   <td className="portal-num" data-label="Monto">{formatMoney(installment.amount)}</td>
                   <td data-label="Vencimiento">
-                    {dueLabel(installment.dueAt)}
+                    {installment.dueAt ? dueLabel(installment.dueAt) : installment.moment || "A coordinar"}
                     {installment.dueAt ? (
                       <span className="portal-countdown" data-tone={countdownTone(installment.dueAt)}>
                         {formatCountdown(installment.dueAt, "client")}

@@ -25,8 +25,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_TERMS = 600;
-const MAX_INSTALLMENTS = 12;
-const MAX_INSTALLMENT_LABEL = 60;
 /** Campos del cliente (issue #65). */
 const MAX_WARRANTY = 400;
 const MAX_NOTES = 2000;
@@ -35,8 +33,8 @@ const MAX_NOTES = 2000;
 function moneyField(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
   const amount = Number(value);
-  if (!Number.isFinite(amount)) return null;
-  return Math.max(0, Math.round(amount));
+  if (typeof value === "boolean" || !budgetMoneyValid(amount)) return null;
+  return amount;
 }
 
 /** Día `YYYY-MM-DD` del body a fecha real (mediodía de Asunción); `null` si no vino. */
@@ -150,6 +148,7 @@ function parseBudgetItems(rawItems: unknown[], validInventoryIds: Set<string>): 
   return rawItems.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const value = item as Record<string, unknown>;
+    if ([value.quantity, value.days, value.unitPrice, value.costPrice].some((field) => typeof field === "boolean")) return [];
     const name = typeof value.name === "string" ? value.name.trim() : "";
     const quantity = Number(value.quantity ?? 1);
     const days = Number(value.days ?? 1);
@@ -270,31 +269,6 @@ export async function POST(request: Request) {
     },
   });
   return Response.json({ budget }, { status: 201 });
-}
-
-type ParsedInstallments =
-  | { ok: true; value: Array<{ label: string; amount: number; dueAt: string }> }
-  | { ok: false; error: string };
-
-/** Cuotas del plan de pagos: etiqueta, monto entero y vencimiento real (`YYYY-MM-DD`). */
-function parseInstallments(raw: unknown): ParsedInstallments {
-  if (!Array.isArray(raw)) return { ok: false, error: "Las cuotas deben venir en una lista." };
-  if (raw.length > MAX_INSTALLMENTS) return { ok: false, error: `Podés cargar hasta ${MAX_INSTALLMENTS} cuotas.` };
-  const value: Array<{ label: string; amount: number; dueAt: string }> = [];
-  for (const [index, row] of raw.entries()) {
-    const position = index + 1;
-    if (!row || typeof row !== "object" || Array.isArray(row)) return { ok: false, error: `La cuota ${position} tiene un formato inválido.` };
-    const record = row as Record<string, unknown>;
-    const label = typeof record.label === "string" ? record.label.trim() : "";
-    if (!label) return { ok: false, error: `La cuota ${position} necesita una etiqueta.` };
-    if (label.length > MAX_INSTALLMENT_LABEL) return { ok: false, error: `La etiqueta de la cuota ${position} no puede superar los ${MAX_INSTALLMENT_LABEL} caracteres.` };
-    const amount = Number(record.amount);
-    if (!Number.isInteger(amount) || amount <= 0) return { ok: false, error: `El monto de la cuota ${position} debe ser un entero mayor a cero.` };
-    const dueAt = typeof record.dueAt === "string" ? record.dueAt.trim() : "";
-    if (!isValidDayKey(dueAt)) return { ok: false, error: `El vencimiento de la cuota ${position} no es una fecha válida.` };
-    value.push({ label, amount, dueAt });
-  }
-  return { ok: true, value };
 }
 
 /**
@@ -435,7 +409,7 @@ async function patchBudget(request: Request) {
   const data: Prisma.BudgetUpdateInput = {};
   if (body.advanceAmount !== undefined) {
     const advance = Number(body.advanceAmount);
-    if (!Number.isInteger(advance) || advance < 0) return jsonError("El anticipo debe ser un entero en guaraníes.", 400);
+    if (typeof body.advanceAmount !== "number" || !budgetMoneyValid(advance)) return jsonError("El anticipo debe ser un entero en guaraníes.", 400);
     if (advance > budget.total) return jsonError("El anticipo no puede superar el total del presupuesto.", 400);
     data.advanceAmount = advance;
   }

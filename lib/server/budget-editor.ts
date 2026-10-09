@@ -16,8 +16,11 @@ import { recalculateBudgetPaymentPlan, validateBudgetPlanAccounts } from "./budg
 export async function saveBudgetEditor(context: AdminContext, budgetId: string, body: Record<string, unknown>) {
   const current = await db.budget.findFirst({ where: { id: budgetId, organizationId: context.organizationId }, include: { items: true } });
   if (!current) return jsonError("Presupuesto no encontrado.", 404);
+  if (["discount", "materialCost", "laborCost"].some((key) => body[key] !== undefined && typeof body[key] !== "number")) return jsonError("Los montos comerciales deben ser numéricos.", 400);
+  if (typeof body.expectedUpdatedAt === "string" && body.expectedUpdatedAt !== current.updatedAt.toISOString()) return jsonError("El presupuesto cambió. Actualizá antes de guardar.", 409);
   const raw = body.items;
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 100) return jsonError("El presupuesto necesita entre 1 y 100 ítems.", 400);
+  if (raw.some((row) => !row || typeof row !== "object" || Array.isArray(row) || ["quantity", "days", "unitPrice", "costPrice"].some((field) => row[field] !== undefined && typeof row[field] !== "number"))) return jsonError("Las cantidades y montos deben ser numéricos, no texto ni booleanos.", 400);
   const items = raw.map((r: Record<string, unknown>) => ({
     id: typeof r?.id === "string" ? r.id : null,
     name: typeof r?.name === "string" ? r.name.trim() : "",
