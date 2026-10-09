@@ -974,7 +974,7 @@ export function PortalBudgetView({
    * recorrido de la decisión.
    */
   const paymentsCard = (
-    <section className="portal-card" aria-labelledby="portal-payments">
+    <section className="portal-card quote-document-section--payments" aria-labelledby="portal-payments">
       <div className="portal-card-head">
         <PortalCardTitle id="portal-payments" icon="wallet">
           {approved ? "Plan de pagos" : "Plan de pagos propuesto"}
@@ -1108,7 +1108,7 @@ export function PortalBudgetView({
           Saldo sin cuota agendada: <span className="portal-num">{formatMoney(paymentPlan.pending)}</span>
         </p>
       ) : null}
-      {paymentPlan.terms ? <p className="portal-note">{paymentPlan.terms}</p> : null}
+      {paymentPlan.terms ? <div><h3 className="quote-document-subtitle">Condiciones de pago</h3><p className="quote-document-copy">{paymentPlan.terms}</p></div> : null}
       {!approved ? (
         <p className="portal-help">
           Los datos bancarios de {budget.organization} se muestran cuando autorices el presupuesto.
@@ -1421,12 +1421,11 @@ export function PortalBudgetView({
               ) : null}
             </div>
 
-            {budget.notes ? <p className="portal-note">{budget.notes}</p> : null}
 
             {budget.items.length === 0 ? (
               <p className="portal-empty">Este presupuesto no tiene ítems cargados.</p>
             ) : (
-              <div className="portal-table-wrap">
+              <div className="portal-items-wrap">
                 <table className="portal-table portal-table--items">
                   <thead>
                     <tr>
@@ -1551,8 +1550,15 @@ export function PortalBudgetView({
             ) : null}
           </section>
 
-          {budget.deliveryAt || budget.ivaType || budget.warranty ? (
-            <section className="portal-card" aria-labelledby="portal-terms">
+          {budget.notes ? (
+            <section className="portal-card quote-document-section--observations" aria-labelledby="portal-observations">
+              <PortalCardTitle id="portal-observations" icon="edit">Observaciones</PortalCardTitle>
+              <p className="quote-document-copy">{budget.notes}</p>
+            </section>
+          ) : null}
+
+          {budget.deliveryAt || budget.ivaType || budget.warranty || budget.validUntil ? (
+            <section className="portal-card quote-document-section--conditions" aria-labelledby="portal-terms">
               <div className="portal-card-head">
                 <PortalCardTitle id="portal-terms" icon="plan">
                   Condiciones de la propuesta
@@ -1809,6 +1815,12 @@ export function PortalBudgetView({
           {approved ? null : paymentsCard}
 
           {approved ? null : proofCard}
+
+          <section className="portal-card quote-document-section--issuer" aria-labelledby="portal-issuer">
+            <PortalCardTitle id="portal-issuer" icon="building">Emitido por</PortalCardTitle>
+            <p className="quote-document-copy"><strong>{budget.organization}</strong></p>
+            <p className="portal-help">La firma electrónica, cuando corresponda, se realiza en un proceso separado.</p>
+          </section>
 
 
           {budget.proofs.length > 0 ? (

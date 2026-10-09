@@ -72,7 +72,69 @@ test("quote removal is an accessible compact icon after subtotal", () => {
   assert.match(rows, /<AdminIcon name=\{current\.excluded \? "refresh" : "trash"\} size=\{18\} \/>/);
   assert.match(rows, /title=\{`\$\{current\.excluded \? "Restaurar" : "Retirar"\} \$\{item\.name\}`\}/);
   assert.match(view, /<span className="sr-only">Acción<\/span>/);
-  assert.match(css, /\.portal-item-action \{[^}]*width: 40px;[^}]*height: 40px;/);
+  assert.match(css, /\.portal-item-action \{[^}]*width: 44px;[^}]*height: 44px;/);
   assert.match(css, /\.portal-item-action:focus-visible/);
   assert.match(css, /\.portal-item-action \{ width: 44px; height: 44px; \}/);
+});
+
+test("quote and signature item cards reflow without a horizontal scrolling container", () => {
+  const sheet = readFileSync(join(root, "app", "(portal)", "_components", "SignatureDocumentSheet.tsx"), "utf8");
+  for (const source of [view, sheet]) assert.match(source, /className="portal-items-wrap"/);
+  assert.match(css, /\.portal-items-wrap \{[^}]*min-width: 0;[^}]*overflow: visible;/);
+  assert.match(css, /\.portal-table--items \{[^}]*min-width: 0;/);
+  assert.match(css, /\.portal-table--items tbody tr \{[^}]*display: grid;[^}]*minmax\(0, 1fr\)/);
+  assert.match(css, /\.portal-table--items td\.portal-item-cell \{[^}]*grid-column: 1 \/ -1;/);
+  assert.match(css, /\.portal-table--items td\[data-label="Subtotal"\] \{[^}]*grid-column: 1 \/ -2;/);
+  assert.match(css, /\.portal-table--items td\.portal-item-action-cell \{[^}]*grid-column: -2 \/ -1;/);
+  assert.match(css, /\.portal-table--items td \{[^}]*overflow-wrap: anywhere;/);
+  assert.doesNotMatch(css, /\.portal-table--items \{ min-width: 36rem;/);
+});
+
+test("long proposal total labels cannot widen the quote item card", () => {
+  assert.match(css, /\.portal-card:has\(\.portal-items-wrap\),[^}]+min-width: 0;/);
+  assert.match(css, /\.portal-card:has\(\.portal-items-wrap\) \.portal-total-row > span:first-child \{ min-width: 0; overflow-wrap: anywhere;/);
+});
+
+test("excluded quote review CTA cannot force the item's parent grid wider on narrow screens", () => {
+  assert.match(css, /\.portal-budget-main:has\(\.portal-items-wrap\) \{ grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(css, /\.portal-budget-main:has\(\.portal-items-wrap\) \.portal-btn--block \{ white-space: normal; overflow-wrap: anywhere;/);
+});
+
+test("quote document separates verbatim observations, payment terms, conditions and actual issuer", () => {
+  assert.doesNotMatch(view, /\{budget\.notes \? <p className="portal-note">\{budget\.notes\}<\/p> : null\}/);
+  assert.match(view, /aria-labelledby="portal-observations"/);
+  assert.match(view, /className="quote-document-copy">\{budget.notes\}/);
+  assert.ok(view.indexOf('aria-labelledby="portal-items"') < view.indexOf('aria-labelledby="portal-observations"'));
+  assert.match(view, /portal-card quote-document-section--payments/);
+  assert.match(view, /aria-labelledby="portal-issuer"/);
+  assert.match(view, /Emitido por/);
+  assert.match(view, /\{budget.organization\}/);
+  const editor = readFileSync(join(root, "components/admin/modules/BudgetPricingDialog.tsx"), "utf8");
+  for (const name of ["observations", "payments", "conditions", "issuer"]) {
+    assert.match(editor, new RegExp(`quote-document-section quote-document-section--${name}`));
+  }
+  assert.match(editor, /budget.paymentTerms \|\| "Sin condiciones de pago registradas."/);
+  assert.match(editor, /\{organization.name\}/);
+  assert.match(css, /\.quote-document-copy \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/);
+
+  const adminDocument = /(?:^|\n)\.admin-root \.quote-document-section \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  for (const [shared, admin] of [["surface", "panel"], ["border", "line"], ["text", "text"], ["text-strong", "text-strong"]]) {
+    assert.match(adminDocument, new RegExp(`--${shared}:\\s*var\\(--a-${admin}\\);`), `admin quote sections must map --${shared}`);
+  }
+  assert.match(adminDocument, /color: var\(--text\);/, "unclassed payment advance text must inherit the mapped admin color");
+  assert.match(css, /(?:^|\n)\.admin-root \.quote-document-section \.admin-field-label \{[^}]*color: var\(--text\);/, "observation labels must use the mapped admin color");
+  assert.match(css, /(?:^|\n)\.admin-root \.quote-document-section \.admin-dialog-text \{[^}]*color: var\(--text\);/, "payment and issuer helper copy must use the mapped admin color");
+  assert.match(css, /(?:^|\n)\.quote-document-section \{[^}]*border: 1px solid var\(--border\);/);
+  for (const name of ["observations", "payments"]) {
+    assert.match(css, new RegExp(`(?:^|\\n)\\.quote-document-section--${name} \\{[^}]*background: color-mix\\([^;]*var\\(--surface\\)\\);`));
+  }
+  assert.match(css, /(?:^|\n)\.quote-document-section--conditions \{[^}]*border-inline-start: 4px solid var\(--border\);/);
+  assert.match(css, /(?:^|\n)\.quote-document-section--issuer \{[^}]*border-block-start: 2px solid var\(--border\);/);
+  assert.match(css, /(?:^|\n)\.quote-document-copy \{[^}]*color: var\(--text\);/);
+  assert.match(css, /(?:^|\n)\.quote-document-subtitle \{[^}]*color: var\(--text-strong\);/);
+  for (const [, selectors, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (/--(?:surface|border|text|text-strong):\s*var\(--a-(?:panel|line|text|text-strong)\)/.test(declarations)) {
+      assert.ok(selectors.split(",").every((selector) => selector.trim() === ".admin-root .quote-document-section"), "quote token aliases must not change portal or root themes");
+    }
+  }
 });

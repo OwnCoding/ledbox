@@ -3069,30 +3069,36 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .portal-segment + .portal-segment { border-left: 1px solid var(--border-2); }
 .portal-segment[data-active="true"] { background: var(--led-soft); color: var(--led); }
 .portal-ok { color: var(--p-ok); font-size: 12.5px; line-height: 1.5; }
-.portal-table--items { min-width: 36rem; }
-.portal-table--items tr[data-changed="true"] td { background: color-mix(in srgb, var(--led) 4%, transparent); }
-.portal-table--items td:first-child { min-width: 12rem; }
-.portal-item-name { font-weight: 600; }
-/* Miniatura del ítem (issue #107): caja uniforme con la foto entera
-   (`contain`) y fallback al ícono; mismo criterio del inventario (#98). */
-.portal-item-identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.portal-item-text { display: grid; gap: 2px; min-width: 0; }
-.portal-item-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); color: var(--muted); }
+/* Quote and signature lines are reflowing cards, never a wide scrollable table. */
+.portal-items-wrap { min-width: 0; overflow: visible; }
+.portal-table--items { display: block; width: 100%; min-width: 0; }
+.portal-table--items thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.portal-table--items tbody { display: grid; gap: 12px; min-width: 0; }
+.portal-table--items tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) 44px; gap: 10px 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
+.portal-table--items td { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-width: 0; padding: 0; border: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.portal-table--items td::before { content: attr(data-label); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.portal-table--items td.portal-item-cell { grid-column: 1 / -1; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.portal-table--items td.portal-item-cell::before { content: none; }
+.portal-table--items td[data-label="Cantidad"] { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+.portal-table--items td[data-label="Días"] { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
+.portal-table--items td[data-label="Precio unitario"] { grid-column: 1 / -1; }
+.portal-table--items td[data-label="Subtotal"] { grid-column: 1 / -2; padding-top: 10px; border-top: 1px solid var(--border); font-weight: 700; }
+.portal-table--items td.portal-item-action-cell { grid-column: -2 / -1; align-items: flex-end; justify-content: flex-end; width: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.portal-table--items td.portal-item-action-cell::before { content: none; }
+.portal-table--items tbody tr[data-changed="true"] { border-color: color-mix(in srgb, var(--led) 45%, transparent); }
+.portal-item-name { font-weight: 600; overflow-wrap: anywhere; }
+.portal-item-identity { display: flex; align-items: flex-start; gap: 12px; min-width: 0; width: 100%; }
+.portal-item-text { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.portal-item-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 64px; height: 64px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface); color: var(--muted); }
 .portal-item-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
-/* Mobile: cada ítem se lee como una ficha apilada (sin scroll horizontal). */
-@media (max-width: 640px) {
-  .portal-table--items { min-width: 0; }
-  .portal-table--items thead { display: none; }
-  .portal-table--items, .portal-table--items tbody, .portal-table--items tr, .portal-table--items td { display: block; width: 100%; }
-  .portal-table--items tr { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--p-radius); background: var(--surface-2); }
-  .portal-table--items tr[data-changed="true"] { border-color: color-mix(in srgb, var(--led) 45%, transparent); }
-  .portal-table--items tr[data-changed="true"] td { background: none; }
-  .portal-table--items td { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 5px 0; border: 0; text-align: left; }
-  .portal-table--items td + td { border-top: 1px solid var(--border); }
-  .portal-table--items td::before { content: attr(data-label); color: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-  .portal-table--items td.portal-item-cell { display: block; padding-top: 0; }
-  .portal-table--items td.portal-item-cell::before { content: none; }
+@media (min-width: 768px) {
+  .portal-table--items tbody tr { grid-template-columns: repeat(3, minmax(0, 1fr)) 44px; }
+  .portal-table--items td[data-label="Cantidad"] { grid-column: 1; flex-direction: column; align-items: flex-start; }
+  .portal-table--items td[data-label="Días"] { grid-column: 2; flex-direction: column; align-items: flex-start; }
+  .portal-table--items td[data-label="Precio unitario"] { grid-column: 3 / -1; }
 }
+.portal-table--items .portal-step { width: 44px; height: 44px; }
+.portal-table--items .portal-stepper input { min-height: 44px; width: 2.8rem; padding: 6px 2px; }
 .portal-table-caption { margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-align: left; text-transform: uppercase; }
 .portal-table--plan { min-width: 24rem; }
 /* Pagos esperados (issue #28): el plan muestra el estado real de cada concepto,
@@ -3972,13 +3978,37 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 
 /* Quote selection actions stay beside the subtotal, not below the product. */
 .portal-item-action-cell { width: 40px; text-align: right; }
-.portal-item-action { display: inline-grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: var(--p-radius); background: transparent; color: var(--muted); cursor: pointer; }
+.portal-item-action { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--p-radius); background: transparent; color: var(--muted); cursor: pointer; }
 .portal-item-action:hover { background: var(--surface-2); color: var(--led); }
 .portal-item-action:focus-visible { outline: 2px solid var(--led); outline-offset: 2px; }
 .portal-item-action:disabled { opacity: .5; cursor: wait; }
 @media (max-width: 640px) {
-  .portal-table--items td.portal-item-subtotal { display: inline-flex; width: calc(100% - 44px); vertical-align: middle; }
-  .portal-table--items td.portal-item-action-cell { display: inline-flex; justify-content: flex-end; width: 44px; padding: 0; vertical-align: middle; }
-  .portal-table--items td.portal-item-action-cell::before { content: none; }
   .portal-item-action { width: 44px; height: 44px; }
 }
+
+.portal-comparison-items li > div { min-width: 0; overflow-wrap: anywhere; }
+/* Long proposal-total labels must not set the item's card minimum width. */
+.portal-card:has(.portal-items-wrap), .portal-card:has(.portal-items-wrap) .portal-totals { min-width: 0; }
+.portal-card:has(.portal-items-wrap) .portal-total-row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.portal-budget-main:has(.portal-items-wrap) { grid-template-columns: minmax(0, 1fr); }
+.portal-budget-main:has(.portal-items-wrap) .portal-btn--block { white-space: normal; overflow-wrap: anywhere; }
+
+/* Quote document hierarchy: scoped sections, never a global panel redesign. */
+.quote-document-section { min-width: 0; padding: 16px; margin-block: 16px; border: 1px solid var(--border); border-radius: 14px; }
+.quote-document-section--observations { border-inline-start: 4px solid #b7791f; background: color-mix(in srgb, #d99b28 9%, var(--surface)); }
+.quote-document-section--payments { border-inline-start: 4px solid #3b82f6; background: color-mix(in srgb, #3b82f6 8%, var(--surface)); }
+.quote-document-section--conditions { border-inline-start: 4px solid var(--border); }
+.quote-document-section--issuer { border-block-start: 2px solid var(--border); }
+.quote-document-copy { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; margin-block: 12px 0; color: var(--text); line-height: 1.65; }
+.quote-document-subtitle { margin: 0 0 12px; font-size: 1rem; color: var(--text-strong); font-weight: 650; }
+
+/* Shared document colors follow the admin theme without changing portal tokens. */
+.admin-root .quote-document-section {
+  --surface: var(--a-panel);
+  --border: var(--a-line);
+  --text: var(--a-text);
+  --text-strong: var(--a-text-strong);
+  color: var(--text);
+}
+.admin-root .quote-document-section .admin-field-label { color: var(--text); }
+.admin-root .quote-document-section .admin-dialog-text { color: var(--text); }

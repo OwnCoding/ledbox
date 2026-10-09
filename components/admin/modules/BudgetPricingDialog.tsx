@@ -21,9 +21,10 @@ import { BudgetReferenceLinks } from "./BudgetReferenceLinks";
 import { InventoryLinkPicker } from "./BudgetInventoryPicker";
 import { quoteProductPrice } from "@/lib/quote-sharing";
 import { inventoryImageUrl } from "@/lib/server/inventory-images";
+import { useAdminSession } from "@/components/admin/AdminShell";
 import { AdminIcon } from "@/components/admin/AdminIcons";
 import { adminApiUpload, adminSend } from "@/lib/admin-api";
-import { budgetReference, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
+import { budgetReference, formatDate, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
 import {
   BUDGET_ATTACHMENT_MAX_BYTES,
   type AdminBudgetAttachmentRow,
@@ -119,6 +120,7 @@ export function BudgetPricingDialog({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
+  const { organization } = useAdminSession();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(budget));
   const [attachments, setAttachments] = useState<AdminBudgetAttachmentRow[]>(budget.attachments ?? []);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
@@ -313,7 +315,8 @@ export function BudgetPricingDialog({
       {closed ? <AdminNote tone="warn">Este presupuesto está {budget.status === "LOST" ? "perdido" : "cancelado"}: no se edita.</AdminNote> : null}
 
       <form onSubmit={(event) => void save(event)}>
-        <p className="admin-dialog-text">Ítems y precios (cantidades, días, precio y costo unitario).</p>
+        <h3 className="quote-document-subtitle">Productos y precio final</h3>
+        <p className="admin-dialog-text">Cantidades, días y precios. Los costos unitarios son internos.</p>
         <div className="admin-plan-list">
           {draft.items.map((item, index) => (
             <div className="admin-plan-list" key={item.id ?? `nuevo-${index}`}>
@@ -422,38 +425,44 @@ export function BudgetPricingDialog({
           {needsRepricing && repriced ? " Al guardar, el precio se reparte entre los precios unitarios de los ítems." : ""}
         </AdminNote>
 
-        <div className="admin-plan-grid">
-          <DateField
-            label="Vigencia de la oferta"
-            value={draft.validUntil}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, validUntil: value })}
-          />
-          <DateField
-            label="Fecha de entrega"
-            value={draft.deliveryAt}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, deliveryAt: value })}
-          />
-          <SelectField
-            label="IVA"
-            value={draft.ivaType}
-            options={IVA_OPTIONS}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, ivaType: value })}
-          />
+        <section className="quote-document-section quote-document-section--conditions" aria-labelledby="quote-editor-conditions">
+          <h3 id="quote-editor-conditions" className="quote-document-subtitle">Condiciones y fechas</h3>
+          <div className="admin-plan-grid">
+            <DateField
+              label="Vigencia de la oferta"
+              value={draft.validUntil}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, validUntil: value })}
+            />
+            <DateField
+              label="Fecha de entrega"
+              value={draft.deliveryAt}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, deliveryAt: value })}
+            />
+            <SelectField
+              label="IVA"
+              value={draft.ivaType}
+              options={IVA_OPTIONS}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, ivaType: value })}
+            />
+            <TextAreaField
+              label="Garantía"
+              wide
+              value={draft.warranty}
+              maxLength={400}
+              rows={2}
+              disabled={approved || closed}
+              onChange={(value) => setDraft({ ...draft, warranty: value })}
+              placeholder="Ej.: 12 meses por defectos de fabricación"
+            />
+          </div>
+        </section>
+        <section className="quote-document-section quote-document-section--observations" aria-labelledby="quote-editor-observations">
+          <h3 id="quote-editor-observations" className="quote-document-subtitle">Observaciones</h3>
           <TextAreaField
-            label="Garantía"
-            wide
-            value={draft.warranty}
-            maxLength={400}
-            rows={2}
-            disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, warranty: value })}
-            placeholder="Ej.: 12 meses por defectos de fabricación"
-          />
-          <TextAreaField
-            label="Observaciones"
+            label="Observaciones para el cliente"
             wide
             value={draft.notes}
             maxLength={2000}
@@ -461,7 +470,21 @@ export function BudgetPricingDialog({
             disabled={approved || closed}
             onChange={(value) => setDraft({ ...draft, notes: value })}
           />
-        </div>
+        </section>
+        <section className="quote-document-section quote-document-section--payments" aria-labelledby="quote-editor-payments">
+          <h3 id="quote-editor-payments" className="quote-document-subtitle">Plan y condiciones de pago</h3>
+          <p className="quote-document-copy">{budget.paymentTerms || "Sin condiciones de pago registradas."}</p>
+          <p>Anticipo: <strong>{formatMoney(budget.advanceAmount)}</strong></p>
+          {budget.installmentsJson?.length ? <ul className="quote-document-copy">{budget.installmentsJson.map((installment, index) => (
+            <li key={index}>{installment.label}: {formatMoney(installment.amount)}{installment.dueAt ? ` · ${formatDate(installment.dueAt)}` : ""}</li>
+          ))}</ul> : null}
+          <p className="admin-dialog-text">Vista del plan registrado. Se gestiona desde el plan de pagos del presupuesto.</p>
+        </section>
+        {organization ? <section className="quote-document-section quote-document-section--issuer" aria-labelledby="quote-editor-issuer">
+          <h3 id="quote-editor-issuer" className="quote-document-subtitle">Emitido por</h3>
+          <p className="quote-document-copy"><strong>{organization.name}</strong></p>
+          <p className="admin-dialog-text">La firma electrónica se gestiona por separado.</p>
+        </section> : null}
 
         {error ? <AdminNote tone="error">{error}</AdminNote> : null}
         <div className="admin-dialog-foot">

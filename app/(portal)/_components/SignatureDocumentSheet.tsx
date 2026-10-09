@@ -53,7 +53,7 @@ export function SignatureDocumentSheet({ document, compact = false }: { document
         ) : null}
       </dl>
 
-      <div className="portal-table-wrap">
+      <div className="portal-items-wrap">
         <table className="portal-table portal-table--items">
           <caption className="portal-table-caption">Detalle</caption>
           <thead>
