@@ -45,3 +45,14 @@ OwnData: credencial no provista. Revisar contrato local/documentación; no inven
 
 Handoffs y resultados por carril: `~/.herdr/worktrees/ledbox/evidencia/plan-formularios/`.
 Los resultados finales, SHA candidato y deploy se añaden luego de ejecutar sus gates.
+
+Sonda de publicación (lectura, sin trigger):
+
+```bash
+node scripts/verify-release.mjs <versión> <SHA completo>
+```
+
+`/api/health` conserva su contrato y añade `version` y `sha` del build. El SHA se
+sella desde `SOURCE_COMMIT`/`GITHUB_SHA` o Git durante el build; si no existe
+fuente verificable, responde `null` y la sonda falla. No se usa el SHA del
+checkout local como evidencia de lo servido.
