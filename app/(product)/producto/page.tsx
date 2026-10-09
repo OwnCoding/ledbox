@@ -237,7 +237,7 @@ export default function ProductoPage() {
         </section>
       </main>
 
-      <AppFooter variant="app" />
+      <AppFooter variant="product" />
     </div>
   );
 }

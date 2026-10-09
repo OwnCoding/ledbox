@@ -351,6 +351,33 @@ export function AdminBoard({
     return () => wrap.removeEventListener("touchmove", onTouchMove);
   }, []);
 
+  /**
+   * Señal de scroll del tablero (issue #141): si hay columnas fuera de vista,
+   * el borde derecho se difumina y aparece el aviso; al llegar al final
+   * desaparecen. Nada queda escondido sin señal. Se mide el contenedor y su
+   * contenido con `ResizeObserver` + `scroll`.
+   */
+  const [boardScroll, setBoardScroll] = useState({ more: false, start: false });
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const update = () => {
+      const more = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 8;
+      const start = wrap.scrollLeft > 8;
+      setBoardScroll((current) => (current.more === more && current.start === start ? current : { more, start }));
+    };
+    update();
+    wrap.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(wrap);
+    const board = wrap.firstElementChild;
+    if (board) observer.observe(board);
+    return () => {
+      wrap.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [cards, columns]);
+
   // Estados que llegan en los datos sin columna declarada: se dibujan igual,
   // con su valor crudo, para no ocultar filas.
   const statuses = useMemo(() => {
@@ -442,7 +469,18 @@ export function AdminBoard({
   }
 
   return (
-    <div className="admin-board-wrap" ref={wrapRef}>
+    <>
+    {boardScroll.more ? (
+      <p className="admin-board-more" role="status">
+        <AdminIcon name="arrow-right" size={12} aria-hidden="true" /> Deslizá para ver más columnas
+      </p>
+    ) : null}
+    <div
+      className="admin-board-wrap"
+      ref={wrapRef}
+      data-more={boardScroll.more ? "true" : undefined}
+      data-start={boardScroll.start ? "true" : undefined}
+    >
       <div className="admin-board" role="group" aria-label={label}>
         {statuses.map((column) => {
           const columnCards = grouped.get(column.value) ?? [];
@@ -586,5 +624,6 @@ export function AdminBoard({
         </div>
       ) : null}
     </div>
+    </>
   );
 }

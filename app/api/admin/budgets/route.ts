@@ -1,3 +1,4 @@
+import { withQuoteApproval, withQuoteCommercialEdit, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { randomUUID } from "node:crypto";
 import { CommercialStatus, type Prisma } from "@prisma/client";
 import { budgetStatusLabel } from "@/lib/admin-format";
@@ -13,6 +14,7 @@ import { syncBudgetExpectedPayments } from "@/lib/server/expected-payments";
 import {
   budgetCommercialChanges,
   budgetCommercialGuard,
+  touchesBudgetClientFields,
   type BudgetCommercialSnapshot,
 } from "@/lib/budget-commercial";
 
@@ -59,7 +61,7 @@ function textField(value: unknown, max: number): string | null {
 }
 
 /** Datos del artículo de inventario que el panel dibuja junto al ítem del presupuesto. */
-const INVENTORY_LINK_SELECT = { id: true, name: true, sku: true, category: true, quantity: true, status: true } as const;
+const INVENTORY_LINK_SELECT = { id: true, name: true, sku: true, category: true, quantity: true, status: true, imageUrl: true, imageMime: true, updatedAt: true } as const;
 
 /**
  * `GET /api/admin/budgets`: presupuestos de la empresa activa. Los escalares
@@ -93,9 +95,10 @@ export async function GET() {
         payments: true,
         // Adjuntos internos (issue #65): metadatos, el binario se sirve aparte
         // con sesión (`/api/admin/budgets/attachments/[id]`).
+        referenceLinks: { where: { organizationId }, orderBy: { createdAt: "asc" } },
         attachments: {
           orderBy: { createdAt: "desc" },
-          select: { id: true, budgetId: true, name: true, mime: true, size: true, uploadedByName: true, createdAt: true },
+          select: { clientVisible: true, id: true, budgetId: true, name: true, mime: true, size: true, uploadedByName: true, createdAt: true },
         },
       },
     }),
@@ -113,7 +116,7 @@ export async function GET() {
             discount: true,
             total: true,
             client: { select: { name: true, company: true } },
-            items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true } },
+            items: { select: { id: true, name: true, quantity: true, days: true, unitPrice: true, excluded: true } },
           },
         },
       },
@@ -303,6 +306,11 @@ function parseInstallments(raw: unknown): ParsedInstallments {
  *   el total: el plan no promete más de lo que se cobra.
  */
 export async function PATCH(request: Request) {
+  try { return await patchBudget(request); }
+  catch (error) { if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status); throw error; }
+}
+
+async function patchBudget(request: Request) {
   const auth = await requireAdminContext("budgets.write");
   if (!auth.ok) return auth.response;
   const { organizationId } = auth.context;
@@ -321,11 +329,16 @@ export async function PATCH(request: Request) {
     if (budget.status === status) {
       return Response.json({ budget: { id: budget.id, status: budget.status }, unchanged: true });
     }
-    const updated = await db.budget.update({
-      where: { id: budget.id },
-      data: { status: status as CommercialStatus },
-      select: { id: true, status: true },
-    });
+    if (budget.status === "APPROVED" && status !== "APPROVED") return jsonError("El presupuesto ya está aprobado: no se puede reabrir para cambiar sus condiciones.", 409);
+    let updated: { id: string; status: CommercialStatus };
+    try {
+      updated = status === "APPROVED"
+        ? await withQuoteApproval(budget.id, organizationId, (tx) => tx.budget.update({ where: { id: budget.id }, data: { status: status as CommercialStatus }, select: { id: true, status: true } }))
+        : await db.budget.update({ where: { id: budget.id }, data: { status: status as CommercialStatus }, select: { id: true, status: true } });
+    } catch (error) {
+      if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status);
+      throw error;
+    }
     await recordAudit({
       context: auth.context,
       action: "status",
@@ -458,7 +471,7 @@ export async function PATCH(request: Request) {
     return Response.json({ budget: current, unchanged: true });
   }
 
-  const updated = await db.budget.update({
+  const updated = await withQuoteCommercialEdit(budget.id, organizationId, true, (tx) => tx.budget.update({
     where: { id: budget.id },
     data,
     select: {
@@ -468,7 +481,7 @@ export async function PATCH(request: Request) {
       installmentsJson: true,
       total: true,
     },
-  });
+  }));
   await recordAudit({
     context: auth.context,
     action: "update",
@@ -508,13 +521,14 @@ async function patchBudgetItems(params: {
     select: {
       id: true,
       title: true,
+      updatedAt: true,
       status: true,
       approvedAt: true,
       discount: true,
       subtotal: true,
       total: true,
       client: { select: { name: true, company: true } },
-      items: { select: { id: true, name: true, inventoryId: true } },
+      items: { select: { id: true, name: true, inventoryId: true, excluded: true } },
     },
   });
   if (!budget) return jsonError("Presupuesto no encontrado.", 404);
@@ -533,6 +547,8 @@ async function patchBudgetItems(params: {
     return jsonError("Uno de los ítems no pertenece a este presupuesto.", 400);
   }
 
+  const excludedIds = new Set(budget.items.filter((item) => item.excluded).map((item) => item.id));
+  for (const item of parsed) if (item.id && excludedIds.has(item.id)) item.subtotal = 0;
   const subtotal = parsed.reduce((sum, item) => sum + item.subtotal, 0);
   const discount = Math.min(budget.discount, subtotal);
   const total = Math.max(0, subtotal - discount);
@@ -543,10 +559,13 @@ async function patchBudgetItems(params: {
   // desvinculaba el stock del #18 y la imagen del portal (#107).
   const linksById = new Map(budget.items.map((item) => [item.id, item.inventoryId]));
 
-  await db.$transaction(async (tx) => {
+  await withQuoteCommercialEdit(budget.id, organizationId, true, async (tx) => {
+    const fresh = await tx.budget.findUniqueOrThrow({ where: { id: budget.id }, select: { updatedAt: true } });
+    if (fresh.updatedAt.getTime() !== budget.updatedAt.getTime()) throw new QuoteComparisonError(409, "El presupuesto cambió. Actualizá los ítems antes de guardar.");
     await tx.budgetItem.deleteMany({ where: { budgetId: budget.id, id: { notIn: [...keepIds] } } });
     for (const item of parsed) {
-      const inventoryId = item.inventoryId ?? (item.id ? linksById.get(item.id) ?? null : null);
+      const raw = rawItems.find((row) => row && typeof row === "object" && (row as Record<string, unknown>).id === item.id) as Record<string, unknown> | undefined;
+      const inventoryId = raw && Object.hasOwn(raw, "inventoryId") ? item.inventoryId : item.inventoryId ?? (item.id ? linksById.get(item.id) ?? null : null);
       const data = {
         name: item.name,
         quantity: item.quantity,
@@ -721,7 +740,7 @@ async function patchBudgetCommercial(params: {
     return Response.json({ budget: current, unchanged: true });
   }
 
-  const updated = await db.budget.update({
+  const updated = await withQuoteCommercialEdit(budget.id, organizationId, touchesBudgetClientFields(body), (tx) => tx.budget.update({
     where: { id: budget.id },
     data,
     select: {
@@ -737,7 +756,7 @@ async function patchBudgetCommercial(params: {
       warranty: true,
       notes: true,
     },
-  });
+  }));
   await recordAudit({
     context,
     action: "update",

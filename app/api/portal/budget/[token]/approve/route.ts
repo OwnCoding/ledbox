@@ -1,3 +1,5 @@
+import { withQuoteApproval, QuoteComparisonError } from "@/lib/server/quote-comparison";
+import { quotePortalAvailable } from "@/lib/quote-sharing";
 import { db } from "@/lib/server/db";
 import { recordAudit, portalAuditContext } from "@/lib/server/audit";
 import { approvalEvidence, loadPublicBudget, portalBudgetOpen } from "@/lib/server/budget-portal";
@@ -47,12 +49,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
           title: true,
           status: true,
           approvedAt: true,
+          validUntil: true,
           organizationId: true,
           client: { select: { name: true, company: true, email: true } },
         },
       })
     : null;
-  if (!budget) return jsonError("No encontramos ese presupuesto.", 404);
+  if (!budget || !quotePortalAvailable(budget)) return jsonError("No encontramos ese presupuesto.", 404);
   // Issue #52: la empresa demo no escribe. El portal simula la aprobación en el
   // navegador; un POST viejo o de un cliente suelto también queda rechazado.
   if (await isDemoOrganizationId(budget.organizationId)) return jsonError("Modo demo: solo lectura", 403);
@@ -69,8 +72,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   // Solo la primera aprobación escribe: el `where` con `approvedAt: null` evita
   // que dos pedidos simultáneos se pisen (el segundo recibe la ya registrada).
   const evidence = approvalEvidence(request);
-  const updated = await db.budget.updateMany({
-    where: { id: budget.id, approvedAt: null },
+  let updated: { count: number };
+  try { updated = await withQuoteApproval(budget.id, budget.organizationId, (tx) => tx.budget.updateMany({
+    where: { id: budget.id, publicToken: code, approvedAt: null, status: { notIn: ["LOST", "CANCELLED"] } },
     data: {
       status: "APPROVED",
       approvedAt: new Date(),
@@ -80,8 +84,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       approvalUserAgent: evidence.userAgent,
       approvalNote: note || null,
     },
-  });
+  }), code!);
 
+  } catch (error) {
+    if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status);
+    throw error;
+  }
   const payload = await loadPublicBudget(code);
   if (!payload) return jsonError("No encontramos ese presupuesto.", 404);
   if (updated.count > 0) {

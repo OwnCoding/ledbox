@@ -8,6 +8,8 @@ import { adminAvatarUrl, type AdminUserRow } from "@/lib/admin-types";
 import { emailError, FIELD_MESSAGES, normalizePersonName, personNameValid } from "@/lib/field-rules";
 import { useAdminSession } from "../AdminShell";
 import { AdminAvatar } from "../AdminAvatar";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
+import { useAdminNarrowViewport } from "../AdminBoard";
 import { AdminIcon } from "../AdminIcons";
 import {
   AdminBadge,
@@ -80,6 +82,7 @@ export function UsuariosModule() {
   const [editError, setEditError] = useState("");
 
   const writable = canManageUsers(role);
+  const compact = useAdminNarrowViewport();
   const list = useMemo(() => users.data ?? [], [users.data]);
   const rows = useMemo(
     () =>
@@ -195,6 +198,77 @@ export function UsuariosModule() {
     if (!window.confirm(message)) return;
     void patch(user, { active: !user.active });
   }
+
+  // En ancho compacto (≤980 px, issue #154) la lista se lee como tarjetas: la
+  // tabla de seis columnas exigía desplazamiento horizontal en 390. El selector
+  // de rol del que sí puede editarlo vive entre los datos; las acciones, al pie.
+  const userCards: AdminCardData[] = rows.map((user) => {
+    const self = user.id === sessionUser?.id;
+    const roleEditable = writable && user.role !== "OWNER";
+    return {
+      id: user.id,
+      title: (
+        <>
+          <AdminAvatar
+            name={user.name}
+            src={user.avatarUpdatedAt ? adminAvatarUrl(user.id, user.avatarUpdatedAt) : null}
+            size={22}
+          />
+          <span className="admin-item-name">{user.name}</span>
+          {self ? <span className="admin-cell-sub">· vos</span> : null}
+        </>
+      ),
+      titleTooltip: user.name,
+      subtitle: user.email,
+      badges: [
+        {
+          label: user.active ? "Activo" : "Inactivo",
+          tone: user.active ? "ok" : "neutral",
+          title: user.active ? "Puede ingresar al panel" : "No puede ingresar hasta que lo actives",
+        },
+      ],
+      fields: [
+        {
+          label: "Rol",
+          value: roleEditable ? (
+            <AdminSelect
+              className="admin-filter admin-filter--cell"
+              value={user.role}
+              disabled={rowBusy === user.id}
+              onChange={(value) => void patch(user, { role: value })}
+              label={`Rol de ${user.name}`}
+              title={`Rol de ${user.name}`}
+              options={ROLE_SELECT_OPTIONS}
+            />
+          ) : (
+            <AdminBadge tone={statusTone(user.role)}>{adminRoleLabel(user.role)}</AdminBadge>
+          ),
+          title: adminRoleLabel(user.role),
+        },
+        { label: "Alta", value: formatDate(user.createdAt), title: formatDate(user.createdAt) },
+      ],
+      footer: writable ? (
+        <span className="admin-actions">
+          {canEditUser(user) ? (
+            <AdminButton
+              icon="edit"
+              onClick={() => startEdit(user)}
+              disabled={rowBusy === user.id}
+              title={`Editar nombre y correo: ${user.name}`}
+              aria-label={`Editar nombre y correo: ${user.name}`}
+            />
+          ) : null}
+          <AdminButton
+            icon="power"
+            onClick={() => toggleActive(user)}
+            disabled={rowBusy === user.id}
+            title={user.active ? `Desactivar acceso de ${user.name}` : `Activar acceso de ${user.name}`}
+            aria-label={user.active ? `Desactivar acceso de ${user.name}` : `Activar acceso de ${user.name}`}
+          />
+        </span>
+      ) : undefined,
+    };
+  });
 
   return (
     <div className="admin-module-page">
@@ -314,6 +388,8 @@ export function UsuariosModule() {
       >
         {rows.length === 0 ? (
           <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá el filtro de rol." />
+        ) : compact ? (
+          <AdminCardGrid label="Usuarios del panel" cards={userCards} />
         ) : (
           <AdminTable
             view="usuarios"
@@ -593,6 +669,7 @@ function RevokeInviteDialog({
  * fila lo dice y la invitación sigue guardada.
  */
 function InvitationsPanel() {
+  const compact = useAdminNarrowViewport();
   const invitations = useAdminResource("/api/admin/invitations", (payload) => payload.invitations ?? []);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
@@ -667,6 +744,68 @@ function InvitationsPanel() {
     invitations.reload();
   }
 
+  // Tarjetas de invitaciones para ancho compacto (issue #154), mismo criterio
+  // que la lista de usuarios: datos en el cuerpo, acciones reenviar/revocar al pie.
+  const invitationCards: AdminCardData[] = list.map((invitation) => ({
+    id: invitation.id,
+    title: invitation.email,
+    titleTooltip: invitation.email,
+    subtitle: invitation.invitedByEmail ? `Invita ${invitation.invitedByName}` : null,
+    badges: [
+      { label: adminRoleLabel(invitation.role), tone: statusTone(invitation.role), title: `Rol: ${adminRoleLabel(invitation.role)}` },
+      ...(invitation.status === "expired"
+        ? [{ label: invitationStatusLabel(invitation.status), tone: invitationStatusTone(invitation.status), title: "El link venció y ya no sirve" }]
+        : []),
+      ...(invitation.lastMail
+        ? [{
+            label: mailStatusLabel(invitation.lastMail.status),
+            tone: invitation.lastMail.status === "sent" ? ("ok" as const) : invitation.lastMail.status === "sending" ? ("warn" as const) : ("danger" as const),
+            title: `${mailStatusLabel(invitation.lastMail.status)} · ${formatDateTime(invitation.lastMail.sentAt)}${invitation.lastMail.error ? ` · ${invitation.lastMail.error}` : ""}`,
+          }]
+        : []),
+    ],
+    fields: [
+      {
+        label: "Vence",
+        value: (
+          <>
+            {formatDateShort(invitation.expiresAt)}{" "}
+            <AdminCountdown value={invitation.expiresAt} short className="admin-countdown--inline" />
+          </>
+        ),
+        title: `Vence el ${formatDate(invitation.expiresAt)} · ${formatCountdown(invitation.expiresAt)}`,
+      },
+      {
+        label: "Último envío",
+        value: invitation.lastMail ? mailStatusLabel(invitation.lastMail.status) : "Sin envíos",
+        title: invitation.lastMail
+          ? `${mailStatusLabel(invitation.lastMail.status)} · ${formatDateTime(invitation.lastMail.sentAt)}${invitation.lastMail.error ? ` · ${invitation.lastMail.error}` : ""}`
+          : "Sin envíos registrados",
+      },
+    ],
+    footer: (
+      <span className="admin-actions">
+        <AdminButton
+          icon="refresh"
+          disabled={rowBusy === invitation.id}
+          onClick={() => void resend(invitation)}
+          title={`Reenviar la invitación a ${invitation.email}`}
+          aria-label={`Reenviar la invitación a ${invitation.email}`}
+        />
+        <AdminButton
+          icon="trash"
+          disabled={rowBusy === invitation.id}
+          onClick={() => {
+            setRevokeError("");
+            setRevoking(invitation);
+          }}
+          title={`Revocar la invitación de ${invitation.email}`}
+          aria-label={`Revocar la invitación de ${invitation.email}`}
+        />
+      </span>
+    ),
+  }));
+
   return (
     <AdminPanel
       title="Invitaciones pendientes" icon="mail"
@@ -718,6 +857,9 @@ function InvitationsPanel() {
         emptyTitle="Sin invitaciones pendientes" emptyIcon="mail"
         emptyHint="Invitá a alguien por correo: le llega el link para sumarse con el rol que elijas."
       >
+        {compact ? (
+          <AdminCardGrid label="Invitaciones por aceptar" cards={invitationCards} />
+        ) : (
         <AdminTable
           view="invitaciones"
           label="Invitaciones por aceptar"
@@ -797,6 +939,7 @@ function InvitationsPanel() {
             </AdminRow>
           ))}
         </AdminTable>
+        )}
       </AdminDataState>
     </AdminPanel>
   );

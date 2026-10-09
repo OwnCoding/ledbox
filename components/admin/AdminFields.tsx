@@ -24,6 +24,7 @@ import {
   pinValid,
 } from "@/lib/field-rules";
 import { detectPaymentProofMime } from "@/lib/admin-types";
+import { dayInputText, maskDayInput, parseDayInput } from "@/lib/admin-format";
 import { matchesQuery } from "@/lib/admin-policy";
 import { AdminIcon } from "./AdminIcons";
 
@@ -755,6 +756,104 @@ export function TimeField(props: Omit<React.ComponentProps<typeof DateLikeField>
 
 export function DateTimeField(props: Omit<React.ComponentProps<typeof DateLikeField>, "type">) {
   return <DateLikeField {...props} type="datetime-local" />;
+}
+
+/**
+ * Fecha de día puro en formato es-PY (issue #154): el input nativo (`DateField`)
+ * muestra `yyyy-mm-dd` según el navegador; este campo se teclea y se lee
+ * `dd/mm/aaaa`, y por dentro sigue viajando como clave `AAAA-MM-DD`.
+ *
+ * Solo entrega un valor cuando el día existe y entra en `min`/`max`; si el
+ * texto queda incompleto o inválido, limpia el valor y muestra el error recién
+ * al completar los 10 caracteres. El servidor revalida siempre.
+ */
+export function DayField({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+  hint,
+  error,
+  wide,
+  required,
+  min,
+  max,
+  disabled,
+  className,
+  title,
+  id,
+}: {
+  label?: string;
+  ariaLabel?: string;
+  /** Día en `AAAA-MM-DD` (vacío = sin fecha). */
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  error?: string | null;
+  wide?: boolean;
+  required?: boolean;
+  /** Límite inferior inclusive, en `AAAA-MM-DD`. */
+  min?: string;
+  /** Límite superior inclusive, en `AAAA-MM-DD`. */
+  max?: string;
+  disabled?: boolean;
+  className?: string;
+  title?: string;
+  id?: string;
+}) {
+  const { fieldId, hintId, errorId } = useFieldIds(id);
+  const [text, setText] = useState(() => dayInputText(value));
+  const [rangeError, setRangeError] = useState("");
+
+  // El valor externo manda (limpiar filtros, atajos), pero no pisa lo que se
+  // está tecleando cuando el texto actual todavía no forma un día.
+  useEffect(() => {
+    setText((current) => ((parseDayInput(current) ?? "") === value ? current : dayInputText(value)));
+  }, [value]);
+
+  function update(raw: string) {
+    const masked = maskDayInput(raw);
+    setText(masked);
+    const dayKey = parseDayInput(masked);
+    if (!dayKey) {
+      setRangeError(masked.length === 10 ? "Ingresá un día válido (dd/mm/aaaa)." : "");
+      if (value) onChange("");
+      return;
+    }
+    if (min && dayKey < min) {
+      setRangeError(`La fecha no puede ser anterior al ${dayInputText(min)}.`);
+      return;
+    }
+    if (max && dayKey > max) {
+      setRangeError(`La fecha no puede ser posterior al ${dayInputText(max)}.`);
+      return;
+    }
+    setRangeError("");
+    if (dayKey !== value) onChange(dayKey);
+  }
+
+  const message = error ?? rangeError;
+  return (
+    <FieldChrome label={label} ariaLabel={ariaLabel} hint={hint} error={message} wide={wide} htmlFor={fieldId} hintId={hintId} errorId={errorId}>
+      <input
+        id={label ? fieldId : id}
+        className={className}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder="dd/mm/aaaa"
+        maxLength={10}
+        value={text}
+        onChange={(event) => update(event.target.value)}
+        required={required}
+        disabled={disabled}
+        title={title}
+        aria-label={label ? undefined : ariaLabel}
+        aria-invalid={message ? true : undefined}
+        aria-describedby={describedBy(message, hint, hintId, errorId)}
+      />
+    </FieldChrome>
+  );
 }
 
 /** Catálogo cerrado: nunca texto libre. */

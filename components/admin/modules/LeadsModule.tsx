@@ -15,8 +15,10 @@ import {
 import type { AdminLeadItem, AdminLeadRow } from "@/lib/admin-types";
 import { canWriteClients, matchesQuery } from "@/lib/admin-policy";
 import { useAdminSession } from "../AdminShell";
-import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminBoard, AdminViewSwitch, useAdminBoardMove, useAdminModuleView, useAdminNarrowViewport, type AdminBoardCardData, type AdminBoardColumn } from "../AdminBoard";
+import { AdminCardGrid, type AdminCardData } from "../AdminCards";
 import {
+  AdminActionsMenu,
   AdminBadge,
   AdminButton,
   AdminCell,
@@ -28,10 +30,10 @@ import {
   AdminNote,
   AdminPanel,
   AdminRow,
-  AdminSelect,
   AdminTable,
   AdminToolbar,
   AdminWhatsappLink,
+  type AdminMenuItem,
 } from "../AdminUI";
 import { SearchField, SelectField, TextAreaField } from "../AdminFields";
 import { AdminIcon } from "../AdminIcons";
@@ -104,6 +106,8 @@ export function LeadsModule() {
   const [notice, setNotice] = useState("");
   const [boardError, setBoardError] = useState("");
   const [view, setView] = useAdminModuleView("leads");
+  /** Ancho compacto (issue #151): pestañas de estado y tarjetas, sin tablero. */
+  const narrow = useAdminNarrowViewport();
 
   const writable = canWriteClients(role);
   const list = useMemo(() => leads.data ?? [], [leads.data]);
@@ -121,13 +125,21 @@ export function LeadsModule() {
     [searched, status],
   );
 
+  /** Conteo por estado para las pestañas (issue #151). */
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const lead of list) counts.set(lead.status, (counts.get(lead.status) ?? 0) + 1);
+    return counts;
+  }, [list]);
+
   // Movimiento del tablero: PATCH real, optimista con revert si el API rechaza.
+  // El tablero respeta la búsqueda y la pestaña de estado (issue #151).
   const moveLead = useCallback(async (lead: AdminLeadRow, nextStatus: string) => {
     setBoardError("");
     const result = await adminSend<LeadMutation>("/api/leads", { id: lead.id, status: nextStatus }, "PATCH");
     return result.ok ? { ok: true as const } : { ok: false as const, error: result.error };
   }, []);
-  const board = useAdminBoardMove({ rows: list, move: moveLead, onError: setBoardError });
+  const board = useAdminBoardMove({ rows, move: moveLead, onError: setBoardError });
 
   const boardCards = useMemo<AdminBoardCardData[]>(
     () =>
@@ -163,6 +175,88 @@ export function LeadsModule() {
         };
       }),
     [board.rows],
+  );
+
+  /**
+   * Tarjetas del ancho compacto (issue #151): entidad, estado, fecha del evento
+   * y monto estimado, con el detalle y el correo en el menú «⋯».
+   */
+  const leadCards = useMemo<AdminCardData[]>(
+    () =>
+      rows.map((lead) => {
+        const name = lead.company || lead.name;
+        const items = leadItemCount(lead);
+        const estimated = leadEstimatedTotal(lead);
+        const eventLabel = [lead.eventDate ? formatDateShort(lead.eventDate) : null, lead.location || null].filter(Boolean).join(" · ");
+        const menuItems: AdminMenuItem[] = [
+          { label: "Ver detalle", icon: "info", onClick: () => openDetail(lead), title: `Ver detalle del lead: ${lead.name}` },
+          ...(lead.email
+            ? [{ label: "Enviar correo", icon: "mail" as const, href: `mailto:${lead.email}`, title: `Enviar correo a ${lead.name}` }]
+            : []),
+        ];
+        return {
+          id: lead.id,
+          title: name,
+          titleTooltip: `${lead.name}${lead.company ? ` · ${lead.company}` : ""}`,
+          subtitle: [lead.company ? lead.name : null, lead.phone].filter(Boolean).join(" · ") || lead.email,
+          badges: [
+            { label: leadStatusLabel(lead.status), tone: statusTone(lead.status) },
+            { label: leadSourceLabel(lead.source), tone: "neutral" },
+          ],
+          fields: [
+            {
+              label: "Ingreso",
+              value: <span className="admin-nowrap">{formatDateShort(lead.createdAt)}</span>,
+              title: `Ingresó el ${formatDateTime(lead.createdAt)}`,
+            },
+            {
+              label: "Evento",
+              value: eventLabel || "—",
+              title: eventLabel || "El lead no cargó fecha ni lugar del evento",
+            },
+            ...(lead.eventDate
+              ? [
+                  {
+                    label: "Falta",
+                    value: (
+                      <AdminCountdown
+                        value={lead.eventDate}
+                        short
+                        className="admin-countdown--inline"
+                        title={`Evento de ${name}: cuánto falta`}
+                      />
+                    ),
+                    title: `Evento de ${name}: ${formatDate(lead.eventDate)}`,
+                  },
+                ]
+              : []),
+            {
+              label: "Cotización",
+              value:
+                items === 0 ? (
+                  "Sin pedido"
+                ) : estimated === null ? (
+                  `${formatNumber(items)} ítems`
+                ) : (
+                  <strong>{formatMoney(estimated)}</strong>
+                ),
+              title:
+                items === 0
+                  ? "El lead no dejó un pedido de productos"
+                  : estimated === null
+                    ? `${items} ítems pedidos, sin precios en el sitio`
+                    : `${items} ítems pedidos por un total estimado de ${formatMoney(estimated)}`,
+            },
+          ],
+          footer: (
+            <span className="admin-actions">
+              <AdminWhatsappLink phone={lead.phone} name={lead.name} />
+              <AdminActionsMenu label={`Acciones del lead ${lead.name}`} items={menuItems} />
+            </span>
+          ),
+        };
+      }),
+    [rows],
   );
 
   const selected = useMemo(() => list.find((lead) => lead.id === selectedId) ?? null, [list, selectedId]);
@@ -243,14 +337,39 @@ export function LeadsModule() {
           label="Buscar leads"
           placeholder="Buscar por nombre, empresa, contacto o motivo…"
         />
-        {view === "list" ? (
-          <AdminSelect value={status} onChange={setStatus} label="Filtrar por estado" options={STATUS_FILTER_OPTIONS} />
-        ) : null}
-        <AdminViewSwitch view={view} onChange={setView} label="Vista de leads" />
+        {narrow ? null : <AdminViewSwitch view={view} onChange={setView} label="Vista de leads" />}
       </AdminToolbar>
 
       {notice ? <AdminNote tone="ok">{notice}</AdminNote> : null}
       {boardError ? <AdminNote tone="error">{boardError}</AdminNote> : null}
+
+      {/* Pestañas de estado (issue #151): encima de la lista y del tablero; en
+          ancho compacto reemplazan al Kanban, que quedaba cortado en 390. */}
+      <nav className="admin-subtabs" aria-label="Filtrar leads por estado">
+        <button
+          type="button"
+          className="admin-subtab"
+          data-active={status === "ALL" ? "true" : undefined}
+          aria-pressed={status === "ALL"}
+          onClick={() => setStatus("ALL")}
+        >
+          Todos
+          <span className="admin-subtab-count">{formatNumber(list.length)}</span>
+        </button>
+        {STATUS_FILTER_OPTIONS.slice(1).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className="admin-subtab"
+            data-active={status === option.value ? "true" : undefined}
+            aria-pressed={status === option.value}
+            onClick={() => setStatus(option.value)}
+          >
+            {option.label}
+            <span className="admin-subtab-count">{formatNumber(statusCounts.get(option.value) ?? 0)}</span>
+          </button>
+        ))}
+      </nav>
 
       <AdminDataState
         loading={leads.loading}
@@ -260,9 +379,15 @@ export function LeadsModule() {
         emptyTitle="Todavía no hay leads" emptyIcon="leads"
         emptyHint="Cuando alguien pida una cotización desde el sitio, el lead entra acá con su pedido y datos de contacto."
       >
-        {view === "board" ? (
-          searched.length === 0 ? (
-            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda." />
+        {narrow ? (
+          rows.length === 0 ? (
+            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá la pestaña de estado." />
+          ) : (
+            <AdminCardGrid label="Leads" cards={leadCards} />
+          )
+        ) : view === "board" ? (
+          rows.length === 0 ? (
+            <AdminEmpty icon="search" title="Sin resultados" hint="Probá con otro término de búsqueda o cambiá la pestaña de estado." />
           ) : (
             <AdminBoard
               label="Leads"
