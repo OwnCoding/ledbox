@@ -630,7 +630,7 @@ export function ClientesModule() {
 
       {writable && showForm ? (
         <AdminFormPanel
-          title={editingId ? `Editar cliente · ${form.name || "sin nombre"}` : "Nuevo cliente"}
+          title={editingId ? `Editar cliente · ${clientDisplayName(form) || "sin nombre"}` : "Nuevo cliente"}
           submitLabel={editingId ? "Guardar cambios" : "Registrar cliente"}
           onSubmit={submit}
           onCancel={closeForm}
