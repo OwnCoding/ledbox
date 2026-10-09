@@ -1,4 +1,5 @@
 import type { ClientType } from "@prisma/client";
+import type { AdminClientContact } from "@/lib/admin-types";
 import {
   CLIENT_LINK_MESSAGES,
   CLIENT_WEBSITE_MAX_LENGTH,
@@ -30,6 +31,15 @@ import {
 export type ClientFieldPatch = {
   name?: string;
   company?: string | null;
+  tradeName?: string | null;
+  legalName?: string | null;
+  billingEmail?: string | null;
+  city?: string | null;
+  department?: string | null;
+  address?: string | null;
+  addressReference?: string | null;
+  locationUrl?: string | null;
+  contacts?: AdminClientContact[];
   type?: ClientType;
   ruc?: string | null;
   email?: string | null;
@@ -58,6 +68,7 @@ function optionalText(value: unknown, max: number): string | null | undefined {
 
 /** Correo opcional normalizado; `false` cuando el valor no es un correo real. */
 function optionalEmail(value: unknown): string | null | undefined | false {
+  if (typeof value === "string" && value.trim().length > FIELD_LIMITS.email) return false;
   const email = optionalText(value, FIELD_LIMITS.email);
   if (email === undefined || email === null) return email;
   const normalized = normalizeEmail(email);
@@ -66,6 +77,7 @@ function optionalEmail(value: unknown): string | null | undefined | false {
 
 /** Teléfono opcional normalizado (`+<código> <dígitos>`); `false` si es inválido. */
 function optionalPhone(value: unknown): string | null | undefined | false {
+  if (typeof value === "string" && value.trim().length > 30) return false;
   const phone = optionalText(value, 30);
   if (phone === undefined || phone === null) return phone;
   return normalizeContactPhone(phone) || false;
@@ -76,9 +88,49 @@ export function parseClientFields(body: unknown): ClientFieldsResult {
   const record = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
   const data: ClientFieldPatch = {};
 
+  // Nuevos campos no se truncan ni convierten desde la identidad histórica.
+  const texts = { tradeName: 200, legalName: 300, city: 120, department: 120, address: 300, addressReference: 400 } as const;
+  for (const field of Object.keys(texts) as Array<keyof typeof texts>) {
+    const value = record[field];
+    if (value === undefined) continue;
+    if (value !== null && (typeof value !== "string" || value.trim().length > texts[field])) {
+      return { ok: false, error: `El campo ${field} debe ser texto de hasta ${texts[field]} caracteres.` };
+    }
+    data[field] = typeof value === "string" ? (field === "tradeName" ? value.trim().replace(/\s+/g, " ") : value.trim()) || null : null;
+  }
+  if (record.locationUrl !== undefined) {
+    const value = record.locationUrl;
+    if (value !== null && typeof value !== "string") return { ok: false, error: "Enlace de ubicación inválido." };
+    const url = normalizeWebsite(typeof value === "string" ? value : "");
+    if (url && (!websiteValid(url) || url.length > 2000 || new URL(url).username || new URL(url).password)) {
+      return { ok: false, error: "Ingresá un enlace de ubicación HTTP o HTTPS válido, sin credenciales." };
+    }
+    data.locationUrl = url || null;
+  }
+  if (record.contacts !== undefined) {
+    if (!Array.isArray(record.contacts) || record.contacts.length > 20) return { ok: false, error: "Ingresá hasta 20 contactos por función." };
+    const contacts: AdminClientContact[] = [];
+    for (const item of record.contacts) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return { ok: false, error: "Contacto inválido." };
+      const contact = item as Record<string, unknown>;
+      if (typeof contact.name !== "string" || contact.name.trim().length > 120) return { ok: false, error: FIELD_MESSAGES.name };
+      const name = normalizePersonName(typeof contact.name === "string" ? contact.name : "");
+      if (!personNameValid(name)) return { ok: false, error: FIELD_MESSAGES.name };
+      if (contact.role != null && (typeof contact.role !== "string" || contact.role.trim().length > 120)) return { ok: false, error: "Función del contacto inválida." };
+      if (contact.phone != null && typeof contact.phone !== "string") return { ok: false, error: FIELD_MESSAGES.phone };
+      if (contact.email != null && typeof contact.email !== "string") return { ok: false, error: FIELD_MESSAGES.email };
+      const phone = optionalPhone(contact.phone) ?? null;
+      const email = optionalEmail(contact.email) ?? null;
+      if (phone === false) return { ok: false, error: FIELD_MESSAGES.phone };
+      if (email === false) return { ok: false, error: FIELD_MESSAGES.email };
+      contacts.push({ name, role: optionalText(contact.role, 120) ?? null, phone, email });
+    }
+    data.contacts = contacts;
+  }
+
   if (record.name !== undefined) {
-    const name = normalizePersonName(typeof record.name === "string" ? record.name : "");
-    if (!personNameValid(name)) return { ok: false, error: FIELD_MESSAGES.name };
+    const name = typeof record.name === "string" ? record.name.trim().replace(/\s+/g, " ") : "";
+    if (!name || name.length > 200) return { ok: false, error: "Ingresá el nombre comercial del cliente (hasta 200 caracteres)." };
     data.name = name;
   }
 
@@ -100,10 +152,11 @@ export function parseClientFields(body: unknown): ClientFieldsResult {
     data.contactName = contactName || null;
   }
 
-  const emails = { email: record.email, contactEmail: record.contactEmail } as const;
-  for (const field of ["email", "contactEmail"] as const) {
+  const emails = { email: record.email, contactEmail: record.contactEmail, billingEmail: record.billingEmail } as const;
+  for (const field of ["email", "contactEmail", "billingEmail"] as const) {
     const value = emails[field];
     if (value === undefined) continue;
+    if (value !== null && typeof value !== "string") return { ok: false, error: FIELD_MESSAGES.email };
     const email = optionalEmail(value);
     if (email === false) return { ok: false, error: FIELD_MESSAGES.email };
     if (email !== undefined) data[field] = email;
