@@ -60,7 +60,7 @@ export type ExpectedPaymentWithRefs = Prisma.ExpectedPaymentGetPayload<{ include
 /** Cuenta de tesorería esperada por defecto: la primera activa (orden del panel). */
 async function firstActiveAccount(organizationId: string) {
   return db.treasuryAccount.findFirst({
-    where: { organizationId, active: true },
+    where: { organizationId, active: true, currency: "PYG" },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: accountSelect,
   });
@@ -180,13 +180,13 @@ export async function syncBudgetExpectedPayments(input: {
 
   const desired = budgetExpectedPlan(budget);
   const ledgerError = budgetPlanLedgerError(desired, budget.expectedPayments);
-  if (ledgerError) throw new Error(ledgerError);
+  if (ledgerError) throw new QuoteComparisonError(409, ledgerError);
   const existing = new Map(budget.expectedPayments.map((row) => [row.slot, row]));
   const now = new Date();
   let defaultAccountId: string | null | undefined;
   const resolveDefaultAccount = async () => {
     if (defaultAccountId === undefined) {
-      defaultAccountId = (await database.treasuryAccount.findFirst({ where: { organizationId: input.organizationId, active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: accountSelect }))?.id ?? null;
+      defaultAccountId = (await database.treasuryAccount.findFirst({ where: { organizationId: input.organizationId, active: true, currency: "PYG" }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: accountSelect }))?.id ?? null;
     }
     return defaultAccountId;
   };
