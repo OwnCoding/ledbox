@@ -133,7 +133,7 @@ test("el PATCH de ítems conserva el vínculo con el inventario (issue #107)", (
   assert.match(route, /items: \{ select: \{ id: true, name: true, inventoryId: true \} \}/, "el PATCH lee el vínculo vigente");
   assert.match(
     route,
-    /const inventoryId = item\.inventoryId \?\? \(item\.id \? linksById\.get\(item\.id\) \?\? null : null\);/,
+    /Object\.hasOwn\(raw, "inventoryId"\) \? item\.inventoryId : item\.inventoryId \?\? \(item\.id \? linksById\.get\(item\.id\) \?\? null : null\)/,
     "el vínculo se conserva cuando el payload no lo manda",
   );
 });

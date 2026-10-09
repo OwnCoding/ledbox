@@ -13,15 +13,21 @@ import {
   NumberField,
   PercentField,
   SelectField,
+  SwitchField,
   TextAreaField,
   TextField,
 } from "@/components/admin/AdminFields";
+import { BudgetReferenceLinks } from "./BudgetReferenceLinks";
+import { InventoryLinkPicker } from "./BudgetInventoryPicker";
+import { quoteProductPrice } from "@/lib/quote-sharing";
+import { inventoryImageUrl } from "@/lib/server/inventory-images";
 import { AdminIcon } from "@/components/admin/AdminIcons";
 import { adminApiUpload, adminSend } from "@/lib/admin-api";
 import { budgetReference, formatMoney, formatNumber, invoiceTaxTypeLabel } from "@/lib/admin-format";
 import {
   BUDGET_ATTACHMENT_MAX_BYTES,
   type AdminBudgetAttachmentRow,
+  type AdminInventoryLink,
   type AdminBudgetRow,
 } from "@/lib/admin-types";
 import { discountForPrice, distributePrice, internalCostOf, marginOf, priceForMargin } from "@/lib/budget-costs";
@@ -39,6 +45,7 @@ import { discountForPrice, distributePrice, internalCostOf, marginOf, priceForMa
  */
 
 type ItemDraft = {
+  inventory: AdminInventoryLink | null;
   id: string | null;
   name: string;
   quantity: string;
@@ -52,6 +59,7 @@ type Draft = {
   materialCost: string;
   laborCost: string;
   price: string;
+  priceAdjustment: number;
   marginPercent: string;
   validUntil: string;
   deliveryAt: string;
@@ -69,6 +77,7 @@ const IVA_OPTIONS = [
 
 function toItemDraft(item: AdminBudgetRow["items"][number]): ItemDraft {
   return {
+    inventory: item.inventory ? { ...item.inventory, imageUrl: inventoryImageUrl({ ...item.inventory, imageUrl: item.inventory.imageUrl ?? null }) } : null,
     id: item.id,
     name: item.name,
     quantity: String(item.quantity),
@@ -84,6 +93,7 @@ function draftFrom(budget: AdminBudgetRow): Draft {
     materialCost: String(budget.materialCost ?? 0),
     laborCost: String(budget.laborCost ?? 0),
     price: String(budget.total),
+    priceAdjustment: budget.total - budget.items.reduce((sum, item) => sum + item.quantity * item.days * item.unitPrice, 0),
     marginPercent: "",
     validUntil: budget.validUntil ? budget.validUntil.slice(0, 10) : "",
     deliveryAt: budget.deliveryAt ? budget.deliveryAt.slice(0, 10) : "",
@@ -123,7 +133,7 @@ export function BudgetPricingDialog({
         const days = Math.max(1, number(item.days));
         const unitPrice = number(item.unitPrice);
         const costPrice = number(item.costPrice);
-        return { id: item.id, name: item.name, quantity, days, unitPrice, costPrice, subtotal: quantity * days * unitPrice };
+        return { inventoryId: item.inventory?.id ?? null, id: item.id, name: item.name, quantity, days, unitPrice, costPrice, subtotal: quantity * days * unitPrice };
       }),
     [draft.items],
   );
@@ -142,10 +152,13 @@ export function BudgetPricingDialog({
   const suggested = marginPercentValue !== null && Number.isFinite(marginPercentValue) ? priceForMargin(cost.total, marginPercentValue) : null;
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {
-    setDraft((current) => ({
-      ...current,
-      items: current.items.map((item, position) => (position === index ? { ...item, ...patch } : item)),
-    }));
+    setDraft((current) => {
+      const old = current.items[index];
+      const next = { ...old, ...patch };
+      const subtotal = (item: ItemDraft) => Math.max(1, number(item.quantity)) * Math.max(1, number(item.days)) * number(item.unitPrice);
+      const items = current.items.map((item, position) => position === index ? next : item);
+      return { ...current, price: String(Math.max(0, items.reduce((sum, item) => sum + subtotal(item), 0) + current.priceAdjustment)), items };
+    });
   }
 
   /** Ajusta los precios unitarios para llegar al precio final escrito (misma suma). */
@@ -155,13 +168,13 @@ export function BudgetPricingDialog({
       return;
     }
     setError("");
-    setDraft((current) => ({ ...current, price: String(suggested) }));
+    setDraft((current) => ({ ...current, price: String(suggested), priceAdjustment: suggested - itemsSubtotal }));
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (priced.length === 0) {
+    if (priced.length === 0 || priced.some((item) => !item.name.trim())) {
       setError("El presupuesto necesita al menos un ítem con nombre.");
       return;
     }
@@ -176,6 +189,7 @@ export function BudgetPricingDialog({
         days: item.days,
         unitPrice: needsRepricing ? repriced?.items[index]?.unitPrice ?? item.unitPrice : item.unitPrice,
         costPrice: item.costPrice,
+        inventoryId: item.inventoryId,
       }));
       const itemsChanged =
         needsRepricing ||
@@ -185,6 +199,7 @@ export function BudgetPricingDialog({
           return (
             !item.id ||
             !original ||
+            item.inventoryId !== (original.inventoryId ?? null) ||
             item.name !== original.name ||
             item.quantity !== original.quantity ||
             item.days !== original.days ||
@@ -232,6 +247,16 @@ export function BudgetPricingDialog({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function setAttachmentVisibility(attachment: AdminBudgetAttachmentRow, clientVisible: boolean) {
+    if (attachmentBusy) return;
+    setAttachmentBusy(true); setError("");
+    try {
+      const result = await adminSend(`/api/admin/budgets/attachments/${attachment.id}`, { clientVisible }, "PATCH");
+      if (!result.ok) { setError(result.error); return; }
+      setAttachments((rows) => rows.map((row) => row.id === attachment.id ? { ...row, clientVisible } : row));
+    } finally { setAttachmentBusy(false); }
   }
 
   async function uploadAttachment() {
@@ -288,9 +313,12 @@ export function BudgetPricingDialog({
         <p className="admin-dialog-text">Ítems y precios (cantidades, días, precio y costo unitario).</p>
         <div className="admin-plan-list">
           {draft.items.map((item, index) => (
-            <div className="admin-plan-grid" key={item.id ?? `nuevo-${index}`}>
+            <div className="admin-plan-list" key={item.id ?? `nuevo-${index}`}>
+              <InventoryLinkPicker label={`Producto del ítem ${index + 1} (opcional)`} hint="Elegir un producto completa nombre y precio editable; no reserva stock. Sin vínculo, se conserva una línea de servicio libre." range={null} selected={item.inventory} disabled={approved || closed || busy} onSelect={(product) => updateItem(index, { inventory: product, ...(product ? { name: product.name, unitPrice: String(quoteProductPrice(product, number(item.days))) } : {}) })} />
+              <div className="admin-plan-grid">
               <TextField
                 label={`Ítem ${index + 1}`}
+                required
                 value={item.name}
                 maxLength={160}
                 disabled={approved || closed}
@@ -331,6 +359,7 @@ export function BudgetPricingDialog({
                   onClick={() => setDraft({ ...draft, items: draft.items.filter((_, position) => position !== index) })}
                 />
               ) : null}
+              </div>
             </div>
           ))}
           {!approved && !closed ? (
@@ -340,7 +369,7 @@ export function BudgetPricingDialog({
               onClick={() =>
                 setDraft({
                   ...draft,
-                  items: [...draft.items, { id: null, name: "", quantity: "1", days: "1", unitPrice: "0", costPrice: "0" }],
+                  items: [...draft.items, { inventory: null, id: null, name: "", quantity: "1", days: "1", unitPrice: "0", costPrice: "0" }],
                 })
               }
             >
@@ -368,7 +397,7 @@ export function BudgetPricingDialog({
             hint="Lo que paga el cliente"
             value={draft.price}
             disabled={approved || closed}
-            onChange={(value) => setDraft({ ...draft, price: value })}
+            onChange={(value) => setDraft({ ...draft, price: value, priceAdjustment: number(value) - itemsSubtotal })}
           />
           <PercentField
             label="Margen deseado (%)"
@@ -445,7 +474,7 @@ export function BudgetPricingDialog({
       <div className="admin-plan-list">
         <AttachmentInput
           label="Adjunto del presupuesto"
-          hint={`El PDF original u otro archivo (hasta ${Math.round(BUDGET_ATTACHMENT_MAX_BYTES / (1024 * 1024))} MB). Es interno: no se publica.`}
+          hint={`El PDF original u otro archivo (hasta ${Math.round(BUDGET_ATTACHMENT_MAX_BYTES / (1024 * 1024))} MB). Privado por defecto; solo un PDF validado puede hacerse visible explícitamente.`}
           wide
           disabled={attachmentBusy}
           onSelect={setAttachmentFile}
@@ -470,6 +499,7 @@ export function BudgetPricingDialog({
                 <small className="admin-cell-sub">
                   {formatNumber(Math.max(1, Math.round(attachment.size / 1024)))} kB · {attachment.uploadedByName}
                 </small>
+                {attachment.mime === "application/pdf" ? <SwitchField label={`Visible para el cliente: ${attachment.name}`} checked={attachment.clientVisible === true} disabled={attachmentBusy} onChange={(visible) => void setAttachmentVisibility(attachment, visible)} /> : <small>Solo interno</small>}
                 <AdminButton
                   icon="trash"
                   title={`Borrar «${attachment.name}»`}
@@ -484,6 +514,7 @@ export function BudgetPricingDialog({
           <p className="admin-dialog-text">Sin adjuntos: subí el PDF original del cliente para tenerlo a mano.</p>
         )}
       </div>
+      <BudgetReferenceLinks budgetId={budget.id} initial={budget.referenceLinks ?? []} />
     </AdminDialog>
   );
 }

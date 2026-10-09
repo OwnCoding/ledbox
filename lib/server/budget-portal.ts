@@ -1,3 +1,4 @@
+import { quotePortalAvailable, quoteReferenceUrl } from "@/lib/quote-sharing";
 import { randomBytes } from "node:crypto";
 import { db } from "./db";
 import { BUDGET_CODE_ALPHABET, formatBudgetCode, normalizeBudgetCode } from "@/lib/public-config";
@@ -173,6 +174,8 @@ export type PortalBudgetRequest = {
 };
 
 export type PortalBudget = {
+  attachments?: Array<{ id: string; name: string; size: number }>;
+  referenceLinks?: Array<{ label: string; url: string }>;
   reference: string;
   title: string;
   /** Enum real del presupuesto (`CommercialStatus`); la UI lo traduce. */
@@ -305,6 +308,8 @@ export function portalProofUpload(budget: {
 }
 
 type BudgetForPortal = {
+  attachments?: Array<{ id: string; organizationId: string; name: string; size: number; mime: string; clientVisible: boolean }>;
+  referenceLinks?: Array<{ organizationId: string; label: string; url: string; clientVisible: boolean }>;
   id: string;
   organizationId: string;
   title: string;
@@ -332,7 +337,7 @@ type BudgetForPortal = {
   organization: { name: string; slug: string; paymentDetails: unknown };
   client: { name: string; company: string | null; contactName: string | null; contactRole: string | null };
   event: { name: string; location: string | null; startsAt: Date | null } | null;
-  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; notes: string | null; inventory: { imageUrl: string | null } | null }>;
+  items: Array<{ id: string; name: string; quantity: number; days: number; unitPrice: number; subtotal: number; notes: string | null; inventory: { imageUrl: string | null; organizationId?: string; id?: string; imageMime?: string | null } | null }>;
   /** Solo los cobros pendientes: habilitan el comprobante y el aviso al equipo. */
   payments: Array<{ id: string; amount: number }>;
   /** Pagos esperados del plan aprobado (issue #28), con su cuenta destino. */
@@ -589,8 +594,10 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
       // Imagen del producto vinculado (issue #107): aditiva y opcional; solo
       // viaja una URL de imagen válida (el resto cae al ícono en el portal).
       imageUrl:
-        item.inventory?.imageUrl && inventoryImageValid(item.inventory.imageUrl) ? item.inventory.imageUrl : null,
+        item.inventory?.imageUrl && (!item.inventory.organizationId || item.inventory.organizationId === budget.organizationId) && inventoryImageValid(item.inventory.imageUrl) ? item.inventory.imageUrl : null,
     })),
+    attachments: (budget.attachments ?? []).filter((file) => file.clientVisible && file.organizationId === budget.organizationId && file.mime === "application/pdf").map(({ id, name, size }) => ({ id, name, size })),
+    referenceLinks: (budget.referenceLinks ?? []).filter((link) => link.clientVisible && link.organizationId === budget.organizationId && quoteReferenceUrl(link.url)).map((link) => ({ label: link.label, url: quoteReferenceUrl(link.url)! })),
     subtotal: budget.subtotal,
     discount: budget.discount,
     total: budget.total,
@@ -635,13 +642,15 @@ export function portalBudgetView(budget: BudgetForPortal, timeline: AdminTimelin
   };
 }
 
-const portalInclude = {
+export const portalInclude = {
+  attachments: { where: { clientVisible: true, mime: "application/pdf" }, select: { id: true, organizationId: true, name: true, mime: true, size: true, clientVisible: true } },
+  referenceLinks: { where: { clientVisible: true }, select: { organizationId: true, label: true, url: true, clientVisible: true } },
   organization: { select: { name: true, slug: true, paymentDetails: true } },
   client: { select: { name: true, company: true, contactName: true, contactRole: true } },
   event: { select: { name: true, location: true, startsAt: true } },
   // La imagen del producto vinculado viaja con el ítem (issue #107): solo la
   // URL, nunca costos ni stock del inventario.
-  items: { orderBy: { name: "asc" }, include: { inventory: { select: { imageUrl: true } } } },
+  items: { orderBy: { name: "asc" }, include: { inventory: { select: { imageUrl: true, organizationId: true, id: true, imageMime: true } } } },
   changeRequests: { orderBy: { createdAt: "desc" }, take: PORTAL_MAX_REQUESTS },
   payments: { where: { status: "PENDING" }, select: { id: true, amount: true } },
   // Pagos esperados (issue #28): estado real de cada concepto y cuenta destino.
@@ -715,10 +724,17 @@ export async function loadPublicBudget(
   if (!code) return null;
   const budget = await db.budget.findUnique({ where: { publicToken: code }, include: portalInclude });
   if (!budget) return null;
+  if (!quotePortalAvailable(budget)) return null;
   const demo = isDemoOrganizationSlug(budget.organization.slug);
   if (options.sealView && !demo) await sealPortalView(budget.id);
   const timeline = await buildBudgetTimeline(budget.organizationId, budget.id, { audience: "client" });
-  return portalBudgetView(budget, timeline ?? []);
+  const view = portalBudgetView(budget, timeline ?? []);
+  view.items = view.items.map((item) => {
+    const source = budget.items.find((row) => row.id === item.id)?.inventory;
+    if (!source || source.organizationId !== budget.organizationId) return { ...item, imageUrl: null };
+    return { ...item, imageUrl: item.imageUrl || (source.imageMime ? `/api/portal/budget/${encodeURIComponent(code)}/items/${encodeURIComponent(item.id)}/image` : null) };
+  });
+  return view;
 }
 
 /** Evidencia de la aprobación digital: IP y user-agent del pedido. */

@@ -1,3 +1,5 @@
+import { quotePdfValid } from "@/lib/server/pdf-validation";
+import { readJson } from "@/lib/server/http";
 import { requireAdminContext } from "@/lib/server/tenancy";
 import { db } from "@/lib/server/db";
 import { jsonError } from "@/lib/server/http";
@@ -22,7 +24,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const attachment = await db.budgetAttachment.findFirst({
-    where: { id, organizationId: auth.context.organizationId },
+    where: { id, organizationId: auth.context.organizationId, budget: { organizationId: auth.context.organizationId } },
     select: { id: true, budgetId: true, name: true, mime: true, size: true, data: true },
   });
   if (!attachment) return jsonError("No encontramos ese adjunto.", 404);
@@ -36,6 +38,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       "Content-Disposition": `inline; filename="${filename}"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox; default-src 'none'; frame-ancestors 'self'",
+      "Referrer-Policy": "no-referrer",
     },
   });
 }
@@ -51,7 +55,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   const { id } = await params;
   const attachment = await db.budgetAttachment.findFirst({
-    where: { id, organizationId: auth.context.organizationId },
+    where: { id, organizationId: auth.context.organizationId, budget: { organizationId: auth.context.organizationId } },
     select: {
       id: true,
       budgetId: true,
@@ -71,4 +75,20 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     detail: { fields: { adjunto: attachment.name } },
   });
   return Response.json({ attachment: { id: attachment.id, deleted: true } });
+}
+
+/** Existing originals remain private until a writer explicitly opts in. */
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdminContext("budgets.write");
+  if (!auth.ok) return auth.response;
+  const { id } = await params;
+  const body = await readJson(request) as Record<string, unknown>;
+  if (typeof body.clientVisible !== "boolean") return jsonError("Indicá la visibilidad del adjunto.", 400);
+  const where = { id, organizationId: auth.context.organizationId, budget: { organizationId: auth.context.organizationId } };
+  const attachment = await db.budgetAttachment.findFirst({ where, select: { id: true, budgetId: true, mime: true, data: true } });
+  if (!attachment) return jsonError("Adjunto no encontrado.", 404);
+  if (body.clientVisible && (attachment.mime !== "application/pdf" || !await quotePdfValid(attachment.data))) return jsonError("Solo se puede compartir un PDF válido sin contenido activo.", 400);
+  await db.budgetAttachment.updateMany({ where, data: { clientVisible: body.clientVisible } });
+  await recordAudit({ context: auth.context, action: "update", entity: "Budget", entityId: attachment.budgetId, summary: body.clientVisible ? "Publicó un PDF en el portal del cliente" : "Retiró un PDF del portal del cliente", detail: { fields: { attachmentId: id, clientVisible: body.clientVisible } } });
+  return Response.json({ ok: true });
 }

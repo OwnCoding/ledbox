@@ -463,6 +463,7 @@ export async function createSignatureRequest(
         metadata: {
           documento: attachment ? attachment.name : `Presupuesto «${budget.title}»`,
           documentoHash: documentHash,
+          commercialHash: budgetDocumentHash(budgetDocumentPayload(budgetDocument)),
           metodo: method,
           destinatario: recipientName,
           vence: expiresAt.toISOString(),

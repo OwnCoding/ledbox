@@ -336,6 +336,7 @@ export function overdueCount(
 }
 
 export type AdminBudgetRow = {
+  comparisonId?: string | null;
   id: string;
   title: string;
   status: string;
@@ -376,6 +377,7 @@ export type AdminBudgetRow = {
   revisionNote: string | null;
   /** Adjuntos internos (issue #65): metadatos, el binario se sirve con sesión. */
   attachments?: AdminBudgetAttachmentRow[];
+  referenceLinks?: AdminBudgetReferenceLink[];
 };
 
 // ── Adjuntos del presupuesto (issue #65) ────────────────────────────────────
@@ -390,7 +392,10 @@ export const BUDGET_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 export const BUDGET_ATTACHMENT_MAX_NAME = 160;
 
 /** Metadatos de un adjunto (sin el binario). */
+export type AdminBudgetReferenceLink = { id: string; budgetId: string; label: string; url: string; clientVisible: boolean };
+
 export type AdminBudgetAttachmentRow = {
+  clientVisible?: boolean;
   id: string;
   budgetId: string;
   name: string;
@@ -1549,6 +1554,12 @@ export type AdminInventoryAvailability = {
 
 /** Artículo del inventario vinculado a un ítem del presupuesto (issue #18). */
 export type AdminInventoryLink = {
+  imageUrl?: string | null;
+  imageMime?: string | null;
+  updatedAt?: string;
+  listPrice?: number;
+  listFromDays?: number;
+  listFromPrice?: number;
   id: string;
   name: string;
   sku: string | null;

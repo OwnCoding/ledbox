@@ -1,4 +1,5 @@
 "use client";
+import { BudgetComparisons } from "./BudgetComparisons";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -25,6 +26,8 @@ import {
 } from "@/lib/admin-format";
 import { bankMark, bankSuggestions } from "@/lib/bank-mark";
 import { internalCostOf } from "@/lib/budget-costs";
+import { InventoryLinkPicker } from "./BudgetInventoryPicker";
+import { quoteProductPrice } from "@/lib/quote-sharing";
 import { BudgetPricingDialog } from "./BudgetPricingDialog";
 import { ClientQuickCreateDialog, EventQuickCreateDialog } from "./BudgetQuickCreate";
 import { canWriteClients, canWriteFinance, canWriteOperations, matchesQuery } from "@/lib/admin-policy";
@@ -339,124 +342,6 @@ function eventAvailabilityRange(
 /** Rango del evento en una línea: `21-sept. 08:00 → 23-sept. 20:00`. */
 function eventRangeLabel(range: { startsAt: string; endsAt: string }): string {
   return `${formatDateTime(range.startsAt)} → ${formatDateTime(range.endsAt)}`;
-}
-
-/** Vínculo listo para guardar: solo los campos que el API acepta y dibuja. */
-function inventoryLinkOf(item: AdminInventoryItemRow): AdminInventoryLink {
-  return { id: item.id, name: item.name, sku: item.sku, category: item.category, quantity: item.quantity, status: item.status };
-}
-
-/**
- * Buscador de inventario para vincular un ítem del presupuesto (issue #18).
- * Pide la disponibilidad del rango del evento cuando existe (mismo endpoint y
- * misma lógica que el inventario) y muestra cuántos libres hay por artículo. Un
- * ítem sin vínculo no reserva nada: queda documentado en el propio buscador.
- */
-function InventoryLinkPicker({
-  label,
-  hint,
-  range,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  label: string;
-  hint?: string;
-  range: { startsAt: string; endsAt: string } | null;
-  selected: AdminInventoryLink | null;
-  disabled?: boolean;
-  onSelect: (item: AdminInventoryLink | null) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const path = useMemo(() => {
-    if (!range) return "/api/admin/inventory";
-    const params = new URLSearchParams({ startsAt: range.startsAt, endsAt: range.endsAt });
-    return `/api/admin/inventory?${params.toString()}`;
-  }, [range]);
-  const inventory = useAdminResource(path, (payload) => (payload.inventory ?? []) as AdminInventoryItemRow[]);
-
-  const candidates = useMemo(() => {
-    return (inventory.data ?? [])
-      .filter((item) => matchesQuery(query, [item.name, item.category, item.sku]))
-      .map((item) => ({
-        item,
-        available: range ? (item.availability.range?.available ?? 0) : item.availability.availableNow,
-        blocked: item.status === "MAINTENANCE" || item.status === "RETIRED",
-      }))
-      .sort((a, b) => b.available - a.available || a.item.name.localeCompare(b.item.name))
-      .slice(0, 6);
-  }, [inventory.data, query, range]);
-
-  const selectedRow = useMemo(
-    () => (selected ? (inventory.data ?? []).find((item) => item.id === selected.id) ?? null : null),
-    [inventory.data, selected],
-  );
-  const selectedFree = selectedRow
-    ? range
-      ? (selectedRow.availability.range?.available ?? 0)
-      : selectedRow.availability.availableNow
-    : null;
-
-  return (
-    <div className="admin-link-field">
-      <span className="admin-field-label">{label}</span>
-      {selected ? (
-        <div className="admin-link-current">
-          <span className="admin-link-name" title={`${selected.name}${selected.sku ? ` · ${selected.sku}` : ""} · ${selected.category}`}>
-            <strong>{selected.name}</strong>
-            <small className="admin-cell-sub">
-              {" "}
-              · {selected.category} · {formatNumber(selected.quantity)} unidades
-              {selectedFree !== null ? ` · ${formatNumber(selectedFree)} libres ${range ? "en el rango" : "ahora"}` : ""}
-            </small>
-          </span>
-          <AdminButton
-            icon="close"
-            title={`Quitar el vínculo con ${selected.name}`}
-            aria-label={`Quitar el vínculo con ${selected.name}`}
-            disabled={disabled}
-            onClick={() => onSelect(null)}
-          />
-        </div>
-      ) : null}
-      <SearchField
-        value={query}
-        onChange={setQuery}
-        label={selected ? `Buscar otro artículo para ${label}` : `Buscar artículo para ${label}`}
-        placeholder="Buscar por artículo, categoría o SKU…"
-      />
-      <div className="admin-link-list">
-        {inventory.loading ? <span className="admin-muted">Cargando inventario…</span> : null}
-        {inventory.error ? <AdminNote tone="error">{inventory.error}</AdminNote> : null}
-        {!inventory.loading && !inventory.error && candidates.length === 0 ? (
-          <span className="admin-muted">Sin artículos que coincidan con la búsqueda.</span>
-        ) : null}
-        {candidates.map(({ item, available, blocked }) => (
-          <div className="admin-link-row" key={item.id}>
-            <span className="admin-link-name" title={`${item.name}${item.sku ? ` · ${item.sku}` : ""} · ${item.category}`}>
-              <strong>{item.name}</strong>
-              <small className="admin-cell-sub"> · {item.category}{item.sku ? ` · ${item.sku}` : ""}</small>
-            </span>
-            <span className="admin-link-free" data-tone={blocked || available === 0 ? "warn" : undefined}>
-              {blocked
-                ? inventoryStatusLabel(item.status)
-                : `${formatNumber(available)} libres ${range ? "en el rango" : "ahora"}`}
-            </span>
-            <AdminButton
-              icon="check"
-              title={`Vincular ${item.name}`}
-              aria-label={`Vincular ${item.name}`}
-              disabled={disabled || selected?.id === item.id}
-              onClick={() => onSelect(inventoryLinkOf(item))}
-            >
-              {selected?.id === item.id ? "Vinculado" : "Vincular"}
-            </AdminButton>
-          </div>
-        ))}
-      </div>
-      {hint ? <span className="admin-field-hint">{hint}</span> : null}
-    </div>
-  );
 }
 
 /**
@@ -834,6 +719,7 @@ export function PresupuestosModule() {
   const [status, setStatus] = useState("ALL");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [extraItems, setExtraItems] = useState<Array<typeof EMPTY_FORM>>([]);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   // Catálogos del alta de presupuesto (issue #59): cliente y evento solo se usan
@@ -1028,6 +914,13 @@ export function PresupuestosModule() {
    */
   function budgetMenuItems(budget: AdminBudgetRow): AdminMenuItem[] {
     return [
+      ...(writable ? [
+        { label: "Editar ítems, precio y documentos", icon: "edit" as const, onClick: () => setPricing(budget) },
+        { label: "Plan de pagos", icon: "clock" as const, onClick: () => openPlan(budget) },
+        { label: "Inventario", icon: "inventory" as const, onClick: () => setLinksBudget(budget) },
+        ...(!budget.approvedAt && budgetInPlay(budget) ? [{ label: "Aprobar manualmente", icon: "check" as const, onClick: () => openApproval(budget, "approve") }, { label: "Pedir cambios", icon: "alert" as const, onClick: () => openApproval(budget, "request_revision") }] : []),
+      ] : []),
+      { label: "Cronología", icon: "audit", onClick: () => setTimelineBudget(budget) },
       {
         label: "Imprimir",
         icon: "print",
@@ -1050,13 +943,19 @@ export function PresupuestosModule() {
       ...(budget.publicToken
         ? [
             {
-              label: "Copiar link del portal",
+              label: "Ver como cliente",
+              icon: "eye" as const,
+              href: portalBudgetUrl(budget.publicToken),
+              external: true,
+            },
+            {
+              label: "Copiar enlace del cliente",
               icon: "copy" as const,
               onClick: () => void copyPortalLink(budget),
               title: `Copiar el link del portal: ${budget.title}`,
             },
           ]
-        : []),
+        : writable ? [{ label: "Copiar enlace del cliente", icon: "copy" as const, onClick: () => void issueClientLink(budget, "copy") }, { label: "Ver como cliente", icon: "eye" as const, onClick: () => void issueClientLink(budget, "view") }] : []),
     ];
   }
 
@@ -1208,6 +1107,7 @@ export function PresupuestosModule() {
           costPrice: Number(form.costPrice) || 0,
           inventoryId: form.inventory?.id || undefined,
         },
+        ...extraItems.map((item) => ({ name: item.item, quantity: Number(item.quantity) || 1, days: Number(item.days) || 1, unitPrice: Number(item.unitPrice) || 0, costPrice: Number(item.costPrice) || 0, inventoryId: item.inventory?.id || undefined })),
       ],
     });
     setBusy(false);
@@ -1216,6 +1116,7 @@ export function PresupuestosModule() {
       return;
     }
     setForm(EMPTY_FORM);
+    setExtraItems([]);
     setNotice(
       form.inventory
         ? `Presupuesto «${form.title}» creado con «${form.inventory.name}» vinculado al inventario.`
@@ -1277,6 +1178,25 @@ export function PresupuestosModule() {
         dueAt: installment.dueAt ?? "",
       })),
     });
+  }
+
+  async function issueClientLink(budget: AdminBudgetRow, intent: "copy" | "view") {
+    if (linkBusy) return;
+    setLinkBusy(true);
+    // Reserve the blank tab during the user gesture to avoid popup blocking.
+    const tab = intent === "view" ? window.open("about:blank", "_blank") : null;
+    if (tab) tab.opener = null;
+    try {
+      const result = await adminSend<AdminBudgetPortalPayload>("/api/admin/budgets/token", { budgetId: budget.id, action: "ensure" });
+      if (!result.ok || !result.data.budget?.publicToken) {
+        tab?.close(); setNotice(!result.ok ? result.error : "No recibimos el enlace del cliente."); return;
+      }
+      const current = { ...budget, ...result.data.budget };
+      if (intent === "copy") await copyPortalLink(current);
+      else if (tab) tab.location.href = portalBudgetUrl(current.publicToken!);
+      else setNotice(`El navegador bloqueó la pestaña. Enlace del cliente: ${portalBudgetUrl(current.publicToken!)}`);
+      budgetsResource.reload();
+    } finally { setLinkBusy(false); }
   }
 
   async function copyPortalLink(budget: AdminBudgetRow) {
@@ -1548,6 +1468,7 @@ export function PresupuestosModule() {
           placeholder="Buscar por título, cliente o evento…"
         />
         {narrow ? null : <AdminViewSwitch view={view} onChange={setView} label="Vista de presupuestos" />}
+        {writable ? <BudgetComparisons quotes={budgetRows} /> : null}
         {canManagePayments ? (
           <AdminButton
             icon="finance"
@@ -1673,8 +1594,22 @@ export function PresupuestosModule() {
             range={formRange}
             selected={form.inventory}
             disabled={busy}
-            onSelect={(item) => setForm({ ...form, inventory: item })}
+            onSelect={(item) => setForm({ ...form, inventory: item, ...(item ? { item: item.name, unitPrice: String(quoteProductPrice(item, Number(form.days))) } : {}) })}
           />
+          {extraItems.map((item, index) => {
+            const update = (patch: Partial<typeof EMPTY_FORM>) => setExtraItems((rows) => rows.map((row, position) => position === index ? { ...row, ...patch } : row));
+            return <div className="admin-quote-create-item" key={index}>
+              <InventoryLinkPicker label={`Producto del ítem ${index + 2} (opcional)`} range={formRange} selected={item.inventory} disabled={busy} onSelect={(product) => update({ inventory: product, ...(product ? { item: product.name, unitPrice: String(quoteProductPrice(product, Number(item.days))) } : {}) })} />
+              <TextField label={`Producto / servicio ${index + 2}`} required value={item.item} maxLength={160} onChange={(value) => update({ item: value })} />
+              <div className="admin-plan-grid">
+                <NumberField label="Cantidad" required value={item.quantity} maxLength={4} onChange={(value) => update({ quantity: value })} />
+                <NumberField label="Días" required value={item.days} maxLength={3} onChange={(value) => update({ days: value })} />
+                <MoneyField label="Precio unitario" required value={item.unitPrice} onChange={(value) => update({ unitPrice: value })} />
+                <AdminButton type="button" icon="close" aria-label={`Quitar ítem ${index + 2}`} disabled={busy} onClick={() => setExtraItems((rows) => rows.filter((_, position) => position !== index))} />
+              </div>
+            </div>;
+          })}
+          <AdminButton type="button" icon="plus" disabled={busy} onClick={() => setExtraItems((rows) => [...rows, { ...EMPTY_FORM }])}>Agregar ítem</AdminButton>
         </AdminFormPanel>
       ) : null}
 
@@ -1864,7 +1799,7 @@ export function PresupuestosModule() {
               return (
                 <AdminRow key={budget.id}>
                   <AdminCell title={`${budget.title}${budget.event ? ` · ${budget.event.name}` : ""}`}>
-                    <strong>{budget.title}</strong>
+                    <strong className="admin-quote-title">{budget.title}</strong>
                     {budget.event ? <small className="admin-cell-sub"> · {budget.event.name}</small> : null}
                   </AdminCell>
                   <AdminCell title={budget.client.company || budget.client.name}>{budget.client.company || budget.client.name}</AdminCell>
@@ -1912,84 +1847,9 @@ export function PresupuestosModule() {
                   </AdminCell>
                   <AdminCell end className="admin-cell--actions">
                     <span className="admin-actions">
-                      <AdminButton
-                        icon="audit"
-                        title={`Ver la cronología: ${budget.title}`}
-                        aria-label={`Ver la cronología: ${budget.title}`}
-                        onClick={() => setTimelineBudget(budget)}
-                      />
+                      {writable ? <AdminButton icon="mail" title={`Enviar por correo: ${budget.title}`} aria-label={`Enviar por correo: ${budget.title}`} onClick={() => openSend(budget)} /> : null}
+                      {writable ? <AdminButton icon="edit" title={`Editar presupuesto: ${budget.title}`} aria-label={`Editar presupuesto: ${budget.title}`} onClick={() => setPricing(budget)} /> : null}
                       <AdminActionsMenu label={`Acciones del presupuesto ${budget.title}`} items={budgetMenuItems(budget)} />
-                      {writable ? (
-                        <AdminButton
-                          icon="mail"
-                          title={`Enviar por correo: ${budget.title} · ${budget.client.email || "el cliente no tiene correo cargado"}`}
-                          aria-label={`Enviar por correo: ${budget.title}`}
-                          onClick={() => openSend(budget)}
-                        />
-                      ) : null}
-                      {writable && whatsappHref(budget.client.phone) ? (
-                        <AdminWhatsappTemplateButton
-                          title={`Enviar por WhatsApp con plantilla a ${budget.client.company || budget.client.name}`}
-                          onClick={() =>
-                            setTemplateTarget({
-                              kind: "budget",
-                              id: budget.id,
-                              label: budget.client.company || budget.client.name,
-                              phone: budget.client.phone,
-                            })
-                          }
-                        />
-                      ) : null}
-                      {budgetProofs.length > 0 ? (
-                        <AdminButton
-                          icon="eye"
-                          title={`Ver ${budgetProofs.length === 1 ? "el comprobante" : `los ${proofLabel}`} de ${budget.title}`}
-                          aria-label={`Ver ${budgetProofs.length === 1 ? "el comprobante" : `los ${proofLabel}`} de ${budget.title}`}
-                          onClick={() => setProofDialog(budget)}
-                        />
-                      ) : null}
-                      {writable ? (
-                        <AdminButton
-                          icon="edit"
-                          title={`Precio, costos internos y condiciones: ${budget.title}`}
-                          aria-label={`Precio, costos internos y condiciones: ${budget.title}`}
-                          onClick={() => setPricing(budget)}
-                        />
-                      ) : null}
-                      {writable ? (
-                        <AdminButton
-                          icon="clock"
-                          title={`Plan de pagos y cuotas: ${budget.title} · ${planSummary(budget)}`}
-                          aria-label={`Plan de pagos y cuotas: ${budget.title}`}
-                          onClick={() => openPlan(budget)}
-                        />
-                      ) : null}
-                      {writable ? (
-                        <AdminButton
-                          icon="inventory"
-                          title={`Inventario del presupuesto: ${budget.title} · ${
-                            linkedCount > 0 ? `${linkedCount} ítem${linkedCount === 1 ? "" : "s"} vinculado${linkedCount === 1 ? "" : "s"}` : "sin vínculos"
-                          }`}
-                          aria-label={`Inventario del presupuesto: ${budget.title}`}
-                          onClick={() => setLinksBudget(budget)}
-                        />
-                      ) : null}
-                      {writable && open && !approved ? (
-                        <>
-                          <AdminButton
-                            icon="check"
-                            title={`Aprobar manualmente: ${budget.title}`}
-                            aria-label={`Aprobar manualmente: ${budget.title}`}
-                            onClick={() => openApproval(budget, "approve")}
-                          />
-                          <AdminButton
-                            icon="alert"
-                            title={`Pedir cambios: ${budget.title}`}
-                            aria-label={`Pedir cambios: ${budget.title}`}
-                            onClick={() => openApproval(budget, "request_revision")}
-                          />
-                        </>
-                      ) : null}
                     </span>
                   </AdminCell>
                 </AdminRow>
@@ -2039,13 +1899,13 @@ export function PresupuestosModule() {
                   title="Copiar el link del portal"
                   aria-label="Copiar el link del portal"
                   onClick={() => void copyPortalLink(portalBudget)}
-                />
+                >Copiar enlace del cliente</AdminButton>
                 <AdminButton
                   icon="external"
                   title="Abrir el portal en una pestaña nueva"
                   aria-label="Abrir el portal en una pestaña nueva"
                   onClick={() => window.open(portalBudgetUrl(portalToken), "_blank", "noopener,noreferrer")}
-                />
+                >Ver como cliente</AdminButton>
               </>
             ) : null}
             <span className="admin-dialog-spacer" />
@@ -2393,7 +2253,7 @@ export function PresupuestosModule() {
       {pricing ? (
         <BudgetPricingDialog
           budget={pricing}
-          onClose={() => setPricing(null)}
+          onClose={() => { setPricing(null); budgetsResource.reload(); }}
           onSaved={(message) => {
             setNotice(message);
             budgetsResource.reload();

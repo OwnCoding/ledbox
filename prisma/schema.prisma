@@ -766,6 +766,10 @@ model Budget {
   paymentProofs        BudgetPaymentProof[]
   /// Adjuntos internos del presupuesto (issue #65): el PDF original u otro archivo.
   attachments          BudgetAttachment[]
+  referenceLinks       BudgetReferenceLink[]
+  comparisonId         String?
+  comparisonLabel      String?
+  comparison           QuoteComparison?      @relation(fields: [comparisonId], references: [id], onDelete: Restrict)
   /// Pagos esperados del plan (issue #28): anticipo, cuotas y saldo.
   expectedPayments     ExpectedPayment[]
   invoices             Invoice[]
@@ -968,23 +972,22 @@ model BudgetPaymentProof {
   @@index([paymentId])
 }
 
-/// Adjunto interno de un presupuesto (issue #65): el PDF original del cliente u
-/// otro archivo de trabajo. Mismo patrón que los comprobantes (issue #17): el
-/// binario vive en la base —compatible con los backups, sin almacenamiento
-/// externo— y se sirve solo con sesión (`/api/admin/budgets/attachments/[id]`).
-/// Nunca se publica en el portal ni en el imprimible.
+/// Quote files remain internal unless an admin explicitly publishes a validated PDF.
+/// Binary data stays in the database. Client reads require the current quote token.
 model BudgetAttachment {
-  id             String       @id
-  organizationId String
-  budgetId       String
-  uploadedByName String
-  name           String
-  mime           String
-  size           Int
-  data           Bytes
-  createdAt      DateTime     @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  budget         Budget       @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  /// Explicit opt-in; historical internal originals remain private.
+  clientVisible     Boolean            @default(false)
+  id                String             @id
+  organizationId    String
+  budgetId          String
+  uploadedByName    String
+  name              String
+  mime              String
+  size              Int
+  data              Bytes
+  createdAt         DateTime           @default(now())
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  budget            Budget             @relation(fields: [budgetId], references: [id], onDelete: Cascade)
   /// Solicitudes de firma que usan este adjunto como documento (issue #79).
   signatureRequests SignatureRequest[]
 
@@ -2131,4 +2134,35 @@ model InvoiceSequence {
   lastNumber     Int          @default(0)
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/// HTTP(S) references, never remotely fetched. Visibility is explicitly managed.
+model BudgetReferenceLink {
+  id             String   @id
+  organizationId String
+  budgetId       String
+  label          String
+  url            String
+  clientVisible  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  budget         Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, budgetId, createdAt])
+}
+
+/// Optional immutable set of same-client alternatives; selection never resets.
+model QuoteComparison {
+  id               String    @id
+  organizationId   String
+  clientId         String
+  title            String
+  publicToken      String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  selectedBudgetId String?   @unique
+  selectedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  budgets          Budget[]
+
+  @@index([organizationId, createdAt])
 }

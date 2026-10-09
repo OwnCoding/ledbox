@@ -1,3 +1,4 @@
+import { withQuoteCommercialEdit, QuoteComparisonError } from "@/lib/server/quote-comparison";
 import { db } from "@/lib/server/db";
 import { auditChanges, recordAudit } from "@/lib/server/audit";
 import { parseProposalPayload, portalBudgetOpen, resolveItemProposal } from "@/lib/server/budget-portal";
@@ -30,6 +31,11 @@ const KIND_LABEL: Record<string, string> = {
  * Una solicitud resuelta no se vuelve a resolver (409). Nunca cruza empresas.
  */
 export async function POST(request: Request) {
+  try { return await resolveRequest(request); }
+  catch (error) { if (error instanceof QuoteComparisonError) return jsonError(error.message, error.status); throw error; }
+}
+
+async function resolveRequest(request: Request) {
   const auth = await requireAdminContext("budgets.write");
   if (!auth.ok) return auth.response;
   const { organizationId, user } = auth.context;
@@ -139,7 +145,7 @@ export async function POST(request: Request) {
     const resolvesRevision = changeRequest.kind === "changes";
     const nextStatus = changesOffer && budget.status !== "APPROVED" ? "NEGOTIATING" : budget.status;
 
-    await db.$transaction(async (tx) => {
+    await withQuoteCommercialEdit(budget.id, organizationId, true, async (tx) => {
       for (const item of appliedItems) {
         await tx.budgetItem.update({
           where: { id: item.id },

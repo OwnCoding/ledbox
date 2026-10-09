@@ -1,5 +1,7 @@
 "use client";
 
+import { PortalQuoteResources } from "./PortalQuoteResources";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AdminIcon } from "@/components/admin/AdminIcons";
@@ -1555,6 +1557,8 @@ export function PortalBudgetView({
               ) : null}
             </section>
           ) : null}
+
+          <PortalQuoteResources budget={budget} token={token} />
 
           {!approved && !revisionPending ? (
         <section className="portal-card portal-card--action" aria-labelledby="portal-action" ref={actionRef}>

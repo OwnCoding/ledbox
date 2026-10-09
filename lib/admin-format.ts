@@ -995,8 +995,8 @@ const DATE_PERIOD_LABEL: Record<string, string> = {
 export const datePeriodLabel = (value: string | null | undefined) => label(DATE_PERIOD_LABEL, value);
 
 /** Día de Asunción de hoy (`YYYY-MM-DD`) para los valores por defecto de un formulario. */
-export function todayDayKey(): string {
-  return dayKeyOf();
+export function todayDayKey(now: Date = new Date()): string {
+  return dayKeyOf(now);
 }
 
 function utcDayKey(date: Date): string {

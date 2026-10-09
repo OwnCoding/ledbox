@@ -1716,7 +1716,7 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-table--eventos { --eventos-cols: 7.5rem 7rem minmax(8.5rem, 1.6fr) minmax(6.5rem, 1.1fr) minmax(5.5rem, 1fr) 4rem 4.5rem 5.75rem 7.5rem; --admin-cols: var(--eventos-cols); --admin-table-min: 61rem; }
 /* Presupuestos (issue #143): prioridad visual a monto, vencimiento, cliente y
    próximo paso; después ítems, cobrado, saldo, margen, portal y acciones. */
-.admin-table--presupuestos { --presupuestos-cols: minmax(8.5rem, 1.5fr) minmax(6.5rem, 1.1fr) minmax(6.25rem, 1fr) 5.5rem minmax(6.75rem, 1fr) 2.75rem minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) minmax(6.25rem, 1fr) 5rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 70rem; }
+.admin-table--presupuestos { --presupuestos-cols: minmax(18rem, 2fr) minmax(10rem, 1fr) 8rem 7rem 10rem 4rem 8rem 8rem 8rem 9rem 7.5rem; --admin-cols: var(--presupuestos-cols); --admin-table-min: 112rem; }
 /* Firmas (issue #81): documento con su presupuesto de origen, destinatario
    enmascarado, estado con el método, vencimiento con cuenta regresiva, último
    correo, alta y acciones. Fila compacta: en mobile la tabla se desplaza sola. */
@@ -3920,3 +3920,48 @@ select[data-tone="danger"] { border-color: color-mix(in srgb, var(--a-danger) 36
 .admin-ia-lote-label strong { color: var(--a-muted); font: 700 10px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
 .admin-ia-lote-error { color: var(--a-danger); font-size: 11.5px; }
 .admin-ia-lote-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+/* Quote-only geometry: headings and cells use identical tracks and box edges. */
+.admin-table--presupuestos > .admin-table-head,
+.admin-table--presupuestos > .admin-table-row { grid-template-columns: var(--presupuestos-cols); padding-inline: 12px; border-width: 1px; border-style: solid; }
+.admin-table--presupuestos > .admin-table-head { border-color: transparent; }
+.admin-table--presupuestos > .admin-table-row { padding-block: 8px; }
+.admin-table--presupuestos .admin-cell--end { white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+.admin-table--presupuestos .admin-cell:first-child { white-space: normal; }
+.admin-quote-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35; }
+.admin-table--presupuestos .admin-cell--actions,
+.admin-table--presupuestos .admin-table-head > .admin-cell:last-child { position: sticky; right: -12px; z-index: 2; margin: 0; padding: 0; background: var(--a-panel); box-shadow: -10px 0 12px -12px rgba(0,0,0,.6); }
+.admin-table--presupuestos .admin-actions { display: inline-flex; flex-wrap: nowrap; max-width: 100%; gap: 4px; }
+.admin-quote-product-row { grid-template-columns: 40px minmax(0, 1fr) auto auto; grid-template-areas: "photo name free action"; }
+.admin-quote-product-row .admin-item-thumb { grid-area: photo; }
+.admin-quote-product-row .admin-link-name { grid-area: name; }
+.admin-quote-product-row .admin-link-free { grid-area: free; }
+.admin-quote-product-row > .admin-btn { grid-area: action; }
+.admin-quote-resource, .portal-quote-resource { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; overflow-wrap: anywhere; }
+.admin-quote-create-item { grid-column: 1 / -1; display: grid; gap: 12px; padding-block: 12px; border-top: 1px solid var(--a-line); }
+.admin-menu-pop { max-width: calc(100vw - 16px); max-height: min(70vh, calc(100dvh - 16px)); z-index: 80; }
+.admin-menu-item { min-height: 44px; }
+@media (max-width: 600px) { .admin-quote-product-row { grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "photo name action" ". free free"; } }
+
+.admin-menu-item:focus-visible { outline: 2px solid var(--a-accent); outline-offset: -2px; }
+
+/* Optional quote alternatives use existing portal/admin surface tokens. */
+.portal-comparison-choices { border:0; padding:0; margin:0; min-width:0; }
+.portal-comparison-choices legend { margin-bottom:.75rem; font-weight:600; }
+.portal-comparison-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 22rem),1fr)); gap:1rem; align-items:start; }
+.portal-comparison-option { min-width:0; overflow-wrap:anywhere; }
+.portal-comparison-total { font-size:1.8rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.portal-comparison-items { list-style:none; padding:0; display:grid; gap:1rem; }
+.portal-comparison-items li { display:flex; gap:.75rem; align-items:flex-start; }
+.portal-comparison-items li > div { min-width:0; }
+.portal-comparison-items p { margin:.25rem 0; }
+.portal-comparison-select { display:flex; gap:.75rem; align-items:center; margin:1rem 0; padding:.5rem 0; cursor:pointer; }
+.portal-comparison-select input { width:1.25rem; height:1.25rem; flex-shrink:0; accent-color:var(--p-accent, #00e5ff); }
+.portal-comparison dl { display:grid; grid-template-columns:minmax(5rem,1fr) minmax(0,2fr); gap:.5rem; }
+.portal-comparison dd { margin:0; overflow-wrap:anywhere; }
+.admin-comparison-existing { padding:1rem 0; border-bottom:1px solid var(--a-line); }
+.admin-comparison-existing .admin-actions { flex-wrap:wrap; }
+.admin-comparison-candidates { display:grid; gap:.75rem; max-height:22rem; overflow:auto; padding:.5rem 0; }
+
+.admin-table--presupuestos > .admin-table-row:hover > .admin-cell--actions { background: var(--a-panel-2); }
+.admin-table--presupuestos > .admin-table-head > .admin-cell:last-child { background: var(--a-sticky-bg, var(--a-panel)); }
