@@ -1569,6 +1569,8 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
 .admin-image-preview { display: inline-flex; align-items: center; justify-content: center; padding: 8px; border: 1px dashed var(--a-line-2); border-radius: var(--a-radius); background: var(--a-bg-2); }
 .admin-image-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-image-input { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; clip-path: inset(50%); }
+/* OPS #173: el input oculto del logo no hereda el ancho de los campos visibles. */
+.admin-root .admin-client-logo .admin-image-input { width: 1px; min-width: 0; max-width: 1px; height: 1px; min-height: 0; }
 .admin-logos { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 12px; }
 .admin-logo-tone { display: grid; place-items: center; min-width: 5rem; min-height: 5rem; padding: 8px; border: 1px solid var(--a-line); border-radius: var(--a-radius); }
 .admin-logo-tone[data-tone="dark"] { background: #0a0e11; }
