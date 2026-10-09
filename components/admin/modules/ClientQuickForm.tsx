@@ -5,7 +5,7 @@ import { CLIENT_LINK_MESSAGES, contactPhoneValid, instagramValid, websiteValid }
 import { adminSend } from "@/lib/admin-api";
 import { canWriteClients } from "@/lib/admin-policy";
 import { useAdminSession } from "../AdminShell";
-import type { AdminClientOption } from "@/lib/admin-types";
+import type { AdminClientOption, AdminClientContact } from "@/lib/admin-types";
 import { emailValid, FIELD_LIMITS, FIELD_MESSAGES, personNameValid } from "@/lib/field-rules";
 import { AdminButton, AdminDialog, AdminDisclosure, AdminNote } from "../AdminUI";
 import { CityField, EmailField, PhoneField, SegmentedField, TextField } from "../AdminFields";
@@ -13,15 +13,9 @@ import { locationLinkValid } from "./OperationQuickRules";
 import { ClientFiscalFields } from "./ClientFiscalFields";
 import type { AdminClientRucSnapshot } from "@/lib/admin-types";
 
-/**
- * Formulario mínimo del cliente (issue #106): Nombre (con foco) + Teléfono y
- * Correo opcionales; el resto —empresa, tipo, RUC/CI, encargado y links—
- * detrás de «Más datos». Lo comparten el alta de Clientes y el «+ Nuevo
- * cliente» del evento, así el alta rápida es la misma en los dos lados; el
- * resto de la ficha se completa después desde el detalle del cliente.
- *
- * Sin cambios de API: usa `POST /api/admin/clients` como el formulario completo.
- */
+/** Alta/edición única de cliente (#173): fantasía principal y datos opcionales
+ * plegados. Eventos y Presupuestos reutilizan el mismo formulario. name/company
+ * históricos se conservan separados de legalName y de los contactos humanos. */
 
 export type ClientQuickValues = {
   tradeName: string;
@@ -50,7 +44,7 @@ export type ClientQuickValues = {
   whatsapp: string;
 };
 
-export type ClientContactValues = { name: string; role: string | null; phone: string | null; email: string | null };
+export type ClientContactValues = AdminClientContact;
 
 export const EMPTY_CLIENT_QUICK: ClientQuickValues = {
   tradeName: "",
@@ -103,7 +97,7 @@ export function clientQuickErrors(values: ClientQuickValues): ClientQuickErrors 
     contacts: values.contacts.length > 20 ? "Podés cargar hasta 20 contactos." : values.contacts.some((contact) =>
       !personNameValid(contact.name) || (contact.phone && !contactPhoneValid(contact.phone)) || (contact.email && !emailValid(contact.email)))
       ? "Revisá el nombre, teléfono y correo de los contactos." : null,
-    // El nombre se avisa al tipearlo (issue #131): vacío lo frena el navegador.
+    // name histórico también es texto empresarial: sin validador de persona.
     name: values.name.length > 200 ? "El nombre registrado admite hasta 200 caracteres." : null,
     phone: values.phone && !contactPhoneValid(values.phone) ? FIELD_MESSAGES.phone : null,
     email: values.email && !emailValid(values.email) ? FIELD_MESSAGES.email : null,

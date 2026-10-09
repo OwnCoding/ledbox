@@ -508,9 +508,14 @@ export function EventosModule() {
     }
     const invalid = eventQuickError(form);
     if (invalid) { setFormError(invalid); return; }
+    const fields: Partial<ReturnType<typeof eventQuickPayload>> = eventQuickPayload(form);
+    const original = editingEventId ? events.find((event) => event.id === editingEventId) : null;
+    // La edición de otros datos conserva las fechas originales, incluso segundos.
+    if (original && form.startsAt === inputDateTime(original.startsAt)) delete fields.startsAt;
+    if (original && form.endsAt === inputDateTime(original.endsAt)) delete fields.endsAt;
     setBusy(true);
     const result = await adminSend("/api/admin/events", {
-      ...eventQuickPayload(form),
+      ...fields,
       ...(editingEventId ? { id: editingEventId } : { clientId: form.clientId }),
     }, editingEventId ? "PATCH" : "POST");
     setBusy(false);
@@ -807,6 +812,7 @@ export function EventosModule() {
           }
         >
           <EventQuickFields key={editingEventId ?? "nuevo"} values={form} onChange={(patch) => setForm((current) => ({ ...current, ...patch }))} autoFocus
+            moreOpen={Boolean(editingEventId)}
             locationOptions={[...new Set(events.flatMap((event) => event.location ? [event.location] : []))]}>
           <div className="admin-field-action">
             <Combobox

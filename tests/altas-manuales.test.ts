@@ -40,7 +40,7 @@ test("evento: check es-PY del cliente y «Fin» en Más datos", () => {
   assert.match(module, /const EMPTY_EVENT_FORM = \{ \.\.\.EMPTY_EVENT_QUICK/, "el módulo usa el estado compartido");
   assert.match(repoFile("components/admin/modules/OperationQuickRules.ts"), /endsAt: ""/, "el fin tiene estado propio");
   assert.match(shared, /label="Fin"[\s\S]{0,200}onChange=/, "el fin se edita en Más datos");
-  assert.match(module, /\.\.\.eventQuickPayload\(form\)/, "el fin viaja en el alta completa");
+  assert.match(module, /eventQuickPayload\(form\)/, "el fin viaja en el alta completa");
 });
 
 test("cliente: el nombre se valida en el front con el mensaje del kit", () => {

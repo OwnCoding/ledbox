@@ -8,19 +8,20 @@ import { locationLinkValid, type EventQuickValues } from "./OperationQuickRules"
 export { EMPTY_EVENT_QUICK, eventQuickError, eventQuickPayload } from "./OperationQuickRules";
 
 /** Un alta de evento para Operación y Presupuestos; los datos operativos son opcionales. */
-export function EventQuickFields({ values, onChange, autoFocus, locationOptions = [], children }: {
+export function EventQuickFields({ values, onChange, autoFocus, moreOpen = false, locationOptions = [], children }: {
   values: EventQuickValues;
   onChange: (patch: Partial<EventQuickValues>) => void;
   autoFocus?: boolean;
+  moreOpen?: boolean;
   locationOptions?: string[];
   children?: React.ReactNode;
 }) {
   return <>
-    <TextField label="Nombre del evento" required autoFocus={autoFocus} maxLength={120}
+    <TextField label="Nombre del evento" required autoFocus={autoFocus} maxLength={200}
       value={values.name} onChange={(name) => onChange({ name })} placeholder="Ej.: Lanzamiento Samsung" />
     {children}
     <DateTimeField label="Inicio" hint="Opcional · fecha y hora del evento" value={values.startsAt} onChange={(startsAt) => onChange({ startsAt })} />
-    <AdminDisclosure title="Más datos" hint="recinto, localidad, contactos y fin">
+    <AdminDisclosure title="Más datos" hint="recinto, localidad, contactos y fin" defaultOpen={moreOpen}>
       <Combobox label="Lugar / recinto" value={values.location} onChange={(location) => onChange({ location })}
         options={locationOptions.map((location) => ({ value: location, label: location }))}
         onCreate={(location) => onChange({ location })} createLabel={(query) => `Usar lugar «${query}»`}

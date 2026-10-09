@@ -34,7 +34,6 @@ import type {
   AdminClientEventRow,
   AdminClientPaymentRow,
   AdminClientRow,
-  AdminClientRucSnapshot,
 } from "@/lib/admin-types";
 import type { PreparedIdentityImage } from "@/lib/identity-image";
 import { AdminIcon } from "../AdminIcons";
@@ -63,7 +62,7 @@ import {
 } from "../AdminUI";
 import { MessageTemplateSendDialog, type MessageTemplateTarget } from "../AdminMessageTemplateDialog";
 import { SearchField, TextAreaField } from "../AdminFields";
-import { ClientQuickFields, EMPTY_CLIENT_QUICK, clientQuickPayload, clientQuickErrors, clientQuickFirstError, type ClientQuickValues } from "./ClientQuickForm";
+import { ClientQuickFields, EMPTY_CLIENT_QUICK, clientQuickPayload, clientQuickErrors, clientQuickFirstError } from "./ClientQuickForm";
 import { adminSend, useAdminResource } from "@/lib/admin-api";
 import { FIELD_LIMITS } from "@/lib/field-rules";
 import { ClientFiscalSnapshot } from "./ClientFiscalFields";
@@ -122,12 +121,7 @@ const EMPTY_FORM = {
 
 type ClientForm = typeof EMPTY_FORM;
 
-function formFromClient(client: AdminClientRow & {
-  tradeName?: string | null; legalName?: string | null; billingEmail?: string | null;
-  city?: string | null; department?: string | null; address?: string | null;
-  addressReference?: string | null; locationUrl?: string | null; contacts?: ClientQuickValues["contacts"];
-  rucSnapshot?: AdminClientRucSnapshot | null;
-}): ClientForm {
+function formFromClient(client: AdminClientRow): ClientForm {
   return {
     tradeName: client.tradeName ?? "",
     legalName: client.legalName ?? "",

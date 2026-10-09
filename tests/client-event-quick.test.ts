@@ -64,7 +64,7 @@ test("Eventos deja lo mínimo a la vista y crea clientes desde el selector", () 
   assert.match(shared, /<AdminDisclosure title="Más datos"/, "los datos operativos van plegados");
   // El fin se sumó al alta completa en #131 (el quick de presupuestos ya lo mandaba).
   assert.match(shared, /label="Fin"[\s\S]{0,200}onChange=/, "falta el «Fin» en Más datos");
-  assert.match(module, /\.\.\.eventQuickPayload\(form\)/, "el fin viaja en el payload único");
+  assert.match(module, /eventQuickPayload\(form\)/, "el fin viaja en el payload único");
   assert.match(module, /Elegí el cliente del evento\./, "el check del cliente va en es-PY");
   // Al crear, el cliente queda elegido y el catálogo se refresca.
   assert.match(module, /function selectCreatedClient[\s\S]{0,300}clientId: client\.id[\s\S]{0,200}clients\.reload\(\)/, "el cliente creado tiene que quedar elegido");

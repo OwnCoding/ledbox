@@ -60,3 +60,11 @@ test("evento impide rango invertido y asistentes inválidos sin exigir datos opc
   assert.match(eventQuickError(values), /fin no puede/);
   for (const attendees of ["-1", "2.5", "2147483648"]) assert.match(eventQuickError({ ...EMPTY_EVENT_QUICK, name: "Evento", attendees }), /asistentes/);
 });
+
+test("fecha ingresada conserva instante con zona explícita en el transporte", () => {
+  const value = "2026-10-10T12:00";
+  const payload = eventQuickPayload({ ...EMPTY_EVENT_QUICK, name: "Evento", startsAt: value });
+  assert.equal(new Date(payload.startsAt!).getTime(), new Date(value).getTime());
+  assert.match(payload.startsAt!, /Z$/);
+  assert.match(eventQuickError({ ...EMPTY_EVENT_QUICK, name: "Evento", startsAt: "inválido" }), /fecha y hora/);
+});
