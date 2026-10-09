@@ -315,6 +315,7 @@ export type AdminEventPanelRow = Omit<AdminEventRow, "client"> & { client: Admin
 export type AdminEventChecklistRow = Pick<AdminEventRow, "id" | "name" | "tasks">;
 
 export type AdminBudgetItem = {
+  notes?: string | null;
   excluded?: boolean;
   id: string;
   name: string;
@@ -329,7 +330,7 @@ export type AdminBudgetItem = {
 };
 
 /** Cuota del plan de pagos (issue #14); `dueAt` es `YYYY-MM-DD`. */
-export type AdminBudgetInstallment = { label: string; amount: number; dueAt: string | null };
+export type AdminBudgetInstallment = import("./budget-payment-plan").BudgetPaymentCondition;
 
 export type AdminPayment = {
   id: string;
@@ -387,6 +388,7 @@ export function overdueCount(
 }
 
 export type AdminBudgetRow = {
+  updatedAt?: string;
   comparisonId?: string | null;
   id: string;
   title: string;
