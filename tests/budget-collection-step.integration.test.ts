@@ -23,7 +23,15 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
     const viewer = await db.adminUser.create({ data: { id: randomUUID(), name: "QA viewer", email: `viewer-${suffix}@example.invalid`, role: "VIEWER", passwordHash: "not-a-login", autoLockEnabled: false } });
     await db.adminMembership.create({ data: { id: randomUUID(), organizationId: org, adminUserId: viewer.id, role: "VIEWER" } });
     const client = await db.client.create({ data: { id: randomUUID(), organizationId: org, name: "Historical client", tradeName: "  QA client  ", legalName: "QA Legal" } });
-    const logoBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1kAAAAASUVORK5CYII=", "base64");
+    const logoPage = await browser.newPage();
+    const logoData = await logoPage.evaluate(() => {
+      const canvas = document.createElement("canvas"); canvas.width = 200; canvas.height = 80;
+      const ctx = canvas.getContext("2d")!; ctx.fillStyle = "white"; ctx.fillRect(0, 0, 200, 80);
+      ctx.fillStyle = "black"; ctx.font = "bold 60px sans-serif"; ctx.fillText("QA", 50, 62);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await logoPage.close();
+    const logoBytes = Buffer.from(logoData, "base64");
     await db.clientLogo.create({ data: { id: randomUUID(), clientId: client.id, mime: "image/png", size: logoBytes.length, data: logoBytes } });
     const cases = [
       { name: "Complete", collected: 12500000, advance: 4000000, label: "Cobro completo", status: "AWAITING", concept: "advance", amount: 4000000, paidAmount: 0 },
@@ -79,12 +87,16 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
       }
       assert.ok(await page.$('.admin-avatar--logo img[src*="/api/admin/clients/"]'));
       assert.equal(await page.$eval('.admin-avatar--logo img', (node) => getComputedStyle(node).objectFit), "contain");
+      assert.deepEqual(await page.$eval('.admin-avatar--logo img', (node) => ({ width: (node as HTMLImageElement).naturalWidth, height: (node as HTMLImageElement).naturalHeight })), { width: 200, height: 80 });
       assert.equal(await page.$eval('.admin-avatar--logo img', (node) => node.getAttribute("alt")), "");
       await page.screenshot({ path: `${evidence}/admin-${width}.png`, fullPage: true });
       for (const q of rows.slice(0, 5)) {
         await page.goto(`${base}/p/${q.publicToken}`, { waitUntil: "networkidle0" });
         const text = await page.$eval("body", (node) => node.textContent ?? "");
-        if (q.scenario.name === "Complete") { assert.ok(text.includes("Cobro completo")); assert.ok(!text.includes("Transferí Anticipo")); }
+        if (q.scenario.name === "Complete") {
+          assert.ok(text.includes("Cobro completo")); assert.ok(!text.includes("Transferí Anticipo")); assert.ok(!text.includes("Enviá el comprobante de tu transferencia"));
+          await page.screenshot({ path: `${evidence}/portal-complete-${width}.png`, fullPage: true });
+        }
         if (q.scenario.name === "Partial") assert.ok(text.includes("2.000.000"));
         assert.ok(text.includes("QA client"));
         assert.equal(await page.$eval('.admin-avatar--logo img', (node) => getComputedStyle(node).objectFit), "contain");
@@ -104,6 +116,7 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
     await page.goto(`${base}/imprimir/presupuesto/${rows[0].id}`, { waitUntil: "networkidle0" });
     assert.ok(await page.$('.lbprint-sheet .admin-avatar--logo img, .budget-print-sheet .admin-avatar--logo img'));
     await page.pdf({ path: `${evidence}/client-logo-a4.pdf`, format: "A4", printBackground: true });
+    await page.screenshot({ path: `${evidence}/print-preview.png`, fullPage: true });
     await page.setCacheEnabled(false);
     await page.setRequestInterception(true);
     page.on("request", (request) => { if (request.url().includes("/client-logo")) void request.abort(); else void request.continue(); });
