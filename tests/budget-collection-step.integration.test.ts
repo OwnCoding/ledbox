@@ -95,9 +95,11 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
         const text = await page.$eval("body", (node) => node.textContent ?? "");
         if (q.scenario.name === "Complete") {
           assert.ok(text.includes("Cobro completo")); assert.ok(!text.includes("Transferí Anticipo")); assert.ok(!text.includes("Enviá el comprobante de tu transferencia"));
+          assert.ok(text.includes("El cobro registrado cubre el total"));
           await page.screenshot({ path: `${evidence}/portal-complete-${width}.png`, fullPage: true });
         }
         if (q.scenario.name === "Partial") assert.ok(text.includes("2.000.000"));
+        if (q.scenario.name === "Proof review") { assert.ok(text.includes("todavía no es un cobro confirmado")); assert.ok(!text.includes("Ya confirmamos todos los pagos")); }
         assert.ok(text.includes("QA client"));
         assert.equal(await page.$eval('.admin-avatar--logo img', (node) => getComputedStyle(node).objectFit), "contain");
       }
