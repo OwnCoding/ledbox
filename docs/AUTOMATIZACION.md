@@ -179,6 +179,40 @@ No hay override para borrar ese historial publicado: conservar estado y
 coordinar con el dueño antes de otra acción operativa. La entrega de este
 comando no ejecuta rechazo sobre el pending real ni autoriza tocar la rama viva.
 
+### Supersesión explícita de READY fallido publicado manualmente
+
+Tras atribución del dueño a GitHub Desktop y autorización de fixes hacia adelante,
+el integrador puede ejecutar `node scripts/orquestador.mjs supersede-published-failed-ready`.
+No es un override de `reject`: exige el FAIL independiente anterior y un ACK local
+en `~/.config/ledbox/manual-push-ack.json` (`manualPushAckFile`):
+
+```json
+{
+  "schema": 1,
+  "issue": 173,
+  "sha": "<SHA completo exacto del pending READY fallido>",
+  "attribution": "owner:GitHub Desktop",
+  "allowForwardFixes": true
+}
+```
+
+El HEAD debe estar limpio, ser descendiente y contener un nuevo diff funcional
+autorizado #173. Dos fetch comprueban que la rama viva remota sigue exactamente en
+el SHA del ACK. Un GET autenticado Hub debe confirmar que no hay deployment para
+ese SHA; errores o resultados inciertos bloquean. No se permite release/push/trigger
+registrado en el ciclo, metadata de release commiteada ni replay de un SHA rechazado.
+FAIL, bytes de evidencia y ACK se releen tras el GET para detectar cambios concurrentes.
+El ACK no tiene TTL: su vigencia está acotada por el SHA remoto/pending exacto,
+descendencia, diff funcional y relectura de su hash.
+
+Se archiva pending completo, FAIL y ACK con sus hashes en
+`auto-hd-artifacts/<SHA>/supersession.json`, se registra el SHA rechazado, se vacía
+pending y se marca el candidato `SUPERSEDED_PUBLISHED_FAILED_READY`. No se borra
+historial Git/remoto/deployments ni se hace rollback, reset, push, POST, build o PASS.
+Un `prepare` separado emite un READY nuevo tras checks; necesita Pilot independiente
+del SHA nuevo y mantiene la barrera SOURCE_COMMIT para cualquier publicación.
+La entrega del comando no lo ejecuta sobre el estado operativo real.
+
 ## Release y Hub
 
 Tras PASS exacto, el preflight autenticado GET comprueba el detalle de

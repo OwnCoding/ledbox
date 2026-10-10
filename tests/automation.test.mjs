@@ -22,7 +22,7 @@ function fixture() {
   writeFileSync(join(cwd, "package-lock.json"), JSON.stringify({ name: "qa", version: "1.0.0", packages: { "": { name: "qa", version: "1.0.0" } } }));
   writeFileSync(join(cwd, "docs/NOVEDADES.md"), "# QA\n");
   git(cwd, "add", "."); git(cwd, "commit", "-m", "initial QA fixture"); git(cwd, "remote", "add", "origin", remote); git(cwd, "push", "-u", "origin", LIVE);
-  const config = { integratorCheckout: cwd, liveBranch: LIVE, enableFile: join(dir, "enable.json"), pauseFile: join(dir, "paused"), gateFile: join(dir, "approved.json"), rejectedGate: join(dir, "rejected.json"), candidateFile: join(dir, "candidate.json"), stateFile: join(dir, "state.json"), cycleLock: join(dir, "cycle.lock"), watcherLock: join(dir, "watcher.lock"), evidenceDir: join(dir, "evidence"), deployEnvFile: join(dir, "deploy.env"), autodeployWaitMs: 0, smokeTimeoutMs: 0, pollMs: 1 };
+  const config = { integratorCheckout: cwd, liveBranch: LIVE, enableFile: join(dir, "enable.json"), pauseFile: join(dir, "paused"), gateFile: join(dir, "approved.json"), rejectedGate: join(dir, "rejected.json"), manualPushAckFile: join(dir, "manual-ack.json"), candidateFile: join(dir, "candidate.json"), stateFile: join(dir, "state.json"), cycleLock: join(dir, "cycle.lock"), watcherLock: join(dir, "watcher.lock"), evidenceDir: join(dir, "evidence"), deployEnvFile: join(dir, "deploy.env"), autodeployWaitMs: 0, smokeTimeoutMs: 0, pollMs: 1 };
   writeFileSync(config.pauseFile, "only Emple\n");
   return { dir, cwd, config, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -51,6 +51,9 @@ function failPilot(f) {
   atomicJson(path, { role: "lbx-pilot", status: "FAIL", sha, findings: ["A15: editor item order not persisted"] });
   atomicJson(f.config.rejectedGate, { schema: 1, issue: 173, rejectedCandidateSHA: sha, pilot: { role: "lbx-pilot", status: "FAIL", sha, evidence: evidence(path) } });
   return path;
+}
+function manualAck(f) {
+  atomicJson(f.config.manualPushAckFile, { schema: 1, issue: 173, sha: loadState(f.config).pending.candidateSHA, attribution: "owner:GitHub Desktop", allowForwardFixes: true });
 }
 
 test("real Git: union ahead/slots, dedup patch-id y scope sin backlog/pilot/docs/deps/tests/merges", () => {
@@ -387,6 +390,68 @@ test("reject no invalida release, flags push/trigger ni publicación remota sin 
       assert.equal(readFileSync(f.config.stateFile, "utf8"), before, kind);
       assert.equal(readJson(f.config.candidateFile).status, "READY");
       assert.equal(existsSync(join(f.config.evidenceDir, sha, "rejection.json")), false);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("supersede publicado FAIL: sin ACK/mismatch bloquea; ACK honesto archiva y prepare exige PASS nuevo", async () => {
+  const f = fixture(); let gets = 0;
+  try {
+    commit(f.cwd, "app/a.js", "candidato manual FAIL\n"); await cycle(f.cwd, f.config, { mode: "prepare", runner: fakeRunner });
+    const pending = loadState(f.config).pending, oldSHA = pending.candidateSHA;
+    failPilot(f); git(f.cwd, "push", "origin", LIVE); const remoteBefore = git(f.cwd, "rev-parse", `origin/${LIVE}`);
+    const newSHA = commit(f.cwd, "app/a.js", "fix forward autorizado\n");
+    const hub = { deployments: async sha => { assert.equal(sha, oldSHA); gets++; return []; }, trigger: async () => assert.fail("supersede jamás POST"), preflight: async () => assert.fail("no gate de release para archivar") };
+    const before = readFileSync(f.config.stateFile, "utf8");
+    await assert.rejects(cycle(f.cwd, f.config, { mode: "reject" }), /ya pusheado/);
+    await assert.rejects(cycle(f.cwd, f.config, { mode: "supersede-published-failed-ready", hub }), /ENOENT/);
+    for (const change of [{ sha: "0".repeat(40) }, { issue: 170 }, { attribution: "unknown" }, { allowForwardFixes: false }]) {
+      manualAck(f); atomicJson(f.config.manualPushAckFile, { ...readJson(f.config.manualPushAckFile), ...change });
+      await assert.rejects(cycle(f.cwd, f.config, { mode: "supersede-published-failed-ready", hub }), /ACK operativo/);
+    }
+    assert.equal(readFileSync(f.config.stateFile, "utf8"), before); assert.equal(gets, 0);
+    manualAck(f);
+    const unrelated = { candidateSHA: "c".repeat(40), releaseSHA: "d".repeat(40), pushed: true, served: true };
+    const state = loadState(f.config); state.deployments[unrelated.releaseSHA] = unrelated; atomicJson(f.config.stateFile, state);
+    const result = await cycle(f.cwd, f.config, { mode: "supersede-published-failed-ready", hub });
+    assert.equal(result.status, "SUPERSEDED_PUBLISHED_FAILED_READY"); assert.equal(result.forwardHEAD, newSHA);
+    const archive = readJson(result.archiveFile);
+    assert.deepEqual(archive.pending, pending); assert.equal(archive.pilot.status, "FAIL");
+    assert.equal(archive.ack.attribution, "owner:GitHub Desktop"); assert.equal(archive.remoteSHA, oldSHA);
+    assert.equal(loadState(f.config).pending, null); assert.deepEqual(loadState(f.config).deployments[unrelated.releaseSHA], unrelated);
+    assert.equal(git(f.cwd, "rev-parse", `origin/${LIVE}`), remoteBefore); assert.equal(git(f.cwd, "rev-parse", "HEAD"), newSHA);
+    assert.equal(existsSync(f.config.gateFile), false); assert.equal(existsSync(f.config.enableFile), false);
+    const ready = await cycle(f.cwd, f.config, { mode: "prepare", runner: fakeRunner });
+    assert.equal(ready.status, "READY"); assert.equal(ready.candidateSHA, newSHA); assert.equal(loadState(f.config).pending.baseSHA, oldSHA);
+    manualAck(f); // ACK del nuevo SHA no permite reutilizar el FAIL anterior.
+    await assert.rejects(cycle(f.cwd, f.config, { mode: "supersede-published-failed-ready", hub }), /FAIL exacto/);
+    atomicJson(f.config.enableFile, { enabled: true, scope: "#173" });
+    assert.equal((await cycle(f.cwd, f.config, { hub })).status, "READY_WAITING_PILOT"); assert.equal(gets, 1);
+  } finally { f.cleanup(); }
+});
+
+test("supersede bloquea ACK stale, evidencia cambiante, deployment y diff no autorizado", async () => {
+  for (const kind of ["staleRemote", "sameHEAD", "docsOnly", "foreignScope", "deployment", "release", "ackChanged", "pilotChanged"]) {
+    const f = fixture();
+    try {
+      commit(f.cwd, "app/a.js", "manual publicado\n"); await cycle(f.cwd, f.config, { mode: "prepare", runner: fakeRunner });
+      const sha = loadState(f.config).pending.candidateSHA; const pilotPath = failPilot(f); manualAck(f); git(f.cwd, "push", "origin", LIVE);
+      if (kind === "docsOnly") commit(f.cwd, "docs/qa.md", "sólo docs\n", "docs(qa): sin producto (Refs #173)");
+      else if (kind === "foreignScope") commit(f.cwd, "app/a.js", "ajeno\n", "fix(qa): backlog (Refs #170)");
+      else if (kind !== "sameHEAD") commit(f.cwd, "app/a.js", "nuevo fix\n");
+      if (kind === "staleRemote") git(f.cwd, "push", "origin", LIVE);
+      if (kind === "release") { const state = loadState(f.config); state.pending.releaseSHA = "a".repeat(40); atomicJson(f.config.stateFile, state); }
+      const before = readFileSync(f.config.stateFile, "utf8"), head = git(f.cwd, "rev-parse", "HEAD"), remote = git(f.cwd, "rev-parse", `origin/${LIVE}`);
+      const hub = { deployments: async requested => {
+        assert.equal(requested, sha);
+        if (kind === "ackChanged") atomicJson(f.config.manualPushAckFile, { ...readJson(f.config.manualPushAckFile), comment: "edited during GET" });
+        if (kind === "pilotChanged") writeFileSync(pilotPath, "altered after first FAIL read");
+        return kind === "deployment" ? [{ commit: sha, status: "failed" }] : [];
+      } };
+      await assert.rejects(cycle(f.cwd, f.config, { mode: "supersede-published-failed-ready", hub }), /ACK stale|diff funcional|fuera de #173|deployment|No invalidar|cambió|alterada/);
+      assert.equal(readFileSync(f.config.stateFile, "utf8"), before, kind);
+      assert.equal(git(f.cwd, "rev-parse", "HEAD"), head); assert.equal(git(f.cwd, "rev-parse", `origin/${LIVE}`), remote);
+      assert.equal(existsSync(join(f.config.evidenceDir, sha, "supersession.json")), false);
     } finally { f.cleanup(); }
   }
 });

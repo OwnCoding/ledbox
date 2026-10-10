@@ -176,6 +176,11 @@ export function requirePilotRejection(config, pending) {
   if (pending.checks?.evidence?.path && realpathSync(gate.pilot.evidence.path) === realpathSync(pending.checks.evidence.path)) throw new Error("Evidencia Pilot FAIL no independiente");
   return { gate, pilot, gateEvidence: { path: resolve(config.rejectedGate), sha256: hash(bytes) } };
 }
+export function requireManualPushAck(config, pending) {
+  const bytes = readFileSync(config.manualPushAckFile), ack = JSON.parse(bytes.toString("utf8"));
+  if (ack.schema !== 1 || ack.issue !== ISSUE || ack.sha !== pending.candidateSHA || ack.attribution !== "owner:GitHub Desktop" || ack.allowForwardFixes !== true) throw new Error("ACK operativo no autoriza forward fixes del candidato SHA exacto #173");
+  return { ack, ackEvidence: { path: resolve(config.manualPushAckFile), sha256: hash(bytes) } };
+}
 export function assertNoPilotRejection(config, pending) {
   if (config.rejectedGate && existsSync(config.rejectedGate) && readJson(config.rejectedGate).rejectedCandidateSHA === pending.candidateSHA) {
     requirePilotRejection(config, pending);
