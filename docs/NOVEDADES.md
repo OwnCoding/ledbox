@@ -257,3 +257,11 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - fix(presupuestos): persistir orden A15 y rechazar costos inválidos A04 (Refs #173)
 - fix(automation): rechazar READY sólo con Pilot FAIL exacto sin publicación (Refs #173)
 - fix(schema): persistir orden explícito nullable de ítems sin backfill (Refs #173)
+
+## v2.1.75 — 2026-10-10
+
+- Carrito público compartido y persistente (#157).
+- Guía de cobro real y logo autorizado del cliente (#143, #129).
+- Foco y fondo del menú móvil (#159).
+- Landing comercial y pie institucional único (#156).
+- Validación del contrato de identidad Hub para esta publicación.
