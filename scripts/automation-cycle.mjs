@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { artifactSeal, assertIntegrator, assertPublicationEnabled, assertReleaseOnly, atomicJson, evidence, git, inventory, LIVE, nextVersion, productChanged, readJson, requirePilotGate, requirePilotRejection, requireManualPushAck, assertNoPilotRejection, acquireLock, sameArtifact } from "./automation-core.mjs";
-import { hubClient } from "./automation-hub.mjs";
+import { hubClient, deploymentOutcome } from "./automation-hub.mjs";
 
 export function command(cwd, executable, args, { env = process.env, signal, logFile } = {}) {
   return new Promise((resolvePromise, reject) => {
@@ -189,6 +189,11 @@ export async function publishPrepared(cwd, config, state, { hub, runner = comman
   const deadline = Date.now() + config.smokeTimeoutMs;
   do {
     try {
+      const proof = deploymentOutcome(await client.deployments(releaseSHA), releaseSHA, config.applicationUUID);
+      const proofFile = join(config.evidenceDir, releaseSHA, "hub-deployment.json");
+      atomicJson(proofFile, proof); deployment.hubEvidence = evidence(proofFile); deployment.hubStatus = proof.status; save(config, state);
+      if (proof.status === "FAILED") return { status: "DEPLOYMENT_FAILED_GET_ONLY", releaseSHA, version, hubEvidence: deployment.hubEvidence };
+      if (proof.status !== "FINISHED") throw new Error("Deployment pendiente: requiere finished/finished_at/no rollback y recurso/SHA exactos");
       await runner(cwd, "node", ["scripts/verify-release.mjs", version, releaseSHA], { signal, logFile: join(config.evidenceDir, releaseSHA, "smoke.log") });
       deployment.served = true; state.lastServedAt = new Date().toISOString(); state.pending = null; save(config, state);
       return { status: "SERVED", releaseSHA, version };
