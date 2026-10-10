@@ -10,6 +10,8 @@
   "pauseFile": "~/.herdr/worktrees/ledbox/orquestador/.operacion-pausada",
   "enableFile": "~/.config/ledbox/auto-hd-enabled.json",
   "gateFile": "~/.config/ledbox/qa-approved.json",
+  "rejectedGate": "~/.config/ledbox/qa-rejected.json",
+  "manualPushAckFile": "~/.config/ledbox/manual-push-ack.json",
   "candidateFile": "~/.config/ledbox/qa-candidate.json",
   "stateFile": "~/.config/ledbox/auto-hd-scoped.json",
   "cycleLock": "~/.config/ledbox/auto-hd-cycle.lock",
