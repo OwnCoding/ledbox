@@ -271,3 +271,9 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - Mejoras de operación: edición masiva/en línea, columnas compactas y archivo con fecha opcional.
 - Calendario de eventos: integración de API y vista de calendario con cambios aislados.
 - Automatización: admisión explícita y deduplicada, ventanas exactas y QA diferida ligada al candidato.
+
+## v2.1.77 — 2026-10-10
+
+- Preparación interna de inventario: estados y transiciones privados de servicios, con validaciones y ocho tests propios verificados.
+- Esta ronda no habilita configuración ni cargos de servicios en el panel; la persistencia, DTO y cálculo financiero continúan en sus entregas separadas.
+- QA de aceptación y verificación SHA posterior al deploy diferidas por orden del dueño; no equivalen a PASS ni cierre funcional.
