@@ -104,6 +104,21 @@ test("source-bound deferred QA permits exact code gates but never unresolved con
     atomicJson(config.qaPolicyFile, { ...policy, sha: "0".repeat(40) }); assert.throws(() => requireCandidateGate(config, pending, requirePilotGate), /invalid/);
   } finally { f.cleanup(); }
 });
+
+test("code check plan runs embedded automation once and records its provenance", async () => {
+  const f = fixture(), calls = [];
+  try {
+    const pkg = readJson(join(f.cwd, "package.json"));
+    pkg.scripts = { "test:rules": "node --import tsx --test tests/*.test.ts && npm run test:automation", "test:automation": "node --test tests/automation.test.mjs" };
+    commit(f.cwd, "package.json", JSON.stringify(pkg), "chore(qa): embedded script fixture (Refs #173)");
+    commit(f.cwd, "app/a.js", "new functional delta\n");
+    await cycle(f.cwd, f.config, { mode: "prepare", runner: async (...args) => { calls.push([args[1], ...args[2]]); await fakeRunner(...args); } });
+    assert.equal(calls.filter(argv => argv.join(" ") === "npm run test:rules").length, 1);
+    assert.equal(calls.filter(argv => argv.join(" ") === "node --test tests/automation.test.mjs").length, 0);
+    const report = readJson(loadState(f.config).pending.checks.evidence.path);
+    assert.deepEqual(report.embeddedCommands["test:automation"], { via: "test:rules", script: "node --test tests/automation.test.mjs" });
+  } finally { f.cleanup(); }
+});
 const finishedDeployment = sha => ({ application_uuid: "qa-uuid", application_id: 42, deployment_uuid: "deployment-qa", commit: sha, status: "finished", finished_at: "2026-10-09T17:30:41.000000Z", rollback: false });
 function baselineReceipt(f, sha = git(f.cwd, "rev-parse", "HEAD"), pilotCandidate) {
   const path = join(f.dir, `served-${sha}.json`);

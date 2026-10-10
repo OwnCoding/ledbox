@@ -94,10 +94,12 @@ async function supersedePublishedFailedReady(cwd, config, state, { hub, signal }
 async function checks(cwd, sha, config, signal, runner) {
   const version = readJson(join(cwd, "package.json")).version;
   const directory = join(config.evidenceDir, sha); mkdirSync(directory, { recursive: true });
-  const env = { ...process.env, DATABASE_URL: "", SOURCE_COMMIT: sha, GITHUB_SHA: sha, LEDBOX_BUILD_SHA: sha };
+  const env = { ...process.env, DATABASE_URL: "", OWNDATA_API_KEY: "", OWNDATA_API_URL: "", OWNDATA_ENVIRONMENT: "", SOURCE_COMMIT: sha, GITHUB_SHA: sha, LEDBOX_BUILD_SHA: sha };
   const commands = {};
   let complete = false;
-  const plan = [["npm ci", "npm", ["ci"]], ["prisma generate", "npx", ["prisma", "generate"]], ["typecheck", "npm", ["run", "typecheck"]], ["test:rules", "npm", ["run", "test:rules"]], ["test:automation", "node", ["--test", "tests/automation.test.mjs"]], ["build", "npm", ["run", "build"]]];
+  const scripts = readJson(join(cwd, "package.json")).scripts ?? {};
+  const embeddedAutomation = scripts["test:automation"] === "node --test tests/automation.test.mjs" && /&&\s*npm run test:automation\s*$/.test(scripts["test:rules"] ?? "");
+  const plan = [["npm ci", "npm", ["ci"]], ["prisma generate", "npx", ["prisma", "generate"]], ...(existsSync(join(cwd, "prisma/schema.prisma")) ? [["prisma validate", "npx", ["prisma", "validate"]]] : []), ["typecheck", "npm", ["run", "typecheck"]], ["test:rules", "npm", ["run", "test:rules"]], ...(!embeddedAutomation ? [["test:automation", "node", ["--test", "tests/automation.test.mjs"]]] : []), ["build", "npm", ["run", "build"]]];
   const window = { sha, cwd, commands: plan.map(([, executable, args]) => [executable, ...args]) };
   const grant = config.authorizeWindow ? config.authorizeWindow(window) : requireHeavyWindow(config, window);
   config.windowStart = { sha, leaseID: grant.leaseID, at: Date.now() };
@@ -105,12 +107,14 @@ async function checks(cwd, sha, config, signal, runner) {
   try {
   for (const [label, executable, args] of plan) {
     if (!config.authorizeWindow) requireHeavyWindow(config, window);
-    await runner(cwd, executable, args, { env, signal, timeoutMs: Math.max(1, grant.budgetSeconds * 1000 - (Date.now() - config.windowStart.at)), logFile: join(directory, `${label.replace(/[^a-z]/g, "-")}.log`) });
+    const commandEnv = label === "prisma validate" ? { ...env, DATABASE_URL: "postgresql://postgres@127.0.0.1:55475/ledbox_quote_qa?schema=public" } : env;
+    await runner(cwd, executable, args, { env: commandEnv, signal, timeoutMs: Math.max(1, grant.budgetSeconds * 1000 - (Date.now() - config.windowStart.at)), logFile: join(directory, `${label.replace(/[^a-z]/g, "-")}.log`) });
     commands[label] = "PASS"; assertHead(cwd, sha);
+    if (label === "test:rules" && embeddedAutomation) commands["test:automation"] = "PASS";
   }
   const artifact = artifactSeal(cwd, sha, version);
   const report = join(directory, "checks.json");
-  atomicJson(report, { sha, status: "PASS", commands, artifact, completedAt: new Date().toISOString() });
+  atomicJson(report, { sha, status: "PASS", commands, embeddedCommands: embeddedAutomation ? { "test:automation": { via: "test:rules", script: scripts["test:automation"] } } : {}, artifact, completedAt: new Date().toISOString() });
   complete = true;
   return { artifact, checks: { sha, status: "PASS", evidence: evidence(report) } };
   } finally {
@@ -212,7 +216,7 @@ export async function publishPrepared(cwd, config, state, { hub, runner = comman
       if (proof.status !== "FINISHED") throw new Error("Deployment pendiente: requiere finished/finished_at/no rollback y recurso/SHA exactos");
       await runner(cwd, "node", ["scripts/verify-release.mjs", version, releaseSHA], { signal, logFile: join(config.evidenceDir, releaseSHA, "smoke.log") });
       deployment.served = true; deployment.servedAt = new Date().toISOString();
-      deployment.pilotCandidate = { candidateSHA: pending.candidateSHA, artifact: pending.artifact, checks: pending.checks };
+      deployment.pilotCandidate = { candidateSHA: pending.candidateSHA, artifact: pending.artifact, checks: pending.checks, qaPolicyEvidence: pending.qaPolicyEvidence };
       state.lastServedSHA = releaseSHA; state.lastServedAt = deployment.servedAt;
       state.autoPolicy = { issue: 173, threshold: 10, watchIntervalMs: 300000, cooldownMs: 600000, countBaseSHA: releaseSHA };
       state.pending = null; save(config, state);
@@ -296,6 +300,13 @@ export async function cycle(cwd, config, { mode = "ht", runner = command, signal
     const result = await checks(cwd, candidateSHA, config, signal, runner);
     state.lastAttemptAt = new Date().toISOString(); // diagnostic only; cooldown is from SERVED success
     state.pending = { candidateSHA, baseSHA: work.remoteBaseSHA, countBaseSHA: work.countBaseSHA, remoteBaseSHA: work.remoteBaseSHA, count: work.count, subjects: work.functional.map(i => i.subject), ...result };
+    if (config.qaPolicyFile && existsSync(config.qaPolicyFile)) {
+      const policy = readJson(config.qaPolicyFile);
+      if (policy.sha === candidateSHA) {
+        const policyFile = join(config.evidenceDir, candidateSHA, "qa-policy.json");
+        atomicJson(policyFile, policy); state.pending.qaPolicyEvidence = evidence(policyFile);
+      }
+    }
     if (mode === "auto") state.autoPolicy = { issue: 173, ...policy };
     save(config, state);
     atomicJson(config.candidateFile, { schema: 1, issue: 173, status: "READY", approvedCandidateSHA: candidateSHA, checks: { ...result.checks, artifact: result.artifact } });

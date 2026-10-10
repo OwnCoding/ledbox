@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { acquireLock, assertIntegrator, assertPublicationEnabled, LIVE, SLOTS, servedBaseline, requirePilotGate } from "./automation-core.mjs";
 import { cycle, loadState } from "./automation-cycle.mjs";
 import { diagnostics } from "./automation-diagnostics.mjs";
+import { requireCandidateGate } from "./automation-admission.mjs";
 
 export function configuration(cwd = process.cwd()) {
   const config = JSON.parse(readFileSync(join(cwd, "scripts/orquestador.config.json"), "utf8"));
@@ -55,7 +56,7 @@ export async function main(argv = process.argv.slice(2)) {
       const state = loadState(config), baseline = servedBaseline(cwd, config, state);
       if (!baseline || state.pending) throw new Error("AUTO_WAITING_SERVED_BASELINE: watcher requiere primer HD servido acreditado y ningún pending");
       if (!baseline.receipt.pilotCandidate) throw new Error("Watcher requiere Pilot final acreditado del primer HD servido");
-      requirePilotGate(config, baseline.receipt.pilotCandidate);
+      requireCandidateGate(config, baseline.receipt.pilotCandidate, requirePilotGate);
       log({ status: "WATCH_READY", countBaseSHA: baseline.sha, threshold: 10, watchIntervalMs: config.watchIntervalMs, cooldownMs: 600000 });
     } finally { startupUnlock(); }
     while (!controller.signal.aborted) {

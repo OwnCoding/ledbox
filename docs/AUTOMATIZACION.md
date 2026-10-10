@@ -116,13 +116,14 @@ real (`SOURCE_COMMIT`, `GITHUB_SHA`, `LEDBOX_BUILD_SHA`):
 2. `npx prisma generate`
 3. `npm run typecheck`
 4. `npm run test:rules`
-5. `node --test tests/automation.test.mjs`
+5. Automation tests incluidos una sola vez por `test:rules` → `npm run test:automation`; invocación directa sólo si ese script no los incluye.
 6. `npm run build`
 
-La suite `.mjs` se ejecuta explícitamente y su label de evidencia es
-`test:automation`. Desde la base integrada `b582d0e`, el integrador también la
-añadió a `test:rules` mediante `npm run test:automation`; no está en el glob
-`.test.ts`. El ciclo conserva su invocación directa y evidencia propia.
+La suite `.mjs` tiene label `test:automation`, con evidencia de ejecución embebida
+en `test:rules` cuando el package exacto fija `&& npm run test:automation`.
+El ciclo valida ese contrato del script y no repite la misma suite. Si no está
+incluida, conserva invocación directa. Prisma validate usa URL sintética local
+sin conexión; build mantiene DATABASE_URL vacío y claves OwnData ausentes.
 
 Se verifica HEAD limpio después de cada check y el standalone real: versión,
 SHA inyectado en `server.js` y manifest SHA-256 de todos sus archivos. Symlinks
