@@ -265,3 +265,9 @@ Lo que cambia en cada ronda, en lenguaje de producto. Las rondas automáticas
 - Foco y fondo del menú móvil (#159).
 - Landing comercial y pie institucional único (#156).
 - Validación del contrato de identidad Hub para esta publicación.
+
+## v2.1.76 — 2026-10-10
+
+- Mejoras de operación: edición masiva/en línea, columnas compactas y archivo con fecha opcional.
+- Calendario de eventos: integración de API y vista de calendario con cambios aislados.
+- Automatización: admisión explícita y deduplicada, ventanas exactas y QA diferida ligada al candidato.
