@@ -19,6 +19,7 @@
   "logFile": "~/.config/ledbox/auto-hd-scoped.log",
   "evidenceDir": "~/.config/ledbox/auto-hd-artifacts",
   "deployEnvFile": "~/.config/ledbox/deploy.env",
+  "tokenFile": "~/.config/herdr-deploy/coolify-token",
   "hubApplicationsPath": "/api/v1/applications",
   "hubDeploymentsPath": "/api/v1/deployments/applications/{uuid}",
   "applicationUUID": "shgn0g8bfuitauifyf69noeq",

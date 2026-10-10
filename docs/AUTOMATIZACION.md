@@ -248,7 +248,11 @@ o dependencias posteriores al PASS. Repite checks/build en el SHA de release y
 sella ese artefacto. Revalida gate, sello, destino Hub y base remota antes de push.
 Un remoto distinto de la base aprobada/release bloquea sin force ni rebase.
 
-`deploy.env` se relee por request (el archivo prevalece sobre env heredado).
+`deploy.env` se relee por request para el trigger privado LedBox. El token se
+relee del archivo común0600 `~/.config/herdr-deploy/coolify-token`; `tokenFile`
+o `LEDBOX_HUB_TOKEN_FILE` configura la ruta. No se usa el bearer antiguo de env
+como fallback a archivo ausente. Contrato y receptor GitHub preparado en
+`docs/DELTA-DEPLOY-UNIFORME-LEDBOX.md`.
 No registra tokens ni bodies Hub. Requiere HTTPS, webhook `/api/v1/deploy` con
 UUID exacto y sin `force=true`. Tras push, consulta
 `/api/v1/deployments/applications/<uuid>` (envelope `count/deployments`) buscando
@@ -261,10 +265,14 @@ servido. No hay test trigger, E2E mutante de producción ni espejo de main.
 
 ## Smoke y recuperación
 
-`node scripts/verify-release.mjs <versión> <SHA completo>` hace GET health y
-superficies de los cinco hosts, sin seguir redirects. Exige health/version/SHA
+`node scripts/verify-release.mjs <versión> <SHA completo>` hace GET autenticado
+del recurso y sus deployments, más health y superficies de los cinco hosts, sin
+seguir redirects. Exige recurso/application_id/deployment_uuid/commit40 exactos,
+status finished, finished_at válido y rollback false; además health/version/SHA
 exactos, base disponible y páginas HTTP200; un redirect no es éxito. Sólo ese
 PASS marca `served` y cierra el pending. Timeout deja el mismo SHA pendiente.
+Failed/cancelled/rollback devuelve `DEPLOYMENT_FAILED_GET_ONLY`, mantiene pending
+y evidencia saneada `hub-deployment.json`, sin retry POST automático.
 
 Estado: `~/.config/ledbox/auto-hd-scoped.json`, registros `deployments[SHA]` con
 `pushed`, `triggerIntent`, `triggerAccepted`, `served`, checks y sello. Logs,
