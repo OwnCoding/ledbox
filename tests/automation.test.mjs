@@ -101,7 +101,16 @@ test("source-bound deferred QA permits exact code gates but never unresolved con
     atomicJson(config.qaPolicyFile, policy);
     assert.equal(requireCandidateGate(config, pending, requirePilotGate).status, policy.status);
     atomicJson(config.qaPolicyFile, { ...policy, unresolvedContent: ["known public PDF failure"] }); assert.throws(() => requireCandidateGate(config, pending, requirePilotGate), /content holds/);
-    atomicJson(config.qaPolicyFile, { ...policy, sha: "0".repeat(40) }); assert.throws(() => requireCandidateGate(config, pending, requirePilotGate), /invalid/);
+    atomicJson(config.qaPolicyFile, { ...policy, sha: "0".repeat(40) });
+    let pilotCalls = 0;
+    assert.throws(() => requireCandidateGate(config, pending, (candidateConfig, candidate) => {
+      pilotCalls++;
+      assert.equal(candidateConfig, config);
+      assert.equal(candidate.candidateSHA, pending.candidateSHA);
+      throw new Error("EXACT_CANDIDATE_PILOT_REQUIRED");
+    }), /EXACT_CANDIDATE_PILOT_REQUIRED/);
+    assert.equal(pilotCalls, 1, "a deferred policy for another SHA must require this candidate's Pilot gate");
+    assert.throws(() => requireCandidateGate(config, pending, requirePilotGate), { code: "ENOENT" });
   } finally { f.cleanup(); }
 });
 
