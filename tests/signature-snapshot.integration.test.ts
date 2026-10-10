@@ -92,7 +92,7 @@ test("I04 PG HTTP: snapshot signed payload/PDF immutable, versioned legacy hones
     const { formatDate } = await import("../lib/admin-format");
     for (const row of conditions()) assert.ok(original.htmlText.includes(formatDate(row.dueAt)), row.dueAt);
     const signedPlanEdit = await call("/api/admin/budgets", "PATCH", { budgetId: q.id, installmentsJson: conditions(40) }, true);
-    assert.equal(signedPlanEdit.status, 200, await signedPlanEdit.clone().text());
+    assert.equal(signedPlanEdit.status, 409, "API preserves signed commercial conditions; direct historical edit below still cannot change snapshot");
     const changed = await call(`/api/admin/clients/${client.id}`, "PATCH", { name: "Changed contact", company: "Changed historical company", tradeName: "Changed fantasy", legalName: "Changed legal" }, true);
     assert.equal(changed.status, 200, await changed.clone().text());
     await db.event.update({ where: { id: event.id }, data: { name: "Changed event", location: "Changed location", startsAt: new Date("2031-01-10T15:00:00Z") } });
