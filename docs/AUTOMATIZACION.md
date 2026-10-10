@@ -1,5 +1,29 @@
 # Automatización scoped #173
 
+## Autoridad vigente — 10-10-2026, HD manual y AUTO por unidades cerradas
+
+La orden actual del dueño reemplaza cadencia20min por **300s**, diez commits
+funcionales únicos admitidos y cooldown600s desde éxito SERVED. HD manual no
+espera diez. El singleton existente conserva locks separados; no segundo watcher.
+`auto-hd-admission.json` enumera unidades CLOSED con SHA/gate hash y commits
+aislados explícitos: dedup por patch-id funcional, nunca wholebranch/WIP. Holds
+son por contenido; unidad bloqueada se excluye con motivo. El flag scoped173
+no constituye autorización implícita para importar cualquier otro issue.
+
+Antes de cada check pesado el ciclo exige grant Secretaría en `auto-hd-window.json`:
+sourceSHA/tree, ownerSession, cwd, runtime/hash, argv de comandos, budget, START_BY
+y leaseID exactos. Request persistente se emite sólo al cambiar source/argv;
+START/terminal/release reales por SHA; falta/expiración/revocación falla cerrado.
+Cada SHA release nuevo requiere binding propio; no lease heredada.
+
+`qa-deferred-current.json` puede registrar QA_NOT_RUN_DEFERRED_OWNER por SHA,
+owner/scope/recovery y ausencia de contenido conocido sin resolver EN el corte;
+permite publicar tras code gates y artefacto exactos sin Pilot visual global.
+No equivale a PASS/issueclose ni permite omitir fallos públicos/permisos/datos/
+migraciones: contenido afectado debe resolverse o quedar fuera con recorte concreto.
+La receta anterior de Pilot sigue para candidatos sin esa autoridad explícita.
+Los baseline/recibos173 y HD75 cerrados se conservan; no se fabrican desde health.
+
 Este ciclo reemplaza la automatización general de LedBox por la autorización
 limitada a **#173**. Implementación en `scripts/automation-*.mjs`; los entrypoints
 `orquestador.mjs` y `deploy.mjs` comparten el mismo ciclo. La entrega del código
@@ -17,7 +41,7 @@ no activa el watcher ni publica una versión.
 | `node scripts/orquestador.mjs reject` | Archiva un READY rechazado por Pilot FAIL exacto, sólo sin release/publicación; no construye ni publica. |
 | `npm run ht` / `npm run hd` / `npm run deploy:patch` | Produce `READY` si no hay candidato; en la siguiente ejecución exige gate independiente antes de publicar. |
 | `npm run auto-hd` | Umbral10 nuevos funcionales únicos #173 desde último SHA servido acreditado; cooldown600s. Sin baseline: AUTO_WAITING_SERVED_BASELINE. |
-| `npm run watch-hd` / `-- --interval 20` | Singleton; auto cada20min. Sólo20 autorizado. Requiere primer HD servido acreditado, Pilot final y sin pending al inicio; no activa gates. |
+| `npm run watch-hd` / `-- --interval 5` | Singleton; auto cada300s, diez únicos admitidos y cooldown600s desde éxito. Requiere baseline servido acreditado; no concede grants. |
 | `node scripts/orquestador.mjs ht --dry-run` | Sólo inventario Git local. No mergea, construye, activa ni publica. |
 
 Los diagnósticos no necesitan habilitación. `pp` hace GET con `redirect:manual`,
