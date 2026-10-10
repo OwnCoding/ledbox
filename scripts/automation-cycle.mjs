@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { artifactSeal, assertIntegrator, assertPublicationEnabled, assertReleaseOnly, atomicJson, evidence, git, inventory, LIVE, nextVersion, productChanged, readJson, requirePilotGate, acquireLock, sameArtifact } from "./automation-core.mjs";
+import { artifactSeal, assertIntegrator, assertPublicationEnabled, assertReleaseOnly, atomicJson, evidence, git, inventory, LIVE, nextVersion, productChanged, readJson, requirePilotGate, requirePilotRejection, assertNoPilotRejection, acquireLock, sameArtifact } from "./automation-core.mjs";
 import { hubClient } from "./automation-hub.mjs";
 
 export function command(cwd, executable, args, { env = process.env, signal, logFile } = {}) {
@@ -20,6 +20,36 @@ const wait = ms => new Promise(resolvePromise => setTimeout(resolvePromise, ms))
 export function loadState(config) { return existsSync(config.stateFile) ? readJson(config.stateFile) : { schema: 1, pending: null, deployments: {} }; }
 function save(config, state) { atomicJson(config.stateFile, state); }
 function assertHead(cwd, sha) { if (git(cwd, "rev-parse", "HEAD") !== sha || git(cwd, "status", "--porcelain")) throw new Error("Checkout cambió durante ciclo: detener sin reset"); }
+function assertNotRejected(state, sha) {
+  if (state.rejectedCandidates?.[sha]) throw new Error("SHA rechazado por Pilot: requiere nuevo candidato autorizado y QA independiente");
+}
+
+/** Invalida sólo READY sin release/publicación; nunca legitima diff nuevo como release. */
+function rejectReady(cwd, config, state, signal) {
+  const pending = state.pending;
+  if (!pending) throw new Error("No hay candidato READY para rechazar");
+  const rejection = requirePilotRejection(config, pending);
+  const sha = pending.candidateSHA;
+  if (pending.releaseSHA || pending.version || pending.pushed || pending.triggerIntent || pending.triggerAccepted || pending.served || Object.entries(state.deployments ?? {}).some(([key, value]) => key === sha || value.candidateSHA === sha || value.releaseSHA === sha)) throw new Error("No invalidar candidato con release/push/trigger registrado");
+  git(cwd, "merge-base", "--is-ancestor", sha, "HEAD");
+  // Incluye crash después de commit release y antes de persistir releaseSHA.
+  if (readJson(join(cwd, "package.json")).version !== pending.artifact.version || git(cwd, "log", "--format=%s", `${sha}..HEAD`).split("\n").some(s => /^chore\(release\):/.test(s))) throw new Error("No invalidar metadata release ya commiteada");
+  git(cwd, "fetch", "origin", "--prune");
+  try { git(cwd, "merge-base", "--is-ancestor", sha, `origin/${LIVE}`); throw new Error("No invalidar candidato ya pusheado a rama viva"); }
+  catch (error) { if (error.status !== 1) throw error; }
+  signal?.throwIfAborted();
+  // Releer el FAIL antes de archivar: evidencia cambiante no puede invalidar READY.
+  const rechecked = requirePilotRejection(config, pending);
+  if (rechecked.gateEvidence.sha256 !== rejection.gateEvidence.sha256) throw new Error("Gate de rechazo cambió durante validación");
+  const archiveFile = join(config.evidenceDir, sha, "rejection.json");
+  const rejectedAt = new Date().toISOString();
+  atomicJson(archiveFile, { schema: 1, issue: 173, status: "REJECTED", rejectedAt, headAtRejection: git(cwd, "rev-parse", "HEAD"), pending, ...rejection });
+  state.rejectedCandidates ??= {};
+  state.rejectedCandidates[sha] = { rejectedAt, archive: evidence(archiveFile), pilotEvidence: rejection.gate.pilot.evidence };
+  state.pending = null; save(config, state);
+  atomicJson(config.candidateFile, { schema: 1, issue: 173, status: "REJECTED", rejectedCandidateSHA: sha, archive: state.rejectedCandidates[sha].archive });
+  return { status: "REJECTED", candidateSHA: sha, archiveFile };
+}
 
 async function checks(cwd, sha, config, signal, runner) {
   const version = readJson(join(cwd, "package.json")).version;
@@ -55,6 +85,7 @@ function releaseMetadata(cwd, pending) {
 export async function publishPrepared(cwd, config, state, { hub, runner = command, signal, sleep = wait } = {}) {
   assertPublicationEnabled(config);
   const pending = state.pending;
+  assertNotRejected(state, pending.candidateSHA);
   const client = hub ?? hubClient(config);
   requirePilotGate(config, pending);
   assertHead(cwd, pending.releaseSHA ?? pending.candidateSHA);
@@ -133,14 +164,17 @@ export async function publishPrepared(cwd, config, state, { hub, runner = comman
 }
 
 export async function cycle(cwd, config, { mode = "ht", runner = command, signal, hub, sleep } = {}) {
-  if (!["prepare", "ht", "auto"].includes(mode)) throw new Error("Modo de ciclo inválido");
+  if (!["prepare", "reject", "ht", "auto"].includes(mode)) throw new Error("Modo de ciclo inválido");
   assertIntegrator(cwd, config);
-  if (mode !== "prepare") assertPublicationEnabled(config);
+  if (!["prepare", "reject"].includes(mode)) assertPublicationEnabled(config);
   const unlock = acquireLock(config.cycleLock);
   try {
     const state = loadState(config);
+    if (mode === "reject") return rejectReady(cwd, config, state, signal);
     if (state.pending) {
       const pending = state.pending;
+      assertNotRejected(state, pending.candidateSHA);
+      assertNoPilotRejection(config, pending); // FAIL jamás convierte un fix nuevo en metadata release.
       const head = git(cwd, "rev-parse", "HEAD");
       // Recupera crash entre commit metadata y persistencia: sólo release exacto.
       if (!pending.releaseSHA && head !== pending.candidateSHA) {
@@ -164,6 +198,7 @@ export async function cycle(cwd, config, { mode = "ht", runner = command, signal
     }
     if (!productChanged(cwd, work.baseSHA)) return { status: "NO_PRODUCT_DIFF_NO_RELEASE" };
     const candidateSHA = git(cwd, "rev-parse", "HEAD");
+    assertNotRejected(state, candidateSHA);
     const result = await checks(cwd, candidateSHA, config, signal, runner);
     state.pending = { candidateSHA, baseSHA: work.baseSHA, count: work.count, subjects: work.functional.map(i => i.subject), ...result };
     save(config, state);
