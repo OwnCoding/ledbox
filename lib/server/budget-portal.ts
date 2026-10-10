@@ -316,6 +316,7 @@ export function portalProofUpload(budget: {
 }
 
 type BudgetForPortal = {
+  publicToken?: string | null;
   attachments?: Array<{ id: string; organizationId: string; name: string; size: number; mime: string; clientVisible: boolean }>;
   referenceLinks?: Array<{ organizationId: string; label: string; url: string; clientVisible: boolean }>;
   id: string;

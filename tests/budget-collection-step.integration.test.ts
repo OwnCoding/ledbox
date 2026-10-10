@@ -63,6 +63,8 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
       assert.deepEqual(Buffer.from(await logoResponse.arrayBuffer()), logoBytes);
     }
     const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(String(error)));
     await page.setCookie({ name: "ledbox_session", value: jwt, url: base!, httpOnly: true });
     for (const width of [1280, 390]) {
       await page.setViewport({ width, height: 900 });
@@ -102,10 +104,11 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
     await page.goto(`${base}/imprimir/presupuesto/${rows[0].id}`, { waitUntil: "networkidle0" });
     assert.ok(await page.$('.lbprint-sheet .admin-avatar--logo img, .budget-print-sheet .admin-avatar--logo img'));
     await page.pdf({ path: `${evidence}/client-logo-a4.pdf`, format: "A4", printBackground: true });
+    await page.setCacheEnabled(false);
     await page.setRequestInterception(true);
     page.on("request", (request) => { if (request.url().includes("/client-logo")) void request.abort(); else void request.continue(); });
     await page.goto(`${base}/p/${rows[0].publicToken}`, { waitUntil: "networkidle0" });
-    assert.ok(await page.$('.admin-avatar--logo .admin-avatar-text'), "failed logo falls back to initials");
+    await page.waitForSelector('.admin-avatar--logo .admin-avatar-text');
     await page.setRequestInterception(false);
     page.removeAllListeners("request");
     // Missing images reuse AdminAvatar initials, rather than a parallel logo UI.
@@ -120,6 +123,7 @@ test("EV-D03 API/browser: complete, partial, no receipt, installments, proofs an
     const forbidden = await fetch(`${base}/api/admin/budgets`, { method: "PATCH", headers: { Cookie: `ledbox_session=${viewerJwt}`, "Content-Type": "application/json" }, body: JSON.stringify({ budgetId: rows[0].id, kind: "commercial", materialCost: 1 }) });
     assert.equal(forbidden.status, 403);
     assert.deepEqual(await snapshot(), before, "reading/action labels must not alter money/status/ledger");
+    assert.deepEqual(pageErrors, []);
     console.log("EV-D03 API/browser1280/390: full12.5m/zero balance complete; partial/no receipt/installment/proof/no plan consistent; VIEWER no actions403; money/ledger unchanged");
   } finally { await browser.close(); await db.$disconnect(); await (await import("../lib/server/db")).db.$disconnect(); }
 });
