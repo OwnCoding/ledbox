@@ -2748,15 +2748,15 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .admin-root:has(.lbprint) { min-height: 0; background: #fff; }
   /* Compacto a propósito: un presupuesto o un reporte chico deben entrar en una
      sola hoja; el contenido que sobra fluye a la siguiente sin dejar páginas vacías. */
-  .lbprint { min-height: 0; padding: 0; background: #fff; font-size: 11px; }
+  .lbprint { min-height: 0; padding: 0; background: #fff; font-size: 11px; line-height: 1.25; }
   .lbprint-toolbar { display: none !important; }
   .lbprint-sheet { width: auto; margin: 0; padding: 0; border-radius: 0; box-shadow: none; }
   .lbprint-head { padding-bottom: 8px; border-bottom-width: 1.5px; break-after: avoid; }
   .lbprint-doc-title { font-size: 16px; }
   .lbprint-value { font-size: 11.5px; }
-  .lbprint-section { margin-top: 9px; break-inside: avoid; }
-  .lbprint-section-title { margin-bottom: 4px; padding-bottom: 2px; }
-  .lbprint-grid { gap: 4px 18px; }
+  .lbprint-section { margin-top: 6px; break-inside: avoid; }
+  .lbprint-section-title { margin-bottom: 4px; padding-bottom: 2px; line-height: 1.2; }
+  .lbprint-grid { gap: 3px 18px; }
   .lbprint-table th { padding: 3px 5px; }
   .lbprint-table td { padding: 3px 5px; font-size: 10.5px; }
   .lbprint-kpis, .lbprint-totals { margin-top: 9px; }
@@ -2768,8 +2768,10 @@ a.admin-company:hover { border-color: var(--a-line-2); background: var(--a-panel
   .lbprint-portal-qr svg { width: 24mm; height: 24mm; }
   .lbprint-portal-code { font-size: 12px; }
   .lbprint-empty { padding: 6px 8px; font-size: 10.5px; }
-  .lbprint-sign { margin-top: 16px; }
-  .lbprint-foot { margin-top: 12px; padding-top: 6px; break-inside: avoid; }
+  .lbprint-sign { margin-top: 12px; }
+  /* Neutraliza también el padding lateral/inferior del footer público;
+     conserva el cierre junto a su sección anterior (Refs #173). */
+  .lbprint-foot { margin-top: 10px; padding: 6px 0 0; overflow: visible; break-inside: avoid; break-before: avoid; }
   .lbprint-kpis, .lbprint-totals, .lbprint-sign { break-inside: avoid; }
   .lbprint-table thead { display: table-header-group; }
 }
